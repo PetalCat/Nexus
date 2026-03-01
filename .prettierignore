@@ -1,0 +1,5 @@
+.svelte-kit
+dist
+build
+node_modules
+drizzle
