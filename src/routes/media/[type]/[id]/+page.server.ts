@@ -4,6 +4,7 @@ import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSeasons as getJellyfinSeasons } from '$lib/adapters/jellyfin';
 import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr';
+import { emitMediaEvent } from '$lib/server/analytics';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { JellyfinSeason } from '$lib/adapters/jellyfin';
 import type { PageServerLoad } from './$types';
@@ -168,6 +169,31 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	if (resolvedServiceType === 'overseerr') {
 		canRequest = true;
 		overseerrServiceId = serviceId;
+	}
+
+	// ── Analytics: emit detail_view event ─────────────────────────────
+	if (userId && item) {
+		const meta: Record<string, unknown> = {};
+		if (item.metadata?.platform) meta.platform = item.metadata.platform;
+		if (item.metadata?.platformSlug) meta.platformSlug = item.metadata.platformSlug;
+		if (item.metadata?.userStatus) meta.userStatus = item.metadata.userStatus;
+		if (item.metadata?.lastPlayed) meta.lastPlayed = item.metadata.lastPlayed;
+		if (item.metadata?.retroAchievements) meta.hasRetroAchievements = true;
+		if (item.metadata?.hltb) meta.hasHltb = true;
+
+		emitMediaEvent({
+			userId,
+			serviceId,
+			serviceType: resolvedServiceType,
+			eventType: 'detail_view',
+			mediaId: params.id,
+			mediaType: item.type,
+			mediaTitle: item.title,
+			mediaYear: item.year,
+			mediaGenres: item.genres,
+			parentTitle: item.metadata?.platform as string ?? item.metadata?.seriesName as string,
+			metadata: Object.keys(meta).length > 0 ? meta : undefined
+		});
 	}
 
 	return {
