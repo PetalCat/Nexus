@@ -1,7 +1,11 @@
 import { getEnabledConfigs } from './services';
-import { emitMediaEvent } from './analytics';
-import { getDb, schema } from '../db';
-import { eq } from 'drizzle-orm';
+import {
+	emitMediaEvent,
+	resolveNexusUserId,
+	getCredsForService,
+	heightToResolution,
+	channelsToLabel
+} from './analytics';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,16 +72,6 @@ let pollInterval: ReturnType<typeof setInterval> | null = null;
 // Core
 // ---------------------------------------------------------------------------
 
-function resolveNexusUserId(jellyfinUserId: string): string | null {
-	const db = getDb();
-	const cred = db
-		.select()
-		.from(schema.userServiceCredentials)
-		.where(eq(schema.userServiceCredentials.externalUserId, jellyfinUserId))
-		.get();
-	return cred?.userId ?? null;
-}
-
 function extractMetadata(session: JfSession): Record<string, unknown> {
 	const meta: Record<string, unknown> = {};
 	const item = session.NowPlayingItem;
@@ -89,13 +83,13 @@ function extractMetadata(session: JfSession): Record<string, unknown> {
 	const subtitle = streams.find((s: any) => s.Type === 'Subtitle');
 
 	if (video) {
-		meta.resolution = video.Height >= 2160 ? '4K' : video.Height >= 1080 ? '1080p' : video.Height >= 720 ? '720p' : `${video.Height}p`;
+		meta.resolution = heightToResolution(video.Height);
 		meta.videoCodec = video.Codec;
 		meta.hdr = video.VideoRangeType ?? 'sdr';
 	}
 	if (audio) {
 		meta.audioCodec = audio.Codec;
-		meta.audioChannels = audio.Channels > 6 ? '7.1' : audio.Channels > 2 ? '5.1' : 'stereo';
+		meta.audioChannels = channelsToLabel(audio.Channels);
 		meta.audioTrackLanguage = audio.Language;
 	}
 	if (subtitle) {
@@ -295,15 +289,8 @@ async function pollRommStatuses() {
 	// Only poll every 6th tick (60s) to avoid hammering the RomM API
 	if (rommPollCount % 6 !== 0) return;
 
-	const db = getDb();
-
 	for (const config of configs) {
-		// Get all users with RomM credentials
-		const creds = db
-			.select()
-			.from(schema.userServiceCredentials)
-			.where(eq(schema.userServiceCredentials.serviceId, config.id))
-			.all();
+		const creds = getCredsForService(config.id);
 
 		for (const cred of creds) {
 			if (!cred.externalUsername || !cred.accessToken) continue;
