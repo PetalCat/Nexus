@@ -1,11 +1,20 @@
 import { json } from '@sveltejs/kit';
-import { emitMediaEvent } from '$lib/server/analytics';
+import {
+	emitMediaEvent,
+	resolveNexusUserId,
+	getWebhookHandler,
+	registerWebhookHandler,
+	heightToResolution,
+	channelsToLabel
+} from '$lib/server/analytics';
 import { getEnabledConfigs } from '$lib/server/services';
-import { getDb, schema } from '$lib/db';
-import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
-const EVENT_MAP: Record<string, string> = {
+// ---------------------------------------------------------------------------
+// Jellyfin webhook handler — registered as a plugin
+// ---------------------------------------------------------------------------
+
+const JF_EVENT_MAP: Record<string, string> = {
 	PlaybackStart: 'play_start',
 	PlaybackStop: 'play_stop',
 	PlaybackProgress: 'progress',
@@ -22,55 +31,27 @@ const JF_TYPE_MAP: Record<string, string> = {
 	MusicAlbum: 'album'
 };
 
-/**
- * POST /api/ingest/webhook/jellyfin
- * Receives Jellyfin Webhook Plugin payloads and converts them to media_events.
- */
-export const POST: RequestHandler = async ({ params, request }) => {
-	const { serviceType } = params;
-
-	if (serviceType === 'jellyfin') {
-		return handleJellyfinWebhook(request);
-	}
-
-	return json({ error: `Unsupported service type: ${serviceType}` }, { status: 400 });
-};
-
-async function handleJellyfinWebhook(request: Request) {
+registerWebhookHandler('jellyfin', async (request) => {
 	let body: any;
 	try {
 		body = await request.json();
 	} catch {
-		return json({ error: 'Invalid JSON' }, { status: 400 });
+		return { ok: false, error: 'Invalid JSON' };
 	}
 
 	const notificationType = body.NotificationType ?? body.Event;
-	const eventType = EVENT_MAP[notificationType];
-	if (!eventType) {
-		return json({ ok: true, skipped: true });
-	}
+	const eventType = JF_EVENT_MAP[notificationType];
+	if (!eventType) return { ok: true, skipped: true };
 
 	const jellyfinUserId = body.UserId ?? body.User?.Id;
 	const item = body.Item ?? body;
+	if (!jellyfinUserId || !item?.Id) return { ok: true, skipped: true };
 
-	if (!jellyfinUserId || !item?.Id) {
-		return json({ ok: true, skipped: true });
-	}
-
-	// Resolve Nexus userId from Jellyfin external user ID
-	const db = getDb();
-	const cred = db
-		.select()
-		.from(schema.userServiceCredentials)
-		.where(eq(schema.userServiceCredentials.externalUserId, jellyfinUserId))
-		.get();
-
-	if (!cred) {
-		return json({ ok: true, skipped: true, reason: 'unknown user' });
-	}
+	const nexusUserId = resolveNexusUserId(jellyfinUserId);
+	if (!nexusUserId) return { ok: true, skipped: true };
 
 	const configs = getEnabledConfigs().filter((c) => c.type === 'jellyfin');
-	const serviceId = cred.serviceId ?? configs[0]?.id ?? 'unknown';
+	const serviceId = configs[0]?.id ?? 'unknown';
 
 	const session = body.Session ?? {};
 	const playState = session.PlayState ?? {};
@@ -83,13 +64,13 @@ async function handleJellyfinWebhook(request: Request) {
 
 	const metadata: Record<string, unknown> = {};
 	if (videoStream) {
-		metadata.resolution = videoStream.Height >= 2160 ? '4K' : videoStream.Height >= 1080 ? '1080p' : videoStream.Height >= 720 ? '720p' : `${videoStream.Height}p`;
+		metadata.resolution = heightToResolution(videoStream.Height);
 		metadata.videoCodec = videoStream.Codec;
 		metadata.hdr = videoStream.VideoRangeType ?? (videoStream.VideoRange === 'HDR' ? 'hdr10' : 'sdr');
 	}
 	if (audioStream) {
 		metadata.audioCodec = audioStream.Codec;
-		metadata.audioChannels = audioStream.Channels > 6 ? '7.1' : audioStream.Channels > 2 ? '5.1' : 'stereo';
+		metadata.audioChannels = channelsToLabel(audioStream.Channels);
 		metadata.audioTrackLanguage = audioStream.Language;
 	}
 	if (subtitleStream) {
@@ -106,12 +87,11 @@ async function handleJellyfinWebhook(request: Request) {
 
 	metadata.deviceName = session.DeviceName ?? body.DeviceName;
 	metadata.clientName = session.Client ?? body.ClientName;
-
 	if (body.Rating != null) metadata.ratingValue = body.Rating;
 	if (body.IsFavorite != null) metadata.isFavorite = body.IsFavorite;
 
 	emitMediaEvent({
-		userId: cred.userId,
+		userId: nexusUserId,
 		serviceId,
 		serviceType: 'jellyfin',
 		eventType,
@@ -129,5 +109,24 @@ async function handleJellyfinWebhook(request: Request) {
 		metadata
 	});
 
-	return json({ ok: true, event: eventType });
-}
+	return { ok: true, event: eventType };
+});
+
+/**
+ * POST /api/ingest/webhook/:serviceType
+ * Routes to registered webhook handlers. New services just call registerWebhookHandler().
+ */
+export const POST: RequestHandler = async ({ params, request }) => {
+	const { serviceType } = params;
+	const handler = getWebhookHandler(serviceType);
+
+	if (!handler) {
+		return json({ error: `No webhook handler for: ${serviceType}` }, { status: 400 });
+	}
+
+	const result = await handler(request);
+	if (!result.ok && result.error) {
+		return json({ error: result.error }, { status: 400 });
+	}
+	return json(result);
+};
