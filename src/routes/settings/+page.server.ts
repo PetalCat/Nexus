@@ -1,5 +1,5 @@
 import { registry } from '$lib/adapters/registry';
-import { getAllUsers, getInviteLinks, getUserCredentials, getUserCredentialForService } from '$lib/server/auth';
+import { getAllUsers, getAllSettings, getInviteLinks, getPendingUsers, getUserCredentials, getUserCredentialForService } from '$lib/server/auth';
 import { checkAllServices, getServiceConfigs, autoLinkJellyfinServices } from '$lib/server/services';
 import type { PageServerLoad } from './$types';
 
@@ -25,6 +25,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const isAdmin = locals.user?.isAdmin ?? false;
 	const users = isAdmin ? getAllUsers() : [];
 	const invites = isAdmin ? getInviteLinks() : [];
+	const settings = isAdmin ? getAllSettings() : {};
+	const pendingUsers = isAdmin ? getPendingUsers() : [];
 
 	// Silently auto-link Overseerr (and similar) via Jellyfin credentials
 	if (locals.user) {
@@ -98,5 +100,5 @@ export const load: PageServerLoad = async ({ locals }) => {
 			};
 		});
 
-	return { services, available, health, isAdmin, users, invites, myCredentials, linkableServices };
+	return { services, available, health, isAdmin, users, invites, myCredentials, linkableServices, settings, pendingUsers };
 };

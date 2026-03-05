@@ -40,6 +40,14 @@
 	let migratePreview = $state<Array<{ serviceId: string; serviceName: string; externalId: string; username: string; isAdmin: boolean }> | null>(null);
 	let migrateResult = $state<{ imported: number; results: Array<{ username: string; status: string }> } | null>(null);
 
+	// ── Registration & password reset state ────────────────────
+	let savingSettings = $state(false);
+	let resetPasswordUserId = $state<string | null>(null);
+	let resetPasswordValue = $state('');
+	let resetPasswordLoading = $state(false);
+	let resetPasswordError = $state<string | null>(null);
+	let approveLoading = $state<string | null>(null);
+
 	// ── Account linking state ──────────────────────────────────
 	let linkServiceId = $state('');
 	let linkUsername = $state('');
@@ -180,6 +188,63 @@
 			await invalidateAll();
 		} catch (e) { console.error(e); }
 		finally { migrateLoading = false; }
+	}
+
+	// ── Settings & admin functions ─────────────────────────────
+	async function toggleSetting(key: string, value: boolean) {
+		savingSettings = true;
+		try {
+			await fetch('/api/admin/settings', {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ [key]: value ? 'true' : 'false' })
+			});
+			await invalidateAll();
+		} catch (e) { console.error(e); }
+		finally { savingSettings = false; }
+	}
+
+	async function adminResetPassword(userId: string) {
+		if (!resetPasswordValue || resetPasswordValue.length < 6) {
+			resetPasswordError = 'Password must be at least 6 characters';
+			return;
+		}
+		resetPasswordLoading = true; resetPasswordError = null;
+		try {
+			const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ newPassword: resetPasswordValue })
+			});
+			if (!res.ok) { const b = await res.json().catch(() => ({})); resetPasswordError = b.error ?? 'Failed'; return; }
+			resetPasswordUserId = null; resetPasswordValue = '';
+			await invalidateAll();
+		} catch (e) { resetPasswordError = String(e); }
+		finally { resetPasswordLoading = false; }
+	}
+
+	async function toggleForceReset(userId: string, force: boolean) {
+		await fetch(`/api/admin/users/${userId}/force-reset`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ force })
+		});
+		await invalidateAll();
+	}
+
+	async function approveUser(userId: string) {
+		approveLoading = userId;
+		try {
+			await fetch(`/api/admin/users/${userId}/approve`, { method: 'PUT' });
+			await invalidateAll();
+		} catch (e) { console.error(e); }
+		finally { approveLoading = null; }
+	}
+
+	async function denyUser(userId: string) {
+		approveLoading = userId;
+		try {
+			await fetch(`/api/admin/users/${userId}/deny`, { method: 'DELETE' });
+			await invalidateAll();
+		} catch (e) { console.error(e); }
+		finally { approveLoading = null; }
 	}
 
 	// ── Account linking functions ──────────────────────────────
@@ -639,6 +704,71 @@
 
 	<!-- ═══════════════════════════ Users & Invites Tab (admin) ═══════════════════════════ -->
 	{#if activeTab === 'users' && data.isAdmin}
+		<!-- Registration Settings -->
+		<section class="mb-8">
+			<h2 class="text-display text-base font-semibold mb-4">Registration</h2>
+			<div class="card p-4 flex flex-col gap-4">
+				<label class="flex items-center justify-between gap-4">
+					<div>
+						<span class="text-sm font-medium">Open Registration</span>
+						<p class="text-xs text-[var(--color-muted)]">Allow anyone to create an account from the login page.</p>
+					</div>
+					<button
+						class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_enabled === 'true' ? 'bg-[var(--color-nebula)]' : 'bg-[var(--color-raised)]'}"
+						onclick={() => toggleSetting('registration_enabled', data.settings.registration_enabled !== 'true')}
+						disabled={savingSettings}
+					>
+						<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow transition-transform {data.settings.registration_enabled === 'true' ? 'translate-x-[22px]' : 'translate-x-0.5'}" />
+					</button>
+				</label>
+				{#if data.settings.registration_enabled === 'true'}
+					<label class="flex items-center justify-between gap-4 border-t border-[var(--color-border)] pt-4">
+						<div>
+							<span class="text-sm font-medium">Require Approval</span>
+							<p class="text-xs text-[var(--color-muted)]">New accounts must be approved by an admin before they can sign in.</p>
+						</div>
+						<button
+							class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_requires_approval === 'true' ? 'bg-[var(--color-nebula)]' : 'bg-[var(--color-raised)]'}"
+							onclick={() => toggleSetting('registration_requires_approval', data.settings.registration_requires_approval !== 'true')}
+							disabled={savingSettings}
+						>
+							<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow transition-transform {data.settings.registration_requires_approval === 'true' ? 'translate-x-[22px]' : 'translate-x-0.5'}" />
+						</button>
+					</label>
+				{/if}
+			</div>
+		</section>
+
+		<!-- Pending Users -->
+		{#if data.pendingUsers.length > 0}
+			<section class="mb-8">
+				<h2 class="text-display text-base font-semibold mb-4">Pending Approval ({data.pendingUsers.length})</h2>
+				<div class="flex flex-col gap-2">
+					{#each data.pendingUsers as user}
+						<div class="card-raised flex items-center gap-4 px-4 py-3">
+							<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 text-xs font-bold">
+								{user.displayName.slice(0, 2).toUpperCase()}
+							</div>
+							<div class="flex-1 min-w-0">
+								<div class="flex items-center gap-2">
+									<span class="font-medium text-sm">{user.displayName}</span>
+									<span class="font-mono text-xs text-[var(--color-muted)]">@{user.username}</span>
+									<span class="badge text-[10px] bg-amber-500/20 text-amber-400">Pending</span>
+								</div>
+								<p class="text-xs text-[var(--color-muted)]">Registered {new Date(user.createdAt).toLocaleDateString()}</p>
+							</div>
+							<div class="flex items-center gap-2 flex-shrink-0">
+								<button class="btn btn-primary text-xs" onclick={() => approveUser(user.id)} disabled={approveLoading === user.id}>
+									{approveLoading === user.id ? '...' : 'Approve'}
+								</button>
+								<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => denyUser(user.id)} disabled={approveLoading === user.id}>Deny</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
 		<!-- Users list -->
 		<section class="mb-8">
 			<h2 class="text-display text-base font-semibold mb-4">Users ({data.users.length})</h2>
@@ -649,7 +779,7 @@
 							{user.displayName.slice(0, 2).toUpperCase()}
 						</div>
 						<div class="flex-1 min-w-0">
-							<div class="flex items-center gap-2">
+							<div class="flex items-center gap-2 flex-wrap">
 								<span class="font-medium text-sm">{user.displayName}</span>
 								<span class="font-mono text-xs text-[var(--color-muted)]">@{user.username}</span>
 								{#if user.isAdmin}
@@ -658,11 +788,23 @@
 								{#if user.authProvider !== 'local'}
 									<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">{user.authProvider}</span>
 								{/if}
+								{#if user.forcePasswordReset}
+									<span class="badge text-[10px] bg-amber-500/20 text-amber-400">Must Reset Password</span>
+								{/if}
+								{#if user.status === 'pending'}
+									<span class="badge text-[10px] bg-amber-500/20 text-amber-400">Pending</span>
+								{/if}
 							</div>
 							<p class="text-xs text-[var(--color-muted)]">Joined {new Date(user.createdAt).toLocaleDateString()}</p>
 						</div>
 						<div class="flex items-center gap-1 flex-shrink-0">
 							{#if !user.isAdmin}
+								<button class="btn-icon p-2 text-[var(--color-muted)] opacity-50 hover:opacity-100" onclick={() => { resetPasswordUserId = resetPasswordUserId === user.id ? null : user.id; resetPasswordValue = ''; resetPasswordError = null; }} title="Reset password">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+								</button>
+								<button class="btn-icon p-2 {user.forcePasswordReset ? 'text-amber-400' : 'text-[var(--color-muted)] opacity-50 hover:opacity-100'}" onclick={() => toggleForceReset(user.id, !user.forcePasswordReset)} title="{user.forcePasswordReset ? 'Remove force reset' : 'Force password reset on next login'}">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+								</button>
 								{#if deleteUserConfirm === user.id}
 									<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => deleteUser(user.id)}>Confirm</button>
 									<button class="btn btn-ghost text-xs" onclick={() => (deleteUserConfirm = null)}>Cancel</button>
@@ -674,6 +816,24 @@
 							{/if}
 						</div>
 					</div>
+					{#if resetPasswordUserId === user.id}
+						<div class="border-t border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
+							<input
+								bind:value={resetPasswordValue}
+								type="password"
+								class="input flex-1 text-sm"
+								placeholder="New password (min 6 chars)"
+								onkeydown={(e) => { if (e.key === 'Enter') adminResetPassword(user.id); }}
+							/>
+							<button class="btn btn-primary text-xs" onclick={() => adminResetPassword(user.id)} disabled={resetPasswordLoading}>
+								{resetPasswordLoading ? '...' : 'Set Password'}
+							</button>
+							<button class="btn btn-ghost text-xs" onclick={() => { resetPasswordUserId = null; resetPasswordError = null; }}>Cancel</button>
+						</div>
+						{#if resetPasswordError}
+							<div class="px-4 pb-3 text-xs text-[var(--color-nova)]">{resetPasswordError}</div>
+						{/if}
+					{/if}
 				{/each}
 			</div>
 		</section>

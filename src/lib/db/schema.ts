@@ -107,6 +107,9 @@ export const users = sqliteTable('users', {
 	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
 	authProvider: text('auth_provider').notNull().default('local'), // 'local' | 'jellyfin'
 	externalId: text('external_id'), // e.g. Jellyfin userId for migrated users
+	avatar: text('avatar'), // URL or path to profile picture
+	forcePasswordReset: integer('force_password_reset', { mode: 'boolean' }).notNull().default(false),
+	status: text('status').notNull().default('active'), // 'active' | 'pending'
 	createdAt: text('created_at')
 		.notNull()
 		.default(sql`(datetime('now'))`)
@@ -188,3 +191,136 @@ export type NewMediaEvent = typeof mediaEvents.$inferInsert;
 export type InteractionEvent = typeof interactionEvents.$inferSelect;
 export type NewInteractionEvent = typeof interactionEvents.$inferInsert;
 export type UserStatsEntry = typeof userStatsCache.$inferSelect;
+
+// ── Social Features ─────────────────────────────────────────────────────
+
+export const friendships = sqliteTable('friendships', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	friendId: text('friend_id').notNull(),
+	status: text('status').notNull(), // 'pending' | 'accepted' | 'blocked'
+	createdAt: integer('created_at').notNull(), // unix ms
+	acceptedAt: integer('accepted_at') // unix ms, nullable
+});
+
+export const userPresence = sqliteTable('user_presence', {
+	userId: text('user_id').primaryKey(),
+	status: text('status').notNull().default('offline'), // 'online' | 'away' | 'dnd' | 'offline'
+	customStatus: text('custom_status'),
+	ghostMode: integer('ghost_mode').notNull().default(0),
+	currentActivity: text('current_activity'), // JSON
+	lastSeen: integer('last_seen') // unix ms
+});
+
+export const sharedItems = sqliteTable('shared_items', {
+	id: text('id').primaryKey(),
+	fromUserId: text('from_user_id').notNull(),
+	toUserId: text('to_user_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	mediaTitle: text('media_title').notNull(),
+	mediaPoster: text('media_poster'),
+	message: text('message'),
+	seen: integer('seen').notNull().default(0),
+	seenAt: integer('seen_at'),
+	createdAt: integer('created_at').notNull()
+});
+
+export const watchSessions = sqliteTable('watch_sessions', {
+	id: text('id').primaryKey(),
+	hostId: text('host_id').notNull(),
+	type: text('type').notNull(), // 'watch_party' | 'listen_party' | 'netplay' | 'co_op'
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	mediaTitle: text('media_title').notNull(),
+	mediaType: text('media_type').notNull(),
+	status: text('status').notNull().default('waiting'), // 'waiting' | 'playing' | 'paused' | 'ended'
+	maxParticipants: integer('max_participants').notNull().default(0),
+	invitedIds: text('invited_ids'), // JSON array of user IDs invited but not yet joined
+	createdAt: integer('created_at').notNull(),
+	endedAt: integer('ended_at')
+});
+
+export const sessionParticipants = sqliteTable('session_participants', {
+	sessionId: text('session_id').notNull(),
+	userId: text('user_id').notNull(),
+	joinedAt: integer('joined_at').notNull(),
+	leftAt: integer('left_at'),
+	role: text('role').notNull().default('participant'), // 'host' | 'participant'
+	voiceActive: integer('voice_active', { mode: 'boolean' }).notNull().default(false)
+});
+
+export const sessionMessages = sqliteTable('session_messages', {
+	id: text('id').primaryKey(),
+	sessionId: text('session_id').notNull(),
+	userId: text('user_id').notNull(),
+	content: text('content').notNull(),
+	type: text('type').notNull().default('text'), // 'text' | 'system' | 'reaction'
+	createdAt: integer('created_at').notNull()
+});
+
+export const collections = sqliteTable('collections', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	description: text('description'),
+	creatorId: text('creator_id').notNull(),
+	visibility: text('visibility').notNull().default('private'), // 'private' | 'friends' | 'public'
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const collectionItems = sqliteTable('collection_items', {
+	id: text('id').primaryKey(),
+	collectionId: text('collection_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	mediaTitle: text('media_title').notNull(),
+	mediaPoster: text('media_poster'),
+	addedBy: text('added_by').notNull(),
+	position: integer('position').notNull().default(0),
+	createdAt: integer('created_at').notNull()
+});
+
+export const collectionMembers = sqliteTable('collection_members', {
+	collectionId: text('collection_id').notNull(),
+	userId: text('user_id').notNull(),
+	role: text('role').notNull().default('viewer'), // 'owner' | 'editor' | 'viewer'
+	addedAt: integer('added_at').notNull()
+});
+
+export type Friendship = typeof friendships.$inferSelect;
+export type UserPresence = typeof userPresence.$inferSelect;
+export type SharedItem = typeof sharedItems.$inferSelect;
+export type WatchSession = typeof watchSessions.$inferSelect;
+export type SessionParticipant = typeof sessionParticipants.$inferSelect;
+export type SessionMessage = typeof sessionMessages.$inferSelect;
+export type Collection = typeof collections.$inferSelect;
+export type CollectionItem = typeof collectionItems.$inferSelect;
+export type CollectionMember = typeof collectionMembers.$inferSelect;
+
+// ── User Favorites ───────────────────────────────────────────────────
+
+export const userFavorites = sqliteTable('user_favorites', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	mediaTitle: text('media_title').notNull(),
+	mediaPoster: text('media_poster'),
+	position: integer('position').notNull().default(0),
+	createdAt: integer('created_at').notNull()
+});
+
+export type UserFavorite = typeof userFavorites.$inferSelect;
+
+// ── App Settings ─────────────────────────────────────────────────────
+
+export const appSettings = sqliteTable('app_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull()
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;

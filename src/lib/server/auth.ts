@@ -51,9 +51,12 @@ export function getAllUsers() {
 		id: schema.users.id,
 		username: schema.users.username,
 		displayName: schema.users.displayName,
+		avatar: schema.users.avatar,
 		isAdmin: schema.users.isAdmin,
 		authProvider: schema.users.authProvider,
 		externalId: schema.users.externalId,
+		forcePasswordReset: schema.users.forcePasswordReset,
+		status: schema.users.status,
 		createdAt: schema.users.createdAt
 	}).from(schema.users).all();
 }
@@ -63,7 +66,7 @@ export function createUser(
 	displayName: string,
 	password: string,
 	isAdmin = false,
-	opts?: { authProvider?: string; externalId?: string }
+	opts?: { authProvider?: string; externalId?: string; status?: string }
 ) {
 	const db = getDb();
 	const id = randomBytes(16).toString('hex');
@@ -75,7 +78,8 @@ export function createUser(
 		passwordHash,
 		isAdmin,
 		authProvider: opts?.authProvider ?? 'local',
-		externalId: opts?.externalId
+		externalId: opts?.externalId,
+		status: opts?.status ?? 'active'
 	}).run();
 	return id;
 }
@@ -88,13 +92,16 @@ export function deleteUser(id: string) {
 	db.delete(schema.users).where(eq(schema.users.id, id)).run();
 }
 
-export function updateUser(id: string, updates: { displayName?: string; isAdmin?: boolean }) {
+export function updateUser(id: string, updates: { displayName?: string; isAdmin?: boolean; avatar?: string | null }) {
 	const db = getDb();
 	if (updates.displayName !== undefined) {
 		db.update(schema.users).set({ displayName: updates.displayName }).where(eq(schema.users.id, id)).run();
 	}
 	if (updates.isAdmin !== undefined) {
 		db.update(schema.users).set({ isAdmin: updates.isAdmin }).where(eq(schema.users.id, id)).run();
+	}
+	if (updates.avatar !== undefined) {
+		db.update(schema.users).set({ avatar: updates.avatar }).where(eq(schema.users.id, id)).run();
 	}
 }
 
@@ -240,6 +247,82 @@ export function deleteUserCredential(userId: string, serviceId: string) {
 			eq(schema.userServiceCredentials.serviceId, serviceId)
 		))
 		.run();
+}
+
+// ---------------------------------------------------------------------------
+// App Settings
+// ---------------------------------------------------------------------------
+
+export function getSetting(key: string): string | null {
+	const db = getDb();
+	const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+	return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+	const db = getDb();
+	db.insert(schema.appSettings)
+		.values({ key, value })
+		.onConflictDoUpdate({ target: schema.appSettings.key, set: { value } })
+		.run();
+}
+
+export function getAllSettings(): Record<string, string> {
+	const db = getDb();
+	const rows = db.select().from(schema.appSettings).all();
+	return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
+// ---------------------------------------------------------------------------
+// Password Reset + Force Reset
+// ---------------------------------------------------------------------------
+
+export function resetUserPassword(userId: string, newPassword: string): void {
+	const db = getDb();
+	const passwordHash = hashPassword(newPassword);
+	db.update(schema.users)
+		.set({ passwordHash, forcePasswordReset: true })
+		.where(eq(schema.users.id, userId))
+		.run();
+}
+
+export function setForcePasswordReset(userId: string, force: boolean): void {
+	const db = getDb();
+	db.update(schema.users)
+		.set({ forcePasswordReset: force })
+		.where(eq(schema.users.id, userId))
+		.run();
+}
+
+export function changePassword(userId: string, newPassword: string): void {
+	const db = getDb();
+	const passwordHash = hashPassword(newPassword);
+	db.update(schema.users)
+		.set({ passwordHash, forcePasswordReset: false })
+		.where(eq(schema.users.id, userId))
+		.run();
+}
+
+// ---------------------------------------------------------------------------
+// User Status (pending/active)
+// ---------------------------------------------------------------------------
+
+export function approveUser(userId: string): void {
+	const db = getDb();
+	db.update(schema.users)
+		.set({ status: 'active' })
+		.where(eq(schema.users.id, userId))
+		.run();
+}
+
+export function getPendingUsers() {
+	const db = getDb();
+	return db.select({
+		id: schema.users.id,
+		username: schema.users.username,
+		displayName: schema.users.displayName,
+		createdAt: schema.users.createdAt
+	}).from(schema.users).where(eq(schema.users.status, 'pending')).all();
 }
 
 export { COOKIE_NAME };
