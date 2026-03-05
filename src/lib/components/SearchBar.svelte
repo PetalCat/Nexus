@@ -3,8 +3,17 @@
 
 	interface Props {
 		compact?: boolean;
+		scope?: 'movie' | 'show' | 'music' | 'book' | 'game';
 	}
-	let { compact = false }: Props = $props();
+	let { compact = false, scope }: Props = $props();
+
+	const scopeLabels: Record<string, string> = {
+		movie: 'movies',
+		show: 'shows',
+		music: 'music',
+		book: 'books',
+		game: 'games'
+	};
 
 	let query = $state('');
 	let inputEl: HTMLInputElement | undefined = $state();
@@ -12,7 +21,9 @@
 	function submit(e: SubmitEvent) {
 		e.preventDefault();
 		if (query.trim().length >= 2) {
-			goto(`/search?q=${encodeURIComponent(query.trim())}`);
+			const params = new URLSearchParams({ q: query.trim() });
+			if (scope) params.set('type', scope);
+			goto(`/search?${params.toString()}`);
 		}
 	}
 
@@ -24,7 +35,7 @@
 	}
 </script>
 
-<form onsubmit={submit} class="relative {compact ? 'w-48' : 'w-full max-w-xl'}">
+<form onsubmit={submit} class="relative {compact ? 'w-full sm:w-48' : 'w-full max-w-xl'}">
 	<div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]">
 		<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
 			<circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
@@ -35,7 +46,7 @@
 		bind:this={inputEl}
 		bind:value={query}
 		type="search"
-		placeholder={compact ? 'Search...' : 'Search movies, shows, books, games...'}
+		placeholder={compact && scope ? `Search ${scopeLabels[scope]}...` : compact ? 'Search...' : 'Search movies, shows, books, games...'}
 		class="input pl-9 pr-4 {compact ? 'h-8 text-sm' : 'h-10'}"
 		onkeydown={handleKeydown}
 	/>
@@ -44,6 +55,7 @@
 			type="button"
 			onclick={() => (query = '')}
 			class="btn-icon absolute right-2 top-1/2 -translate-y-1/2 rounded p-1"
+			aria-label="Clear search"
 		>
 			<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
 				<path

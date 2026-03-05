@@ -1,17 +1,19 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 
-async function kvFetch(config: ServiceConfig, path: string, body?: unknown) {
+async function kvFetch(config: ServiceConfig, path: string, body?: unknown, userCred?: UserCredential) {
 	const url = `${config.url}/api${path}`;
+	const token = userCred?.accessToken || config.apiKey || '';
 	const res = await fetch(url, {
 		method: body ? 'POST' : 'GET',
 		headers: {
-			Authorization: `Bearer ${config.apiKey ?? ''}`,
+			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json'
 		},
-		body: body ? JSON.stringify(body) : undefined
+		body: body ? JSON.stringify(body) : undefined,
+		signal: AbortSignal.timeout(8000)
 	});
-	if (!res.ok) throw new Error(`Kavita ${path} → ${res.status}`);
+	if (!res.ok) throw new Error(`Kavita ${path} -> ${res.status}`);
 	return res.json();
 }
 
@@ -43,6 +45,7 @@ export const kavitaAdapter: ServiceAdapter = {
 	defaultPort: 5000,
 	icon: 'kavita',
 	mediaTypes: ['book'],
+	userLinkable: true,
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
@@ -66,27 +69,27 @@ export const kavitaAdapter: ServiceAdapter = {
 		}
 	},
 
-	async getRecentlyAdded(config): Promise<UnifiedMedia[]> {
+	async getRecentlyAdded(config, userCred): Promise<UnifiedMedia[]> {
 		try {
-			const data = await kvFetch(config, '/series/recently-added', { pageNumber: 0, pageSize: 20 });
+			const data = await kvFetch(config, '/series/recently-added', { pageNumber: 0, pageSize: 20 }, userCred);
 			return (data ?? []).map((i: unknown) => normalize(config, i));
 		} catch {
 			return [];
 		}
 	},
 
-	async getContinueWatching(config): Promise<UnifiedMedia[]> {
+	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
 		try {
-			const data = await kvFetch(config, '/want-to-read', { pageNumber: 0, pageSize: 20 });
+			const data = await kvFetch(config, '/want-to-read', { pageNumber: 0, pageSize: 20 }, userCred);
 			return (data?.result ?? []).map((i: unknown) => normalize(config, i));
 		} catch {
 			return [];
 		}
 	},
 
-	async search(config, query): Promise<UnifiedSearchResult> {
+	async search(config, query, userCred): Promise<UnifiedSearchResult> {
 		try {
-			const data = await kvFetch(config, '/search', { queryString: query });
+			const data = await kvFetch(config, '/search', { queryString: query }, userCred);
 			const series = (data?.series ?? []).map((i: unknown) => normalize(config, i));
 			return { items: series, total: series.length, source: 'kavita' };
 		} catch {
@@ -94,12 +97,28 @@ export const kavitaAdapter: ServiceAdapter = {
 		}
 	},
 
-	async getItem(config, sourceId): Promise<UnifiedMedia | null> {
+	async getItem(config, sourceId, userCred): Promise<UnifiedMedia | null> {
 		try {
-			const item = await kvFetch(config, `/series/${sourceId}`);
+			const item = await kvFetch(config, `/series/${sourceId}`, undefined, userCred);
 			return normalize(config, item);
 		} catch {
 			return null;
 		}
+	},
+
+	async authenticateUser(config, username, password) {
+		const res = await fetch(`${config.url}/api/account/login`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password }),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!res.ok) throw new Error(`Kavita auth failed: ${res.status}`);
+		const data = await res.json();
+		return {
+			accessToken: data.token,
+			externalUserId: String(data.userId ?? data.id ?? ''),
+			externalUsername: data.username ?? username
+		};
 	}
 };

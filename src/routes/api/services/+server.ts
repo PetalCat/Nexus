@@ -6,9 +6,12 @@ import {
 	getServiceConfigs,
 	upsertService
 } from '$lib/server/services';
+import { invalidatePrefix } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user?.isAdmin) return json({ error: 'Admin required' }, { status: 403 });
+
 	const withHealth = url.searchParams.get('health') === 'true';
 	const configs = getServiceConfigs();
 
@@ -29,13 +32,23 @@ export const GET: RequestHandler = async ({ url }) => {
 	return json({ services: configs, available });
 };
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
+	if (!locals.user?.isAdmin) return json({ error: 'Admin required' }, { status: 403 });
+
 	try {
 		const body = await request.json();
 		if (!body.id || !body.name || !body.type || !body.url) {
 			return json({ error: 'Missing required fields: id, name, type, url' }, { status: 400 });
 		}
 		upsertService(body);
+		// Service config changed — invalidate everything that depends on services
+		invalidatePrefix('health');
+		invalidatePrefix('recently-added');
+		invalidatePrefix('trending');
+		invalidatePrefix('discover:');
+		invalidatePrefix('library:');
+		invalidatePrefix('live-channels:');
+		invalidatePrefix('queue');
 		return json({ ok: true });
 	} catch (e) {
 		console.error('[API] services POST error', e);
@@ -43,9 +56,23 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 };
 
-export const DELETE: RequestHandler = async ({ url }) => {
+export const DELETE: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user?.isAdmin) return json({ error: 'Admin required' }, { status: 403 });
+
 	const id = url.searchParams.get('id');
 	if (!id) return json({ error: 'Missing id' }, { status: 400 });
 	deleteService(id);
+	// Service removed — invalidate everything
+	invalidatePrefix('health');
+	invalidatePrefix('recently-added');
+	invalidatePrefix('trending');
+	invalidatePrefix('discover:');
+	invalidatePrefix('library:');
+	invalidatePrefix('live-channels:');
+	invalidatePrefix('queue');
+	invalidatePrefix('pending-count:');
+	invalidatePrefix('api-requests:');
+	invalidatePrefix('requests:');
+	invalidatePrefix('admin-');
 	return json({ ok: true });
 };
