@@ -183,11 +183,11 @@ export async function getSubtitleStatus(
 	const cacheKey = `bazarr:status:${config.id}:${tmdbId ?? ''}:${opts?.radarrId ?? ''}:${opts?.sonarrId ?? ''}:${opts?.type ?? ''}`;
 
 	return withCache<SubtitleStatus | null>(cacheKey, 120_000, async () => {
-		try {
-			const isShow = opts?.type === 'show' || opts?.type === 'episode' || !!opts?.sonarrId;
+		const isShow = opts?.type === 'show' || opts?.type === 'episode' || !!opts?.sonarrId;
 
-			// Try TMDB ID first
-			if (tmdbId) {
+		// Try TMDB ID first
+		if (tmdbId) {
+			try {
 				if (isShow) {
 					const data = (await bazarrFetch(config, `/api/series?tmdbid[]=${tmdbId}`)) as { data?: unknown[] };
 					const items = data.data ?? (Array.isArray(data) ? data : []);
@@ -197,23 +197,24 @@ export async function getSubtitleStatus(
 					const items = data.data ?? (Array.isArray(data) ? data : []);
 					if (items.length > 0) return normalizeMovieStatus(items[0]);
 				}
-			}
+			} catch { /* fall through to ID lookup */ }
+		}
 
-			// Fall back to Radarr/Sonarr ID
-			if (opts?.radarrId) {
+		// Fall back to Radarr/Sonarr ID
+		if (opts?.radarrId) {
+			try {
 				const movie = await bazarrFetch(config, `/api/movies/${opts.radarrId}`);
 				return normalizeMovieStatus(movie);
-			}
-			if (opts?.sonarrId) {
+			} catch { /* no match */ }
+		}
+		if (opts?.sonarrId) {
+			try {
 				const series = await bazarrFetch(config, `/api/series/${opts.sonarrId}`);
 				return normalizeEpisodeStatus(series);
-			}
-
-			return null;
-		} catch (e) {
-			console.error(`[Bazarr] getSubtitleStatus failed:`, e);
-			return null;
+			} catch { /* no match */ }
 		}
+
+		return null;
 	});
 }
 
@@ -315,7 +316,7 @@ export async function getLanguageProfiles(config: ServiceConfig): Promise<Langua
 				id: p.profileId ?? p.id ?? 0,
 				name: p.name ?? '',
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				languages: (p.languages ?? []).map((l: any) => ({
+				languages: (p.items ?? p.languages ?? []).map((l: any) => ({
 					code: l.code2 ?? l.code3 ?? l.language ?? '',
 					name: l.name ?? l.long_name ?? '',
 					forced: !!l.forced,
