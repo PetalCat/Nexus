@@ -126,6 +126,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// users table — added in multi-user update
 	safeAddColumn('users', 'auth_provider', "TEXT NOT NULL DEFAULT 'local'");
 	safeAddColumn('users', 'external_id', 'TEXT');
+	safeAddColumn('users', 'avatar', 'TEXT');
+	safeAddColumn('users', 'force_password_reset', 'INTEGER NOT NULL DEFAULT 0');
+	safeAddColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'");
 
 	// activity table — added user_id for per-user tracking
 	safeAddColumn('activity', 'user_id', 'TEXT');
@@ -193,6 +196,136 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 
 	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_stats_cache_key ON user_stats_cache(user_id, period, media_type)`);
+
+	// ── Social features tables ──────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS friendships (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		friend_id TEXT NOT NULL,
+		status TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		accepted_at INTEGER,
+		UNIQUE(user_id, friend_id)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_friendships_friend_status ON friendships(friend_id, status)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_friendships_user_status ON friendships(user_id, status)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_presence (
+		user_id TEXT PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'offline',
+		custom_status TEXT,
+		ghost_mode INTEGER NOT NULL DEFAULT 0,
+		current_activity TEXT,
+		last_seen INTEGER
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS shared_items (
+		id TEXT PRIMARY KEY,
+		from_user_id TEXT NOT NULL,
+		to_user_id TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		media_title TEXT NOT NULL,
+		media_poster TEXT,
+		message TEXT,
+		seen INTEGER NOT NULL DEFAULT 0,
+		seen_at INTEGER,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_shared_to_user ON shared_items(to_user_id, seen, created_at)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_shared_from_user ON shared_items(from_user_id, created_at)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS watch_sessions (
+		id TEXT PRIMARY KEY,
+		host_id TEXT NOT NULL,
+		type TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		media_title TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'waiting',
+		max_participants INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		ended_at INTEGER
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_watch_sessions_status ON watch_sessions(status)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS session_participants (
+		session_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		joined_at INTEGER NOT NULL,
+		left_at INTEGER,
+		role TEXT NOT NULL DEFAULT 'participant',
+		UNIQUE(session_id, user_id)
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS session_messages (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		content TEXT NOT NULL,
+		type TEXT NOT NULL DEFAULT 'text',
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id, created_at)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS collections (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT,
+		creator_id TEXT NOT NULL,
+		visibility TEXT NOT NULL DEFAULT 'private',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS collection_items (
+		id TEXT PRIMARY KEY,
+		collection_id TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		media_title TEXT NOT NULL,
+		media_poster TEXT,
+		added_by TEXT NOT NULL,
+		position INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_collection_items_coll ON collection_items(collection_id, position)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS collection_members (
+		collection_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		added_at INTEGER NOT NULL,
+		UNIQUE(collection_id, user_id)
+	)`);
+
+	// ── User favorites ──────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS user_favorites (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		media_title TEXT NOT NULL,
+		media_poster TEXT,
+		position INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_id, position)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_favorites_unique ON user_favorites(user_id, media_id, service_id)`);
+
+	// Watch sessions migrations
+	safeAddColumn('watch_sessions', 'invited_ids', 'TEXT');
+	safeAddColumn('session_participants', 'voice_active', 'INTEGER NOT NULL DEFAULT 0');
+
+	// ── App settings ────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`);
 }
 
 export { schema };
