@@ -280,6 +280,100 @@ async function pollJellyfinSessions() {
 }
 
 // ---------------------------------------------------------------------------
+// RomM status poller — checks for game status changes (every 60s)
+// ---------------------------------------------------------------------------
+
+// Track last known status per user+game to detect changes
+const rommStatusCache = new Map<string, string>(); // key: userId:gameId -> status
+let rommPollCount = 0;
+
+async function pollRommStatuses() {
+	const configs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	if (configs.length === 0) return;
+
+	rommPollCount++;
+	// Only poll every 6th tick (60s) to avoid hammering the RomM API
+	if (rommPollCount % 6 !== 0) return;
+
+	const db = getDb();
+
+	for (const config of configs) {
+		// Get all users with RomM credentials
+		const creds = db
+			.select()
+			.from(schema.userServiceCredentials)
+			.where(eq(schema.userServiceCredentials.serviceId, config.id))
+			.all();
+
+		for (const cred of creds) {
+			if (!cred.externalUsername || !cred.accessToken) continue;
+
+			try {
+				const base = config.url.replace(/\/+$/, '');
+				const res = await fetch(`${base}/api/roms?limit=50&order_by=updated_at&order_dir=desc`, {
+					headers: {
+						Authorization: 'Basic ' + btoa(`${cred.externalUsername}:${cred.accessToken}`)
+					},
+					signal: AbortSignal.timeout(8000)
+				});
+				if (!res.ok) continue;
+
+				const data = await res.json();
+				const roms = data?.items ?? data ?? [];
+
+				for (const rom of roms) {
+					const userStatus = rom.rom_user?.status;
+					if (!userStatus) continue;
+
+					const cacheKey = `${cred.userId}:${rom.id}`;
+					const prevStatus = rommStatusCache.get(cacheKey);
+
+					if (prevStatus !== userStatus) {
+						rommStatusCache.set(cacheKey, userStatus);
+
+						// Don't emit on first load (prevStatus undefined) to avoid flooding
+						if (prevStatus !== undefined) {
+							const statusEventMap: Record<string, string> = {
+								playing: 'play_start',
+								finished: 'complete',
+								completed: 'complete',
+								retired: 'mark_watched',
+								wishlist: 'add_to_watchlist'
+							};
+
+							const genres = (rom.metadatum?.genres ?? rom.genres ?? [])
+								.map((g: { name?: string } | string) => typeof g === 'string' ? g : g.name)
+								.filter(Boolean) as string[];
+
+							emitMediaEvent({
+								userId: cred.userId,
+								serviceId: config.id,
+								serviceType: 'romm',
+								eventType: statusEventMap[userStatus] ?? 'mark_watched',
+								mediaId: String(rom.id),
+								mediaType: 'game',
+								mediaTitle: rom.name || rom.fs_name_no_ext,
+								mediaGenres: genres.length > 0 ? genres : undefined,
+								parentTitle: rom.platform_display_name,
+								metadata: {
+									platform: rom.platform_display_name,
+									platformSlug: rom.platform_slug,
+									userStatus,
+									previousStatus: prevStatus,
+									lastPlayed: rom.rom_user?.last_played
+								}
+							});
+						}
+					}
+				}
+			} catch (e) {
+				console.error(`[poller] RomM poll error for ${config.name}:`, e instanceof Error ? e.message : e);
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
@@ -287,10 +381,13 @@ const POLL_INTERVAL_MS = 10_000;
 
 export function startSessionPoller() {
 	if (pollInterval) return;
-	console.log('[poller] Starting Jellyfin session poller (10s interval)');
+	console.log('[poller] Starting session poller (Jellyfin 10s, RomM 60s)');
 	pollInterval = setInterval(() => {
 		pollJellyfinSessions().catch((e) =>
-			console.error('[poller] Unhandled error:', e)
+			console.error('[poller] Jellyfin error:', e)
+		);
+		pollRommStatuses().catch((e) =>
+			console.error('[poller] RomM error:', e)
 		);
 	}, POLL_INTERVAL_MS);
 	// Run immediately on start
