@@ -274,6 +274,103 @@ export async function getItemSubtitleHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Exported admin-level functions
+// ---------------------------------------------------------------------------
+
+export async function getProviderStatus(config: ServiceConfig): Promise<SubtitleProvider[]> {
+	return withCache<SubtitleProvider[]>(`bazarr:providers:${config.id}`, 30_000, async () => {
+		try {
+			const raw = await bazarrFetch(config, '/api/providers');
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const items: any[] = Array.isArray(raw) ? raw : (raw as any).data ?? [];
+
+			return items.map((p) => {
+				const rawStatus = String(p.status ?? '').toLowerCase();
+				let status: SubtitleProvider['status'] = 'active';
+				if (rawStatus.includes('throttl')) status = 'throttled';
+				else if (rawStatus.includes('disabled')) status = 'disabled';
+				else if (rawStatus.includes('error') || rawStatus.includes('fail')) status = 'error';
+
+				return {
+					name: p.name ?? '',
+					status,
+					error: p.error ?? undefined
+				};
+			});
+		} catch (e) {
+			console.error(`[Bazarr] getProviderStatus failed:`, e);
+			return [];
+		}
+	});
+}
+
+export async function getLanguageProfiles(config: ServiceConfig): Promise<LanguageProfile[]> {
+	return withCache<LanguageProfile[]>(`bazarr:profiles:${config.id}`, 300_000, async () => {
+		try {
+			const raw = await bazarrFetch(config, '/api/languages/profiles');
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const items: any[] = Array.isArray(raw) ? raw : (raw as any).data ?? [];
+
+			return items.map((p) => ({
+				id: p.profileId ?? p.id ?? 0,
+				name: p.name ?? '',
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				languages: (p.languages ?? []).map((l: any) => ({
+					code: l.code2 ?? l.code3 ?? l.language ?? '',
+					name: l.name ?? l.long_name ?? '',
+					forced: !!l.forced,
+					hi: !!l.hi
+				}))
+			}));
+		} catch (e) {
+			console.error(`[Bazarr] getLanguageProfiles failed:`, e);
+			return [];
+		}
+	});
+}
+
+export async function getSystemHistory(
+	config: ServiceConfig,
+	opts?: { page?: number; limit?: number }
+): Promise<{ events: SubtitleEvent[]; total: number }> {
+	const page = opts?.page ?? 1;
+	const limit = opts?.limit ?? 25;
+	const cacheKey = `bazarr:syshistory:${config.id}:p${page}:l${limit}`;
+
+	return withCache<{ events: SubtitleEvent[]; total: number }>(cacheKey, 30_000, async () => {
+		try {
+			const start = (page - 1) * limit;
+			const [movieRaw, seriesRaw] = await Promise.all([
+				bazarrFetch(config, `/api/history/movies?start=${start}&length=${limit}`),
+				bazarrFetch(config, `/api/history/series?start=${start}&length=${limit}`)
+			]);
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const movieData = movieRaw as any;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const seriesData = seriesRaw as any;
+
+			const movieEvents: unknown[] = movieData.data ?? (Array.isArray(movieData) ? movieData : []);
+			const seriesEvents: unknown[] = seriesData.data ?? (Array.isArray(seriesData) ? seriesData : []);
+
+			const allEvents = [...movieEvents, ...seriesEvents]
+				.map(normalizeHistoryEvent)
+				.sort((a, b) => (b.timestamp > a.timestamp ? 1 : b.timestamp < a.timestamp ? -1 : 0))
+				.slice(0, limit);
+
+			const total =
+				(movieData.recordsTotal ?? movieEvents.length) +
+				(seriesData.recordsTotal ?? seriesEvents.length);
+
+			return { events: allEvents, total };
+		} catch (e) {
+			console.error(`[Bazarr] getSystemHistory failed:`, e);
+			return { events: [], total: 0 };
+		}
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
