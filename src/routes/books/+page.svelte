@@ -66,7 +66,7 @@
 			</div>
 			<p class="font-medium">No books found</p>
 			<p class="mt-1 text-sm text-[var(--color-subtle)]">
-				{data.items.length === 0 ? 'Connect Kavita to see your book collection here.' : 'Try adjusting your search.'}
+				{data.items.length === 0 ? 'Connect Calibre to see your book collection here.' : 'Try adjusting your search.'}
 			</p>
 			{#if data.items.length === 0}
 				<a href="/settings" class="btn btn-primary mt-4 text-sm">Connect a Service</a>

@@ -5,7 +5,7 @@ import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 export const services = sqliteTable('services', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
-	type: text('type').notNull(), // 'jellyfin' | 'kavita' | 'romm' | 'overseerr' | 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr' | 'streamystats'
+	type: text('type').notNull(), // 'jellyfin' | 'calibre' | 'romm' | 'overseerr' | 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr' | 'streamystats'
 	url: text('url').notNull(),
 	apiKey: text('api_key'),
 	username: text('username'),
@@ -42,7 +42,7 @@ export const mediaItems = sqliteTable('media_items', {
 		.default(sql`(datetime('now'))`)
 });
 
-// Per-user credentials for user-level services (Jellyfin, Overseerr, Kavita, etc.)
+// Per-user credentials for user-level services (Jellyfin, Overseerr, Calibre, etc.)
 export const userServiceCredentials = sqliteTable('user_service_credentials', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: text('user_id').notNull(),

@@ -16,7 +16,7 @@
 
 import type { ServiceAdapter } from './base';
 import { jellyfinAdapter } from './jellyfin';
-import { kavitaAdapter } from './kavita';
+import { calibreAdapter } from './calibre';
 import { lidarrAdapter } from './lidarr';
 import { overseerrAdapter } from './overseerr';
 import { prowlarrAdapter } from './prowlarr';
@@ -57,7 +57,7 @@ class AdapterRegistry {
 // Build and export the singleton registry
 export const registry = new AdapterRegistry()
 	.register(jellyfinAdapter)
-	.register(kavitaAdapter)
+	.register(calibreAdapter)
 	.register(rommAdapter)
 	.register(overseerrAdapter)
 	.register(radarrAdapter)

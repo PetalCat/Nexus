@@ -80,7 +80,7 @@
 	);
 
 	const serviceColors: Record<string, string> = {
-		jellyfin: '#00a4dc', kavita: '#7b68ee', romm: '#e84393', overseerr: '#f59e0b',
+		jellyfin: '#00a4dc', calibre: '#7b68ee', romm: '#e84393', overseerr: '#f59e0b',
 		radarr: '#fbbf24', sonarr: '#00d4aa', lidarr: '#1db954', prowlarr: '#ef4444',
 		streamystats: '#b088f9'
 	};
@@ -121,7 +121,7 @@
 			// Check if this is a user-linkable service — if so, prompt admin to link their account
 			const adapter = data.available.find((a) => a.id === form.type);
 			const isLinkable = adapter && (adapter as any).userLinkable !== false &&
-				['jellyfin', 'kavita', 'overseerr', 'romm'].includes(form.type);
+				['jellyfin', 'calibre', 'overseerr', 'romm'].includes(form.type);
 			const savedId = form.id;
 			const savedName = form.name;
 
@@ -438,7 +438,7 @@
 			</div>
 			<p class="mb-4 text-xs text-[var(--color-subtle)]">
 				{#if data.isAdmin}
-					Configure the backend services Nexus connects to — Jellyfin, Overseerr, Kavita, etc. These settings affect all users.
+					Configure the backend services Nexus connects to — Jellyfin, Overseerr, Calibre, etc. These settings affect all users.
 				{:else}
 					Services your admin has connected to Nexus. Go to <strong>My Accounts</strong> to link your personal credentials.
 				{/if}
@@ -968,7 +968,7 @@
 			{#if data.linkableServices.length === 0}
 				<div class="card py-12 text-center">
 					<p class="text-sm text-[var(--color-muted)]">No user-linkable services configured yet.</p>
-					<p class="text-xs text-[var(--color-subtle)] mt-1">Ask your admin to add Jellyfin, Overseerr, or Kavita.</p>
+					<p class="text-xs text-[var(--color-subtle)] mt-1">Ask your admin to add Jellyfin, Overseerr, or Calibre.</p>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-2">

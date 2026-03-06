@@ -41,7 +41,7 @@ export const MEDIA_EVENTS = {
 	REQUEST: 'request',
 	DETAIL_VIEW: 'detail_view',
 
-	// Reading (future: Kavita replacement, Bookshelf, etc.)
+	// Reading (Calibre-Web, etc.)
 	READ_START: 'read_start',
 	READ_STOP: 'read_stop',
 	READ_PROGRESS: 'read_progress',
@@ -100,7 +100,7 @@ export const MEDIA_TYPES = {
 /** Known service types — mirrors adapter registry */
 export const SERVICE_TYPES = {
 	JELLYFIN: 'jellyfin',
-	KAVITA: 'kavita',
+	CALIBRE: 'calibre',
 	ROMM: 'romm',
 	OVERSEERR: 'overseerr',
 	STREAMYSTATS: 'streamystats',

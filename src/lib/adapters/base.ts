@@ -30,7 +30,7 @@ export interface ServiceAdapter {
 
 	/**
 	 * Whether individual users can/should link their own accounts.
-	 * - true  → user-level service (Jellyfin, Overseerr, Kavita, RomM)
+	 * - true  → user-level service (Jellyfin, Overseerr, Calibre, RomM)
 	 * - false / undefined → server-level only (Radarr, Sonarr, etc.)
 	 */
 	readonly userLinkable?: boolean;

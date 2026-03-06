@@ -14,7 +14,7 @@
 	const seasons = $derived((data as any).seasons ?? []);
 	const selectedSeason = $derived((data as any).selectedSeason as number | null);
 	const autoplay = $derived($page.url.searchParams.get('play') === '1');
-	const inLibrary = $derived(data.serviceType === 'jellyfin' || data.serviceType === 'kavita' || data.serviceType === 'romm');
+	const inLibrary = $derived(data.serviceType === 'jellyfin' || data.serviceType === 'calibre' || data.serviceType === 'romm');
 
 	const typeLabel: Record<string, string> = {
 		movie: 'Movie',
