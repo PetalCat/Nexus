@@ -114,7 +114,7 @@ function buildStreamUrl(config: ServiceConfig, item: any): string | undefined {
 // Normalisation
 // ---------------------------------------------------------------------------
 
-const FIELDS = 'Overview,Genres,Studios,BackdropImageTags,ImageTags,UserData,ParentId,SeriesId,SeriesName,ParentIndexNumber,IndexNumber';
+const FIELDS = 'Overview,Genres,Studios,BackdropImageTags,ImageTags,UserData,ParentId,SeriesId,SeriesName,ParentIndexNumber,IndexNumber,AlbumArtist,Artists,ArtistItems,Album,AlbumId';
 
 function mediaType(jfType: string): UnifiedMedia['type'] {
 	switch (jfType) {
@@ -227,7 +227,17 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 			officialRating,
 			criticRating,
 			taglines: item.Taglines ?? [],
-			endDate: item.EndDate
+			endDate: item.EndDate,
+			// Music-specific fields
+			artist: item.AlbumArtist ?? item.Artists?.[0] ?? item.ArtistItems?.[0]?.Name,
+			artistId: item.ArtistItems?.[0]?.Id,
+			albumId: item.AlbumId,
+			albumName: item.Album,
+			trackNumber: item.IndexNumber,
+			discNumber: item.ParentIndexNumber,
+			artistImageUrl: item.ArtistItems?.[0]?.Id
+				? `${config.url}/Items/${item.ArtistItems[0].Id}/Images/Primary?quality=90&maxWidth=300`
+				: undefined
 		},
 		actionLabel: type === 'music' || type === 'album' ? 'Listen' : 'Watch',
 		actionUrl: `${config.url}/web/index.html#!/details?id=${item.Id}`,
@@ -268,6 +278,138 @@ export async function getSeasons(
 			imageUrl: s.ImageTags?.Primary ? posterUrl(config, s.Id) : undefined,
 			unplayedCount: s.UserData?.UnplayedItemCount ?? 0
 		}));
+	} catch {
+		return [];
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Music helpers (exported for use by music API)
+// ---------------------------------------------------------------------------
+
+export async function getAlbums(
+	config: ServiceConfig,
+	userCred?: UserCredential,
+	opts?: { genre?: string; artistId?: string; sort?: string; limit?: number; offset?: number }
+): Promise<{ items: UnifiedMedia[]; total: number }> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const params: Record<string, string> = {
+			IncludeItemTypes: 'MusicAlbum',
+			Recursive: 'true',
+			SortBy: opts?.sort === 'year' ? 'ProductionYear' : opts?.sort === 'rating' ? 'CommunityRating' : opts?.sort === 'added' ? 'DateCreated' : 'SortName',
+			SortOrder: opts?.sort === 'year' || opts?.sort === 'added' ? 'Descending' : 'Ascending',
+			Limit: String(opts?.limit ?? 50),
+			StartIndex: String(opts?.offset ?? 0),
+			Fields: FIELDS,
+			EnableUserData: 'true',
+			EnableImages: 'true'
+		};
+		if (opts?.genre) params.Genres = opts.genre;
+		if (opts?.artistId) params.ArtistIds = opts.artistId;
+
+		const data = await jfFetchUser(config, `/Users/${userId}/Items`, params, userCred);
+		return {
+			items: (data.Items ?? []).map((i: unknown) => normalize(config, i)),
+			total: data.TotalRecordCount ?? 0
+		};
+	} catch {
+		return { items: [], total: 0 };
+	}
+}
+
+export async function getAlbumTracks(
+	config: ServiceConfig,
+	albumId: string,
+	userCred?: UserCredential
+): Promise<UnifiedMedia[]> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const data = await jfFetchUser(config, `/Users/${userId}/Items`, {
+			ParentId: albumId,
+			IncludeItemTypes: 'Audio',
+			SortBy: 'ParentIndexNumber,IndexNumber',
+			SortOrder: 'Ascending',
+			Fields: FIELDS,
+			EnableUserData: 'true'
+		}, userCred);
+		return (data.Items ?? []).map((i: unknown) => normalize(config, i));
+	} catch {
+		return [];
+	}
+}
+
+export async function getArtists(
+	config: ServiceConfig,
+	userCred?: UserCredential,
+	opts?: { sort?: string; limit?: number; offset?: number }
+): Promise<{ items: Array<{ id: string; name: string; sortName?: string; albumCount: number; imageUrl?: string; backdrop?: string; genres?: string[]; overview?: string }>; total: number }> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const data = await jfFetchUser(config, '/Artists', {
+			userId,
+			SortBy: opts?.sort === 'album-count' ? 'AlbumCount' : 'SortName',
+			SortOrder: opts?.sort === 'album-count' ? 'Descending' : 'Ascending',
+			Limit: String(opts?.limit ?? 50),
+			StartIndex: String(opts?.offset ?? 0),
+			Fields: 'Overview,Genres,ImageTags,BackdropImageTags',
+			EnableImages: 'true'
+		}, userCred);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const items = (data.Items ?? []).map((a: any) => ({
+			id: a.Id,
+			name: a.Name ?? 'Unknown Artist',
+			sortName: a.SortName,
+			albumCount: a.AlbumCount ?? a.ChildCount ?? 0,
+			imageUrl: a.ImageTags?.Primary ? `${config.url}/Items/${a.Id}/Images/Primary?quality=90&maxWidth=300` : undefined,
+			backdrop: (a.BackdropImageTags?.length ?? 0) > 0 ? `${config.url}/Items/${a.Id}/Images/Backdrop/0?quality=90&maxWidth=1920` : undefined,
+			genres: a.Genres ?? [],
+			overview: a.Overview
+		}));
+		return { items, total: data.TotalRecordCount ?? 0 };
+	} catch {
+		return { items: [], total: 0 };
+	}
+}
+
+export async function getArtistAlbums(
+	config: ServiceConfig,
+	artistId: string,
+	userCred?: UserCredential
+): Promise<UnifiedMedia[]> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const data = await jfFetchUser(config, `/Users/${userId}/Items`, {
+			ArtistIds: artistId,
+			IncludeItemTypes: 'MusicAlbum',
+			Recursive: 'true',
+			SortBy: 'ProductionYear',
+			SortOrder: 'Descending',
+			Fields: FIELDS,
+			EnableUserData: 'true',
+			EnableImages: 'true'
+		}, userCred);
+		return (data.Items ?? []).map((i: unknown) => normalize(config, i));
+	} catch {
+		return [];
+	}
+}
+
+export async function getInstantMix(
+	config: ServiceConfig,
+	itemId: string,
+	userCred?: UserCredential,
+	limit = 20
+): Promise<UnifiedMedia[]> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const data = await jfFetchUser(config, `/Items/${itemId}/InstantMix`, {
+			userId,
+			Limit: String(limit),
+			Fields: FIELDS,
+			EnableUserData: 'true'
+		}, userCred);
+		return (data.Items ?? []).map((i: unknown) => normalize(config, i));
 	} catch {
 		return [];
 	}

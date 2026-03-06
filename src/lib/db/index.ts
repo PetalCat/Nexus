@@ -321,6 +321,36 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	safeAddColumn('watch_sessions', 'invited_ids', 'TEXT');
 	safeAddColumn('session_participants', 'voice_active', 'INTEGER NOT NULL DEFAULT 0');
 
+	// ── Music tables ────────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS music_liked_tracks (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		track_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_music_liked_unique ON music_liked_tracks(user_id, track_id, service_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS music_playlists (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_music_playlists_user ON music_playlists(user_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS music_playlist_tracks (
+		id TEXT PRIMARY KEY,
+		playlist_id TEXT NOT NULL,
+		track_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		position INTEGER NOT NULL DEFAULT 0,
+		added_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_music_playlist_tracks_playlist ON music_playlist_tracks(playlist_id, position)`);
+
 	// ── App settings ────────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,

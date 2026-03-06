@@ -50,6 +50,106 @@ function normalizeAlbum(config: ServiceConfig, item: any): UnifiedMedia {
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Enrichment helpers (admin API key, no per-user auth)
+// ---------------------------------------------------------------------------
+
+export async function getLidarrArtists(config: ServiceConfig): Promise<Array<{
+	id: number;
+	name: string;
+	foreignArtistId: string;
+	overview?: string;
+	monitored: boolean;
+	albumCount: number;
+	imageUrl?: string;
+}>> {
+	try {
+		const data = await lidarrFetch(config, '/artist');
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return (data ?? []).map((a: any) => ({
+			id: a.id,
+			name: a.artistName,
+			foreignArtistId: a.foreignArtistId,
+			overview: a.overview,
+			monitored: a.monitored ?? false,
+			albumCount: a.statistics?.albumCount ?? 0,
+			imageUrl: a.images?.find((i: { coverType: string }) => i.coverType === 'poster')?.remoteUrl
+		}));
+	} catch {
+		return [];
+	}
+}
+
+export async function getLidarrAlbums(config: ServiceConfig, artistId?: number): Promise<Array<{
+	id: number;
+	title: string;
+	artistName: string;
+	foreignAlbumId: string;
+	monitored: boolean;
+	percentAvailable: number;
+	trackCount: number;
+	missingTracks: number;
+	releaseDate?: string;
+}>> {
+	try {
+		const path = artistId ? `/album?artistId=${artistId}` : '/album';
+		const data = await lidarrFetch(config, path);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return (data ?? []).map((a: any) => ({
+			id: a.id,
+			title: a.title,
+			artistName: a.artist?.artistName ?? '',
+			foreignAlbumId: a.foreignAlbumId,
+			monitored: a.monitored ?? false,
+			percentAvailable: a.statistics?.percentOfTracks ?? 0,
+			trackCount: a.statistics?.totalTrackCount ?? 0,
+			missingTracks: (a.statistics?.totalTrackCount ?? 0) - (a.statistics?.trackFileCount ?? 0),
+			releaseDate: a.releaseDate
+		}));
+	} catch {
+		return [];
+	}
+}
+
+export async function getLidarrWanted(config: ServiceConfig, opts?: { limit?: number; offset?: number }): Promise<{
+	items: Array<{ albumTitle: string; artistName: string; monitored: boolean; releaseDate?: string }>;
+	total: number;
+}> {
+	try {
+		const data = await lidarrFetch(config, `/wanted/missing?page=1&pageSize=${opts?.limit ?? 20}&sortKey=releaseDate&sortDirection=descending`);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const items = (data.records ?? []).map((r: any) => ({
+			albumTitle: r.title,
+			artistName: r.artist?.artistName ?? '',
+			monitored: r.monitored ?? false,
+			releaseDate: r.releaseDate
+		}));
+		return { items, total: data.totalRecords ?? 0 };
+	} catch {
+		return { items: [], total: 0 };
+	}
+}
+
+export async function getLidarrQueue(config: ServiceConfig): Promise<Array<{
+	albumTitle: string;
+	artistName: string;
+	status: string;
+	progress: number;
+}>> {
+	try {
+		const data = await lidarrFetch(config, '/queue');
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return (data.records ?? []).map((r: any) => ({
+			albumTitle: r.album?.title ?? r.title ?? '',
+			artistName: r.artist?.artistName ?? '',
+			status: r.status ?? 'unknown',
+			progress: r.sizeleft && r.size ? Math.round(((r.size - r.sizeleft) / r.size) * 100) : 0
+		}));
+	} catch {
+		return [];
+	}
+}
+
 export const lidarrAdapter: ServiceAdapter = {
 	id: 'lidarr',
 	displayName: 'Lidarr',
