@@ -40,6 +40,46 @@ async function rommFetch(config: ServiceConfig, path: string, userCred?: UserCre
 }
 
 // ---------------------------------------------------------------------------
+// Field normalization helpers
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeHltb(raw: any): { main?: number; extra?: number; completionist?: number } | undefined {
+	if (!raw) return undefined;
+	// RomM stores HLTB times in centiseconds (from HLTB API)
+	// Convert to minutes for display
+	const toMinutes = (cs?: number) => cs && cs > 0 ? Math.round(cs / 6000) : undefined;
+	const result = {
+		main: toMinutes(raw.main_story),
+		extra: toMinutes(raw.main_plus_extra),
+		completionist: toMinutes(raw.completionist)
+	};
+	return (result.main || result.extra || result.completionist) ? result : undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeRA(raw: any): { achievements: Array<{ title: string; description?: string; badge_url?: string; points?: number }>; completion_percentage?: number } | undefined {
+	if (!raw) return undefined;
+	// merged_ra_metadata may be an object with achievements array, or progression data
+	const achievements = (raw.achievements ?? raw.ra_metadata?.achievements ?? [])
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		.map((a: any) => ({
+			title: a.title ?? 'Unknown',
+			description: a.description,
+			badge_url: a.badge_url,
+			points: a.points
+		}));
+	// Progression: num_awarded / max_possible
+	let completion_percentage: number | undefined;
+	if (raw.num_awarded != null && raw.max_possible != null && raw.max_possible > 0) {
+		completion_percentage = Math.round((raw.num_awarded / raw.max_possible) * 100);
+	}
+	return achievements.length > 0 || completion_percentage != null
+		? { achievements, completion_percentage }
+		: undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Normalize
 // ---------------------------------------------------------------------------
 
@@ -92,9 +132,10 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 			fileSize: item.fs_size_bytes ?? item.file_size_bytes,
 			regions: item.regions,
 			userStatus: item.rom_user?.status,
+			is_favorited: item.rom_user?.is_favorited ?? false,
 			lastPlayed: item.rom_user?.last_played,
-			retroAchievements: item.merged_ra_metadata,
-			hltb: item.hltb_metadata,
+			retroAchievements: normalizeRA(item.merged_ra_metadata),
+			hltb: normalizeHltb(item.hltb_metadata),
 			fileName: item.fs_name,
 			tags: item.tags
 		},
@@ -347,7 +388,7 @@ export const rommAdapter: ServiceAdapter = {
 
 			let url = `/roms?limit=${limit}&offset=${offset}&order_by=${orderBy}&order_dir=${orderDir}`;
 
-			const platformId = (opts as any)?.platformId;
+			const platformId = opts?.platformId;
 			if (platformId) {
 				url += `&platform_id=${platformId}`;
 			}

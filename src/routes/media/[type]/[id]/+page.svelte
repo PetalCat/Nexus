@@ -30,7 +30,7 @@
 	const isGame = $derived(item.type === 'game');
 	const gamePlatform = $derived((item.metadata?.platform as string) ?? '');
 	const gameHltb = $derived(item.metadata?.hltb as { main?: number; extra?: number; completionist?: number } | undefined);
-	const gameRA = $derived(item.metadata?.retroAchievements as { achievements?: Array<{ title: string; description?: string; badge_url?: string }>; completion_percentage?: number } | undefined);
+	const gameRA = $derived(item.metadata?.retroAchievements as { achievements?: Array<{ title: string; description?: string; badge_url?: string; points?: number }>; completion_percentage?: number } | undefined);
 	const gameStatus = $derived((item.metadata?.userStatus as string) ?? '');
 	const gameFileSize = $derived(item.metadata?.fileSize as number | undefined);
 	const gameRegions = $derived((item.metadata?.regions as string[]) ?? []);
@@ -799,6 +799,9 @@
 										</div>
 									{/if}
 									<span class="ra-title">{ach.title}</span>
+									{#if ach.points}
+										<span class="ra-points">{ach.points} pts</span>
+									{/if}
 									{#if ach.description}
 										<span class="ra-desc">{ach.description}</span>
 									{/if}
@@ -1624,6 +1627,10 @@
 		color: var(--color-text); line-height: 1.25;
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 2; overflow: hidden;
+	}
+	.ra-points {
+		font-size: 0.55rem; font-weight: 700;
+		color: #f59e0b;
 	}
 	.ra-desc {
 		font-size: 0.58rem; color: var(--color-muted);

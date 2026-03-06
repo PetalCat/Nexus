@@ -59,7 +59,7 @@ export interface ServiceAdapter {
 	/** Browse library items — paginated, optionally filtered by media type */
 	getLibrary?(
 		config: ServiceConfig,
-		opts?: { type?: string; limit?: number; offset?: number; sortBy?: string },
+		opts?: { type?: string; limit?: number; offset?: number; sortBy?: string; platformId?: number },
 		userCred?: UserCredential
 	): Promise<{ items: UnifiedMedia[]; total: number }>;
 
