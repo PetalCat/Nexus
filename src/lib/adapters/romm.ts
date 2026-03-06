@@ -152,6 +152,113 @@ export async function getCollections(config: ServiceConfig, userCred?: UserCrede
 }
 
 // ---------------------------------------------------------------------------
+// Game detail helpers (saves, states, screenshots, user status)
+// ---------------------------------------------------------------------------
+
+export interface RommSave {
+	id: number;
+	rom_id: number;
+	file_name: string;
+	file_size_bytes: number;
+	screenshot_url?: string;
+	created_at: string;
+	updated_at: string;
+	emulator?: string;
+}
+
+export interface RommState {
+	id: number;
+	rom_id: number;
+	file_name: string;
+	file_size_bytes: number;
+	screenshot_url?: string;
+	created_at: string;
+	updated_at: string;
+	emulator?: string;
+}
+
+export interface RommScreenshot {
+	id: number;
+	rom_id: number;
+	file_name: string;
+	url: string;
+	created_at: string;
+}
+
+export async function getRomSaves(config: ServiceConfig, romId: string | number, userCred?: UserCredential): Promise<RommSave[]> {
+	try {
+		const data = await rommFetch(config, `/roms/${romId}/saves`, userCred);
+		const saves = Array.isArray(data) ? data : data?.items ?? [];
+		return saves.map((s: RommSave) => ({
+			...s,
+			screenshot_url: s.screenshot_url ?? (s.id ? `${config.url}/api/saves/${s.id}/screenshot` : undefined)
+		}));
+	} catch {
+		return [];
+	}
+}
+
+export async function getRomStates(config: ServiceConfig, romId: string | number, userCred?: UserCredential): Promise<RommState[]> {
+	try {
+		const data = await rommFetch(config, `/roms/${romId}/states`, userCred);
+		const states = Array.isArray(data) ? data : data?.items ?? [];
+		return states.map((s: RommState) => ({
+			...s,
+			screenshot_url: s.screenshot_url ?? (s.id ? `${config.url}/api/states/${s.id}/screenshot` : undefined)
+		}));
+	} catch {
+		return [];
+	}
+}
+
+export async function getRomScreenshots(config: ServiceConfig, romId: string | number, userCred?: UserCredential): Promise<RommScreenshot[]> {
+	try {
+		const data = await rommFetch(config, `/roms/${romId}/screenshots`, userCred);
+		return Array.isArray(data) ? data : data?.items ?? [];
+	} catch {
+		return [];
+	}
+}
+
+export async function updateUserRomStatus(
+	config: ServiceConfig,
+	romId: string | number,
+	status: string,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		await rommFetch(config, `/roms/${romId}/user`, userCred, {
+			method: 'PUT',
+			body: JSON.stringify({ status })
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function toggleRomFavorite(
+	config: ServiceConfig,
+	romId: string | number,
+	favorite: boolean,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		await rommFetch(config, `/roms/${romId}/user`, userCred, {
+			method: 'PUT',
+			body: JSON.stringify({ is_favorited: favorite })
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function getRomDownloadUrl(config: ServiceConfig, romId: string | number): string {
+	return `${config.url}/api/roms/${romId}/content`;
+}
+
+// ---------------------------------------------------------------------------
 // Sort mapping
 // ---------------------------------------------------------------------------
 

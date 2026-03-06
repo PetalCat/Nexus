@@ -36,6 +36,66 @@
 	const gameRegions = $derived((item.metadata?.regions as string[]) ?? []);
 	const gameTags = $derived((item.metadata?.tags as string[]) ?? []);
 
+	// Game detail tabs: saves, states, screenshots
+	const gameSaves = $derived((data as any).gameSaves ?? []);
+	const gameStates = $derived((data as any).gameStates ?? []);
+	const gameScreenshots = $derived((data as any).gameScreenshots ?? []);
+	const hasGameExtras = $derived(isGame && (gameSaves.length > 0 || gameStates.length > 0 || gameScreenshots.length > 0));
+
+	let gameTab = $state<'overview' | 'saves' | 'screenshots' | 'files'>('overview');
+	let currentGameStatus = $state('');
+	let isFavorited = $state(false);
+
+	$effect(() => {
+		currentGameStatus = gameStatus;
+		isFavorited = !!(item.metadata?.is_favorited);
+	});
+
+	const gameStatusOptions = ['', 'playing', 'finished', 'completed', 'retired', 'wishlist', 'backlog'];
+
+	async function setGameStatus(status: string) {
+		currentGameStatus = status;
+		try {
+			await fetch(`/api/games/${item.sourceId}/status?serviceId=${item.serviceId}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status: status || null })
+			});
+		} catch { /* silent */ }
+	}
+
+	async function toggleFavorite() {
+		isFavorited = !isFavorited;
+		try {
+			await fetch(`/api/games/${item.sourceId}/favorite?serviceId=${item.serviceId}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ favorite: isFavorited })
+			});
+		} catch { /* silent */ }
+	}
+
+	function formatSaveTime(dateStr: string) {
+		const d = new Date(dateStr);
+		const diff = Date.now() - d.getTime();
+		const mins = Math.floor(diff / 60000);
+		if (mins < 60) return `${mins}m ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours}h ago`;
+		const days = Math.floor(hours / 24);
+		return `${days}d ago`;
+	}
+
+	let hashCopied = $state(false);
+	function copyHash() {
+		const hash = item.metadata?.hash as string;
+		if (hash) {
+			navigator.clipboard.writeText(hash);
+			hashCopied = true;
+			setTimeout(() => (hashCopied = false), 2000);
+		}
+	}
+
 	function formatFileSize(bytes?: number) {
 		if (!bytes) return null;
 		if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
@@ -609,21 +669,246 @@
 
 		<!-- ─── GAME-SPECIFIC SECTIONS ─── -->
 		{#if isGame}
-			<!-- Game Info Bar -->
-			{#if gamePlatform || gameStatus || gameFileSize}
+			<!-- Game controls: status + favorite -->
+			<section class="sect">
+				<div class="flex flex-wrap items-center gap-3 mb-4">
+					{#if gamePlatform}
+						<span class="game-platform-badge">{gamePlatform}</span>
+					{/if}
+					<select
+						class="game-status-select"
+						value={currentGameStatus}
+						onchange={(e) => setGameStatus((e.target as HTMLSelectElement).value)}
+					>
+						<option value="">Set status...</option>
+						{#each gameStatusOptions.filter(s => s) as s}
+							<option value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
+						{/each}
+					</select>
+					<button class="game-fav-btn" class:game-fav-btn--active={isFavorited} onclick={toggleFavorite} title="Toggle favorite">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorited ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+					</button>
+				</div>
+			</section>
+
+			<!-- Game tabs -->
+			{#if hasGameExtras}
+				<div class="game-tabs">
+					<button class="game-tab" class:game-tab--active={gameTab === 'overview'} onclick={() => (gameTab = 'overview')}>Overview</button>
+					{#if gameSaves.length > 0 || gameStates.length > 0}
+						<button class="game-tab" class:game-tab--active={gameTab === 'saves'} onclick={() => (gameTab = 'saves')}>
+							Saves
+							<span class="game-tab-count">{gameSaves.length + gameStates.length}</span>
+						</button>
+					{/if}
+					{#if gameScreenshots.length > 0}
+						<button class="game-tab" class:game-tab--active={gameTab === 'screenshots'} onclick={() => (gameTab = 'screenshots')}>
+							Screenshots
+							<span class="game-tab-count">{gameScreenshots.length}</span>
+						</button>
+					{/if}
+					<button class="game-tab" class:game-tab--active={gameTab === 'files'} onclick={() => (gameTab = 'files')}>Files</button>
+				</div>
+			{/if}
+
+			{#if gameTab === 'overview' || !hasGameExtras}
+				<!-- Game Info Bar -->
+				{#if gamePlatform || gameFileSize || gameRegions.length > 0}
+					<section class="sect">
+						<h2 class="sect__title" style="margin-bottom:0.75rem">Game Info</h2>
+						<div class="game-info-grid">
+							{#if gamePlatform}
+								<div class="game-info-card">
+									<span class="game-info-label">Platform</span>
+									<span class="game-info-value">{gamePlatform}</span>
+								</div>
+							{/if}
+							{#if currentGameStatus}
+								<div class="game-info-card">
+									<span class="game-info-label">Status</span>
+									<span class="game-info-value game-status game-status--{currentGameStatus}">{currentGameStatus}</span>
+								</div>
+							{/if}
+							{#if gameFileSize}
+								<div class="game-info-card">
+									<span class="game-info-label">File Size</span>
+									<span class="game-info-value">{formatFileSize(gameFileSize)}</span>
+								</div>
+							{/if}
+							{#if gameRegions.length > 0}
+								<div class="game-info-card">
+									<span class="game-info-label">Region</span>
+									<span class="game-info-value">{gameRegions.join(', ')}</span>
+								</div>
+							{/if}
+							{#if gameTags.length > 0}
+								<div class="game-info-card">
+									<span class="game-info-label">Tags</span>
+									<span class="game-info-value">{gameTags.join(', ')}</span>
+								</div>
+							{/if}
+						</div>
+					</section>
+				{/if}
+
+				<!-- HLTB -->
+				{#if gameHltb && (gameHltb.main || gameHltb.extra || gameHltb.completionist)}
+					<section class="sect">
+						<h2 class="sect__title" style="margin-bottom:0.75rem">How Long to Beat</h2>
+						<div class="hltb-grid">
+							{#if gameHltb.main}
+								<div class="hltb-card">
+									<span class="hltb-time">{formatHltbTime(gameHltb.main)}</span>
+									<span class="hltb-label">Main Story</span>
+								</div>
+							{/if}
+							{#if gameHltb.extra}
+								<div class="hltb-card">
+									<span class="hltb-time">{formatHltbTime(gameHltb.extra)}</span>
+									<span class="hltb-label">Main + Extra</span>
+								</div>
+							{/if}
+							{#if gameHltb.completionist}
+								<div class="hltb-card">
+									<span class="hltb-time">{formatHltbTime(gameHltb.completionist)}</span>
+									<span class="hltb-label">Completionist</span>
+								</div>
+							{/if}
+						</div>
+					</section>
+				{/if}
+
+				<!-- RetroAchievements -->
+				{#if gameRA && gameRA.achievements && gameRA.achievements.length > 0}
+					<section class="sect">
+						<h2 class="sect__title" style="margin-bottom:0.75rem">
+							RetroAchievements
+							{#if gameRA.completion_percentage != null}
+								<span class="ra-completion">{gameRA.completion_percentage}%</span>
+							{/if}
+							<span class="sect__count">{gameRA.achievements.length} achievements</span>
+						</h2>
+						<div class="ra-scroll">
+							{#each gameRA.achievements as ach}
+								<div class="ra-card">
+									{#if ach.badge_url}
+										<img src={ach.badge_url} alt="" class="ra-badge" />
+									{:else}
+										<div class="ra-badge ra-badge--empty">
+											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></svg>
+										</div>
+									{/if}
+									<span class="ra-title">{ach.title}</span>
+									{#if ach.description}
+										<span class="ra-desc">{ach.description}</span>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</section>
+				{/if}
+			{/if}
+
+			<!-- Saves tab -->
+			{#if gameTab === 'saves'}
 				<section class="sect">
-					<h2 class="sect__title" style="margin-bottom:0.75rem">Game Info</h2>
+					{#if gameStates.length > 0}
+						<h2 class="sect__title" style="margin-bottom:0.75rem">Save States</h2>
+						<div class="saves-grid">
+							{#each gameStates as state}
+								<div class="save-card">
+									<div class="save-thumb">
+										{#if state.screenshot_url}
+											<img src={state.screenshot_url} alt="" loading="lazy" />
+										{:else}
+											<div class="save-thumb-empty">
+												<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+											</div>
+										{/if}
+									</div>
+									<div class="save-info">
+										<span class="save-name">{state.file_name}</span>
+										<div class="save-meta">
+											<span class="save-type save-type--state">STATE</span>
+											<span>{formatSaveTime(state.updated_at || state.created_at)}</span>
+											{#if state.file_size_bytes}
+												<span>{formatFileSize(state.file_size_bytes)}</span>
+											{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if gameSaves.length > 0}
+						<h2 class="sect__title" style="margin-bottom:0.75rem; margin-top: {gameStates.length > 0 ? '1.5rem' : '0'}">Battery Saves (SRAM)</h2>
+						<div class="saves-grid">
+							{#each gameSaves as save}
+								<div class="save-card">
+									<div class="save-thumb">
+										{#if save.screenshot_url}
+											<img src={save.screenshot_url} alt="" loading="lazy" />
+										{:else}
+											<div class="save-thumb-empty">
+												<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01"/></svg>
+											</div>
+										{/if}
+									</div>
+									<div class="save-info">
+										<span class="save-name">{save.file_name}</span>
+										<div class="save-meta">
+											<span class="save-type save-type--sram">SRAM</span>
+											<span>{formatSaveTime(save.updated_at || save.created_at)}</span>
+											{#if save.file_size_bytes}
+												<span>{formatFileSize(save.file_size_bytes)}</span>
+											{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if gameSaves.length === 0 && gameStates.length === 0}
+						<div class="flex flex-col items-center justify-center py-12 text-center">
+							<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" stroke-width="1.5" opacity="0.3"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+							<p class="mt-3 text-sm text-[var(--color-muted)]">No saves found</p>
+						</div>
+					{/if}
+				</section>
+			{/if}
+
+			<!-- Screenshots tab -->
+			{#if gameTab === 'screenshots'}
+				<section class="sect">
+					<h2 class="sect__title" style="margin-bottom:0.75rem">Screenshots</h2>
+					{#if gameScreenshots.length > 0}
+						<div class="screenshots-grid">
+							{#each gameScreenshots as screenshot}
+								<a href={screenshot.url} target="_blank" rel="noopener" class="screenshot-card">
+									<img src={screenshot.url} alt={screenshot.file_name} loading="lazy" />
+								</a>
+							{/each}
+						</div>
+					{:else}
+						<div class="flex flex-col items-center justify-center py-12 text-center">
+							<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" stroke-width="1.5" opacity="0.3"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+							<p class="mt-3 text-sm text-[var(--color-muted)]">No screenshots</p>
+						</div>
+					{/if}
+				</section>
+			{/if}
+
+			<!-- Files tab -->
+			{#if gameTab === 'files'}
+				<section class="sect">
+					<h2 class="sect__title" style="margin-bottom:0.75rem">ROM Information</h2>
 					<div class="game-info-grid">
-						{#if gamePlatform}
-							<div class="game-info-card">
-								<span class="game-info-label">Platform</span>
-								<span class="game-info-value">{gamePlatform}</span>
-							</div>
-						{/if}
-						{#if gameStatus}
-							<div class="game-info-card">
-								<span class="game-info-label">Status</span>
-								<span class="game-info-value game-status game-status--{gameStatus}">{gameStatus}</span>
+						{#if item.metadata?.fileName}
+							<div class="game-info-card" style="grid-column: 1 / -1">
+								<span class="game-info-label">File Name</span>
+								<span class="game-info-value" style="word-break: break-all; font-size: 0.75rem">{item.metadata.fileName}</span>
 							</div>
 						{/if}
 						{#if gameFileSize}
@@ -638,69 +923,27 @@
 								<span class="game-info-value">{gameRegions.join(', ')}</span>
 							</div>
 						{/if}
-						{#if gameTags.length > 0}
+						{#if gamePlatform}
 							<div class="game-info-card">
-								<span class="game-info-label">Tags</span>
-								<span class="game-info-value">{gameTags.join(', ')}</span>
+								<span class="game-info-label">Platform</span>
+								<span class="game-info-value">{gamePlatform}</span>
 							</div>
 						{/if}
-					</div>
-				</section>
-			{/if}
-
-			<!-- HLTB -->
-			{#if gameHltb && (gameHltb.main || gameHltb.extra || gameHltb.completionist)}
-				<section class="sect">
-					<h2 class="sect__title" style="margin-bottom:0.75rem">How Long to Beat</h2>
-					<div class="hltb-grid">
-						{#if gameHltb.main}
-							<div class="hltb-card">
-								<span class="hltb-time">{formatHltbTime(gameHltb.main)}</span>
-								<span class="hltb-label">Main Story</span>
+						{#if item.metadata?.hash}
+							<div class="game-info-card" style="grid-column: 1 / -1">
+								<span class="game-info-label">MD5 Hash</span>
+								<div class="flex items-center gap-2">
+									<code class="game-info-value" style="font-size: 0.65rem; font-family: monospace; opacity: 0.7">{(item.metadata.hash as string).slice(0, 32)}</code>
+									<button class="game-copy-btn" onclick={copyHash} title="Copy hash">
+										{#if hashCopied}
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-pulsar)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+										{:else}
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+										{/if}
+									</button>
+								</div>
 							</div>
 						{/if}
-						{#if gameHltb.extra}
-							<div class="hltb-card">
-								<span class="hltb-time">{formatHltbTime(gameHltb.extra)}</span>
-								<span class="hltb-label">Main + Extra</span>
-							</div>
-						{/if}
-						{#if gameHltb.completionist}
-							<div class="hltb-card">
-								<span class="hltb-time">{formatHltbTime(gameHltb.completionist)}</span>
-								<span class="hltb-label">Completionist</span>
-							</div>
-						{/if}
-					</div>
-				</section>
-			{/if}
-
-			<!-- RetroAchievements -->
-			{#if gameRA && gameRA.achievements && gameRA.achievements.length > 0}
-				<section class="sect">
-					<h2 class="sect__title" style="margin-bottom:0.75rem">
-						RetroAchievements
-						{#if gameRA.completion_percentage != null}
-							<span class="ra-completion">{gameRA.completion_percentage}%</span>
-						{/if}
-						<span class="sect__count">{gameRA.achievements.length} achievements</span>
-					</h2>
-					<div class="ra-scroll">
-						{#each gameRA.achievements as ach}
-							<div class="ra-card">
-								{#if ach.badge_url}
-									<img src={ach.badge_url} alt="" class="ra-badge" />
-								{:else}
-									<div class="ra-badge ra-badge--empty">
-										<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></svg>
-									</div>
-								{/if}
-								<span class="ra-title">{ach.title}</span>
-								{#if ach.description}
-									<span class="ra-desc">{ach.description}</span>
-								{/if}
-							</div>
-						{/each}
 					</div>
 				</section>
 			{/if}
@@ -1388,4 +1631,158 @@
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 2; overflow: hidden;
 	}
+
+	/* ═══════════════════════════════════════
+	   GAME CONTROLS
+	   ═══════════════════════════════════════ */
+	.game-platform-badge {
+		font-size: 0.68rem; font-weight: 600;
+		padding: 0.25rem 0.65rem; border-radius: 100px;
+		background: var(--color-nebula-dim);
+		color: var(--color-nebula);
+		border: 1px solid color-mix(in oklch, var(--color-nebula) 30%, transparent);
+	}
+	.game-status-select {
+		font-size: 0.75rem; font-weight: 500;
+		padding: 0.3rem 0.6rem; border-radius: 8px;
+		background: var(--color-surface);
+		color: var(--color-text);
+		border: 1px solid var(--color-border);
+		cursor: pointer;
+		transition: border-color 0.15s;
+	}
+	.game-status-select:hover { border-color: var(--color-muted); }
+	.game-status-select:focus { border-color: var(--color-nebula); outline: none; }
+
+	.game-fav-btn {
+		display: flex; align-items: center; justify-content: center;
+		width: 2rem; height: 2rem; border-radius: 50%;
+		background: var(--color-surface); border: 1px solid var(--color-border);
+		color: var(--color-muted); cursor: pointer;
+		transition: all 0.15s;
+	}
+	.game-fav-btn:hover { color: var(--color-nova); border-color: var(--color-nova); }
+	.game-fav-btn--active { color: var(--color-nova); background: color-mix(in oklch, var(--color-nova) 12%, transparent); border-color: var(--color-nova); }
+
+	.game-copy-btn {
+		display: flex; align-items: center; justify-content: center;
+		padding: 0.25rem; border-radius: 4px; color: var(--color-muted);
+		transition: color 0.15s; cursor: pointer;
+	}
+	.game-copy-btn:hover { color: var(--color-text); }
+
+	/* ═══════════════════════════════════════
+	   GAME TABS
+	   ═══════════════════════════════════════ */
+	.game-tabs {
+		display: flex; gap: 0.25rem;
+		margin-bottom: 1rem;
+		padding: 0.25rem;
+		background: var(--color-surface);
+		border-radius: 10px;
+		border: 1px solid var(--color-border);
+	}
+	.game-tab {
+		flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+		padding: 0.45rem 0.75rem; border-radius: 8px;
+		font-size: 0.75rem; font-weight: 500;
+		color: var(--color-subtle); cursor: pointer;
+		transition: all 0.15s; white-space: nowrap;
+	}
+	.game-tab:hover { color: var(--color-text); }
+	.game-tab--active {
+		background: var(--color-raised);
+		color: var(--color-text);
+		box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+	}
+	.game-tab-count {
+		font-size: 0.6rem; font-weight: 600;
+		padding: 0.05rem 0.35rem; border-radius: 100px;
+		background: var(--color-nebula-dim);
+		color: var(--color-nebula);
+	}
+
+	/* ═══════════════════════════════════════
+	   SAVES
+	   ═══════════════════════════════════════ */
+	.saves-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		gap: 0.75rem;
+	}
+	.save-card {
+		border-radius: 10px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		overflow: hidden;
+		transition: border-color 0.2s;
+	}
+	.save-card:hover { border-color: var(--color-muted); }
+
+	.save-thumb {
+		aspect-ratio: 16 / 9;
+		background: var(--color-raised);
+		overflow: hidden;
+	}
+	.save-thumb img {
+		width: 100%; height: 100%;
+		object-fit: cover;
+		transition: transform 0.3s;
+	}
+	.save-card:hover .save-thumb img { transform: scale(1.05); }
+	.save-thumb-empty {
+		display: flex; align-items: center; justify-content: center;
+		width: 100%; height: 100%;
+		background: linear-gradient(135deg, var(--color-raised), var(--color-void));
+	}
+
+	.save-info {
+		padding: 0.5rem 0.65rem;
+	}
+	.save-name {
+		display: block; font-size: 0.72rem; font-weight: 500;
+		color: var(--color-text);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.save-meta {
+		display: flex; align-items: center; gap: 0.5rem;
+		margin-top: 0.25rem;
+		font-size: 0.62rem; color: var(--color-muted);
+	}
+	.save-type {
+		font-size: 0.55rem; font-weight: 700;
+		padding: 0.1rem 0.35rem; border-radius: 3px;
+		text-transform: uppercase;
+	}
+	.save-type--state {
+		background: color-mix(in oklch, var(--color-nebula) 15%, transparent);
+		color: var(--color-nebula);
+	}
+	.save-type--sram {
+		background: color-mix(in oklch, var(--color-pulsar) 15%, transparent);
+		color: var(--color-pulsar);
+	}
+
+	/* ═══════════════════════════════════════
+	   SCREENSHOTS
+	   ═══════════════════════════════════════ */
+	.screenshots-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+		gap: 0.5rem;
+	}
+	.screenshot-card {
+		aspect-ratio: 16 / 9;
+		border-radius: 8px;
+		overflow: hidden;
+		border: 1px solid var(--color-border);
+		transition: border-color 0.2s;
+	}
+	.screenshot-card:hover { border-color: var(--color-muted); }
+	.screenshot-card img {
+		width: 100%; height: 100%;
+		object-fit: cover;
+		transition: transform 0.3s;
+	}
+	.screenshot-card:hover img { transform: scale(1.03); }
 </style>
