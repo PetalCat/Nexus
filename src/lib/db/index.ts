@@ -336,6 +336,7 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		user_id TEXT NOT NULL,
 		name TEXT NOT NULL,
 		description TEXT,
+		is_collaborative INTEGER NOT NULL DEFAULT 0,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`);
@@ -350,6 +351,19 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		added_at INTEGER NOT NULL
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_music_playlist_tracks_playlist ON music_playlist_tracks(playlist_id, position)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS playlist_collaborators (
+		id TEXT PRIMARY KEY,
+		playlist_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'editor',
+		added_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_playlist_collaborators_playlist ON playlist_collaborators(playlist_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_playlist_collaborators_user ON playlist_collaborators(user_id)`);
+
+	// Add is_collaborative column to existing playlists (migration-safe)
+	try { db.run(`ALTER TABLE music_playlists ADD COLUMN is_collaborative INTEGER NOT NULL DEFAULT 0`); } catch { /* column exists */ }
 
 	// ── App settings ────────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS app_settings (

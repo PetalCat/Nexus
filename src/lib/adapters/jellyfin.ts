@@ -567,23 +567,38 @@ export const jellyfinAdapter: ServiceAdapter = {
 			const userId = await getUserId(config, userCred);
 			const data = await jfFetchUser(config, '/LiveTv/Channels', {
 				userId,
-				Limit: '100',
+				Limit: '500',
 				AddCurrentProgram: 'true',
-				EnableUserData: 'true'
+				EnableUserData: 'true',
+				SortBy: 'SortName'
 			}, userCred);
-			return (data.Items ?? []).map((ch: Record<string, unknown>) => ({
-				id: `${ch.Id}:${config.id}`,
-				sourceId: ch.Id as string,
-				serviceId: config.id,
-				serviceType: 'jellyfin',
-				type: 'live' as const,
-				title: ch.Name as string ?? 'Unknown',
-				poster: ch.Id ? posterUrl(config, ch.Id as string) : undefined,
-				status: 'available' as const,
-				metadata: { channelNumber: ch.ChannelNumber, currentProgram: (ch.CurrentProgram as Record<string, unknown>)?.Name },
-				actionLabel: 'Watch Live',
-				actionUrl: `${config.url}/web/index.html#!/livetv`
-			}));
+			return (data.Items ?? []).map((ch: Record<string, unknown>) => {
+				const cp = ch.CurrentProgram as Record<string, unknown> | undefined;
+				return {
+					id: `${ch.Id}:${config.id}`,
+					sourceId: ch.Id as string,
+					serviceId: config.id,
+					serviceType: 'jellyfin',
+					type: 'live' as const,
+					title: ch.Name as string ?? 'Unknown',
+					poster: ch.Id ? posterUrl(config, ch.Id as string) : undefined,
+					status: 'available' as const,
+					metadata: {
+						channelNumber: ch.ChannelNumber,
+						category: cp?.Genres ? (cp.Genres as string[])[0] : undefined,
+						callSign: ch.CallSign,
+						currentProgram: cp ? {
+							title: cp.Name as string,
+							description: cp.Overview as string | undefined,
+							genre: cp.Genres ? (cp.Genres as string[])[0] : undefined,
+							startDate: cp.StartDate as string | undefined,
+							endDate: cp.EndDate as string | undefined
+						} : undefined
+					},
+					actionLabel: 'Watch Live',
+					actionUrl: `${config.url}/web/index.html#!/livetv`
+				};
+			});
 		} catch {
 			return [];
 		}
@@ -699,3 +714,107 @@ export const jellyfinAdapter: ServiceAdapter = {
 		};
 	}
 };
+
+// ---------------------------------------------------------------------------
+// Exported Live TV / EPG helpers
+// ---------------------------------------------------------------------------
+
+export interface JellyfinProgram {
+	title: string;
+	description?: string;
+	startDate: string;
+	endDate: string;
+	duration: number; // minutes
+	genre?: string;
+	episodeTitle?: string;
+	isLive?: boolean;
+	isMovie?: boolean;
+	isSeries?: boolean;
+}
+
+/**
+ * Fetch the EPG program guide for a specific channel.
+ * Returns programs for the next 24 hours by default.
+ */
+export async function getChannelPrograms(
+	config: ServiceConfig,
+	channelId: string,
+	userCred?: UserCredential,
+	hoursAhead = 24
+): Promise<JellyfinProgram[]> {
+	const userId = await getUserId(config, userCred);
+	const now = new Date();
+	const end = new Date(now.getTime() + hoursAhead * 3_600_000);
+	const data = await jfFetchUser(config, '/LiveTv/Programs', {
+		UserId: userId,
+		ChannelIds: channelId,
+		MinStartDate: now.toISOString(),
+		MaxStartDate: end.toISOString(),
+		SortBy: 'StartDate',
+		SortOrder: 'Ascending',
+		Limit: '100',
+		EnableUserData: 'false',
+		Fields: 'Overview'
+	}, userCred);
+	return (data.Items ?? []).map((p: Record<string, unknown>) => {
+		const start = new Date(p.StartDate as string);
+		const stop = new Date(p.EndDate as string);
+		return {
+			title: p.Name as string,
+			description: p.Overview as string | undefined,
+			startDate: p.StartDate as string,
+			endDate: p.EndDate as string,
+			duration: Math.round((stop.getTime() - start.getTime()) / 60_000),
+			genre: p.Genres ? (p.Genres as string[])[0] : undefined,
+			episodeTitle: p.EpisodeTitle as string | undefined,
+			isLive: p.IsLive as boolean | undefined,
+			isMovie: p.IsMovie as boolean | undefined,
+			isSeries: p.IsSeries as boolean | undefined
+		};
+	});
+}
+
+/**
+ * Fetch the EPG guide for all channels (recommended programs view).
+ */
+export async function getLiveTvGuide(
+	config: ServiceConfig,
+	userCred?: UserCredential,
+	hoursAhead = 4
+): Promise<Record<string, JellyfinProgram[]>> {
+	const userId = await getUserId(config, userCred);
+	const now = new Date();
+	const end = new Date(now.getTime() + hoursAhead * 3_600_000);
+	const data = await jfFetchUser(config, '/LiveTv/Programs', {
+		UserId: userId,
+		MinStartDate: now.toISOString(),
+		MaxStartDate: end.toISOString(),
+		SortBy: 'StartDate',
+		SortOrder: 'Ascending',
+		Limit: '500',
+		EnableUserData: 'false',
+		Fields: 'Overview,ChannelInfo'
+	}, userCred);
+
+	const guide: Record<string, JellyfinProgram[]> = {};
+	for (const p of (data.Items ?? []) as Record<string, unknown>[]) {
+		const chId = p.ChannelId as string;
+		if (!chId) continue;
+		const start = new Date(p.StartDate as string);
+		const stop = new Date(p.EndDate as string);
+		const program: JellyfinProgram = {
+			title: p.Name as string,
+			description: p.Overview as string | undefined,
+			startDate: p.StartDate as string,
+			endDate: p.EndDate as string,
+			duration: Math.round((stop.getTime() - start.getTime()) / 60_000),
+			genre: p.Genres ? (p.Genres as string[])[0] : undefined,
+			episodeTitle: p.EpisodeTitle as string | undefined,
+			isLive: p.IsLive as boolean | undefined,
+			isMovie: p.IsMovie as boolean | undefined,
+			isSeries: p.IsSeries as boolean | undefined
+		};
+		(guide[chId] ??= []).push(program);
+	}
+	return guide;
+}

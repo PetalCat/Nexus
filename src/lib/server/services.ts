@@ -173,7 +173,7 @@ function resolveUserCred(config: ServiceConfig, userId?: string): UserCredential
 // ---------------------------------------------------------------------------
 
 /** Media-server adapter types (things the user actually owns). */
-const LIBRARY_TYPES = new Set(['jellyfin', 'calibre', 'romm']);
+const LIBRARY_TYPES = new Set(['jellyfin', 'calibre', 'romm', 'invidious']);
 
 export async function getDashboard(userId?: string): Promise<DashboardRow[]> {
 	const configs = getEnabledConfigs();

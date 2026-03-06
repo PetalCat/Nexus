@@ -1,0 +1,79 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { getEnabledConfigs } from '$lib/server/services';
+import { getUserCredentialForService } from '$lib/server/auth';
+import { getSearchSuggestions } from '$lib/adapters/invidious';
+import { getDb, schema } from '$lib/db';
+import { eq, desc, like } from 'drizzle-orm';
+
+// GET /api/search/suggestions?q=xxx
+// Returns suggestions from multiple sources (deduped, max 10)
+export const GET: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
+
+	const query = url.searchParams.get('q')?.trim();
+	if (!query || query.length < 1) {
+		return json({ suggestions: [] });
+	}
+
+	const allSuggestions: string[] = [];
+
+	// 1. Invidious search suggestions (if enabled)
+	const invConfigs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	if (invConfigs.length > 0) {
+		try {
+			const result = await getSearchSuggestions(invConfigs[0], query);
+			if (result?.suggestions) {
+				allSuggestions.push(...result.suggestions);
+			}
+		} catch {
+			// Invidious suggestions are best-effort
+		}
+	}
+
+	// 2. Recent search terms from interaction_events
+	const db = getDb();
+	const recentSearches = db
+		.select({ query: schema.interactionEvents.searchQuery })
+		.from(schema.interactionEvents)
+		.where(eq(schema.interactionEvents.eventType, 'search'))
+		.orderBy(desc(schema.interactionEvents.timestamp))
+		.limit(100)
+		.all();
+
+	const queryLower = query.toLowerCase();
+	for (const row of recentSearches) {
+		if (row.query && row.query.toLowerCase().startsWith(queryLower)) {
+			allSuggestions.push(row.query);
+		}
+	}
+
+	// 3. Title prefix matches from recent media_events
+	const recentMedia = db
+		.select({ title: schema.mediaEvents.mediaTitle })
+		.from(schema.mediaEvents)
+		.where(like(schema.mediaEvents.mediaTitle, `${query}%`))
+		.orderBy(desc(schema.mediaEvents.timestamp))
+		.limit(20)
+		.all();
+
+	for (const row of recentMedia) {
+		if (row.title) {
+			allSuggestions.push(row.title);
+		}
+	}
+
+	// Dedupe (case-insensitive) and limit to 10
+	const seen = new Set<string>();
+	const deduped: string[] = [];
+	for (const s of allSuggestions) {
+		const key = s.toLowerCase();
+		if (!seen.has(key)) {
+			seen.add(key);
+			deduped.push(s);
+			if (deduped.length >= 10) break;
+		}
+	}
+
+	return json({ suggestions: deduped });
+};

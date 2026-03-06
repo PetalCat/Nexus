@@ -3,141 +3,169 @@ import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, U
 import { withCache } from '../server/cache';
 
 // ---------------------------------------------------------------------------
-// Calibre-Web OPDS adapter
-// Uses Basic auth against the Calibre-Web OPDS feed (Atom XML).
+// Calibre-Web JSON API adapter
+// Uses session-cookie auth against Calibre-Web's /ajax/listbooks endpoint.
 // ---------------------------------------------------------------------------
 
-function authHeader(config: ServiceConfig, userCred?: UserCredential): string {
-	const user = userCred?.externalUsername ?? config.username ?? '';
-	const pass = userCred?.accessToken ?? config.password ?? '';
-	return 'Basic ' + btoa(`${user}:${pass}`);
+interface CalibreSession {
+	cookie: string;
+	expiresAt: number;
 }
 
-async function calibreFetch(config: ServiceConfig, path: string, userCred?: UserCredential): Promise<string> {
-	const url = `${config.url}${path}`;
-	const res = await fetch(url, {
-		headers: { Authorization: authHeader(config, userCred) },
+const sessionCache = new Map<string, CalibreSession>();
+
+async function getSession(config: ServiceConfig, userCred?: UserCredential): Promise<string> {
+	const user = userCred?.externalUsername ?? config.username ?? '';
+	const pass = userCred?.accessToken ?? config.password ?? '';
+	const cacheKey = `${config.id}:${user}`;
+
+	const cached = sessionCache.get(cacheKey);
+	if (cached && cached.expiresAt > Date.now()) return cached.cookie;
+
+	// Step 1: GET /login to get CSRF token + session cookie
+	const loginPage = await fetch(`${config.url}/login`, {
+		redirect: 'manual',
+		signal: AbortSignal.timeout(8000)
+	});
+	const html = await loginPage.text();
+	const csrfMatch = html.match(/name="csrf_token"\s+value="([^"]+)"/);
+	if (!csrfMatch) throw new Error('Could not find CSRF token on login page');
+	const csrf = csrfMatch[1];
+
+	// Extract session cookie from login page response
+	const setCookies = loginPage.headers.getSetCookie?.() ?? [];
+	const sessionCookie = setCookies.find(c => c.startsWith('session='));
+	const cookieVal = sessionCookie?.split(';')[0] ?? '';
+
+	// Step 2: POST /login with credentials
+	if (!user || !pass) throw new Error('Calibre username and password are required');
+	const body = new URLSearchParams({
+		username: user,
+		password: pass,
+		csrf_token: csrf,
+		next: '/',
+		remember_me: 'on',
+		submit: ''
+	});
+	const loginRes = await fetch(`${config.url}/login`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			Cookie: cookieVal
+		},
+		body: body.toString(),
+		redirect: 'manual',
+		signal: AbortSignal.timeout(8000)
+	});
+
+	// Successful login returns 302 redirect to /; failed returns 200 (login page again)
+	if (loginRes.status !== 302) {
+		throw new Error('Calibre login failed: wrong username or password');
+	}
+
+	// Get the new session cookie from login response
+	const postCookies = loginRes.headers.getSetCookie?.() ?? [];
+	const newSession = postCookies.find(c => c.startsWith('session='));
+	const finalCookie = newSession?.split(';')[0] ?? cookieVal;
+
+	if (!finalCookie) throw new Error('No session cookie received');
+
+	// Cache for 55 minutes (Flask default session is 60min)
+	sessionCache.set(cacheKey, { cookie: finalCookie, expiresAt: Date.now() + 55 * 60_000 });
+	return finalCookie;
+}
+
+interface CalibreBook {
+	id: number;
+	title: string;
+	authors: string;
+	author_sort: string;
+	comments: string;
+	tags: string;
+	series: string;
+	series_index: number;
+	publishers: string;
+	languages: string;
+	ratings: string;
+	has_cover: number;
+	pubdate: string;
+	read_status: boolean;
+	is_archived: boolean;
+	data: string;
+	uuid: string;
+	path: string;
+	sort: string;
+}
+
+interface CalibreListResponse {
+	totalNotFiltered: number;
+	total: number;
+	rows: CalibreBook[];
+}
+
+async function calibreFetch(config: ServiceConfig, path: string, userCred?: UserCredential): Promise<Response> {
+	const cookie = await getSession(config, userCred);
+	const res = await fetch(`${config.url}${path}`, {
+		headers: { Cookie: cookie },
 		signal: AbortSignal.timeout(8000)
 	});
 	if (!res.ok) throw new Error(`Calibre ${path} -> ${res.status}`);
-	return res.text();
+	return res;
+}
+
+async function fetchBooks(
+	config: ServiceConfig,
+	opts: { offset?: number; limit?: number; sort?: string; order?: string; search?: string },
+	userCred?: UserCredential
+): Promise<CalibreListResponse> {
+	const params = new URLSearchParams({
+		offset: String(opts.offset ?? 0),
+		limit: String(opts.limit ?? 50),
+		sort: opts.sort ?? 'id',
+		order: opts.order ?? 'desc'
+	});
+	if (opts.search) params.set('search', opts.search);
+	const res = await calibreFetch(config, `/ajax/listbooks?${params}`, userCred);
+	return res.json() as Promise<CalibreListResponse>;
 }
 
 // ---------------------------------------------------------------------------
-// Simple XML helpers (no dependency — OPDS is predictable)
+// Normalize a Calibre book JSON to UnifiedMedia
 // ---------------------------------------------------------------------------
 
-function extractEntries(xml: string): string[] {
-	const entries: string[] = [];
-	let idx = 0;
-	while (true) {
-		const start = xml.indexOf('<entry>', idx);
-		if (start === -1) break;
-		const end = xml.indexOf('</entry>', start);
-		if (end === -1) break;
-		entries.push(xml.slice(start, end + 8));
-		idx = end + 8;
-	}
-	return entries;
-}
+function normalize(config: ServiceConfig, book: CalibreBook): UnifiedMedia {
+	const bookId = String(book.id);
 
-function xmlTag(xml: string, name: string): string {
-	const re = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`);
-	const m = xml.match(re);
-	return m ? m[1].trim() : '';
-}
+	// Tags -> genres
+	const genres = book.tags ? book.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
 
-function xmlAttr(xml: string, tagName: string, attrName: string): string {
-	const re = new RegExp(`<${tagName}[^>]*?${attrName}="([^"]*)"`, 's');
-	const m = xml.match(re);
-	return m ? m[1] : '';
-}
+	// Rating — Calibre uses "★★★★" string or empty
+	const starMatch = book.ratings?.match(/★/g);
+	const rating = starMatch ? starMatch.length * 2 : undefined;
 
-function allAttr(xml: string, tagName: string, attrName: string): string[] {
-	const re = new RegExp(`<${tagName}[^>]*?${attrName}="([^"]*)"`, 'gs');
-	const results: string[] = [];
-	let m;
-	while ((m = re.exec(xml)) !== null) results.push(m[1]);
-	return results;
-}
-
-// ---------------------------------------------------------------------------
-// Normalize an OPDS <entry> to UnifiedMedia
-// ---------------------------------------------------------------------------
-
-function normalize(config: ServiceConfig, entry: string): UnifiedMedia {
-	const title = xmlTag(entry, 'title');
-	const id = xmlTag(entry, 'id');
-
-	// Extract numeric book ID from cover href or id path
-	const coverHref = allAttr(entry, 'link', 'href').find(h => h.includes('/cover/'));
-	const bookId = coverHref?.match(/\/cover\/(\d+)/)?.[1]
-		?? id.match(/\/(\d+)/)?.[1]
-		?? id;
-
-	// Author
-	const authorBlock = entry.match(/<author>\s*<name>([\s\S]*?)<\/name>/);
-	const author = authorBlock ? authorBlock[1].trim() : undefined;
-
-	// Publisher
-	const pubBlock = entry.match(/<publisher>\s*<name>([\s\S]*?)<\/name>/);
-	const publisher = pubBlock ? pubBlock[1].trim() : undefined;
-
-	// Published date -> year
-	const published = xmlTag(entry, 'published');
-	const year = published ? new Date(published).getFullYear() : undefined;
-
-	// Description from <content>
-	const contentBlock = entry.match(/<content[^>]*>([\s\S]*?)<\/content>/);
+	// Description — strip HTML from comments
 	let description: string | undefined;
-	if (contentBlock) {
-		// Strip HTML tags, decode entities
-		description = contentBlock[1]
+	if (book.comments) {
+		description = book.comments
 			.replace(/<[^>]+>/g, ' ')
 			.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 			.replace(/&#34;/g, '"').replace(/&#39;/g, "'")
 			.replace(/\s+/g, ' ')
 			.trim();
-		// Remove the RATING/TAGS/SERIES metadata lines, keep just the prose
-		const parts = description.split(/(?:RATING:|TAGS:|SERIES:)/);
-		if (parts.length > 1) {
-			description = parts[parts.length - 1].trim() || description;
-		}
 	}
 
-	// Rating from content text (e.g., "RATING: ★★★★")
-	const ratingMatch = contentBlock?.[1].match(/RATING:\s*(★+)/);
-	const rating = ratingMatch ? ratingMatch[1].length * 2 : undefined; // 5 stars = 10
+	// Year from pubdate
+	const year = book.pubdate ? new Date(book.pubdate).getFullYear() : undefined;
 
-	// Series from content text
-	const seriesMatch = contentBlock?.[1].match(/SERIES:\s*(.+?)(?:\[(\d+)\])?<br/);
-	const seriesName = seriesMatch?.[1].trim();
-	const seriesIndex = seriesMatch?.[2] ? parseInt(seriesMatch[2]) : undefined;
+	// Cover
+	const poster = book.has_cover ? `${config.url}/cover/${book.id}` : undefined;
 
-	// Categories/tags
-	const genres = allAttr(entry, 'category', 'label');
-
-	// Cover image
-	const poster = coverHref ? `${config.url}${coverHref}` : undefined;
-
-	// Download links — find available formats
-	const downloadLinks = entry.match(/<link[^>]*rel="http:\/\/opds-spec\.org\/acquisition"[^>]*>/g) ?? [];
+	// Formats from data field (comma-separated "Title - Author" pairs, one per format)
 	const formats: string[] = [];
-	const fileLinks: Array<{ format: string; url: string; size?: number }> = [];
-	for (const link of downloadLinks) {
-		const href = link.match(/href="([^"]*)"/)?.[1] ?? '';
-		const titleMatch = link.match(/title="([^"]*)"/)?.[1] ?? '';
-		const length = link.match(/length="(\d+)"/)?.[1];
-		formats.push(titleMatch);
-		fileLinks.push({
-			format: titleMatch,
-			url: `${config.url}${href}`,
-			size: length ? parseInt(length) : undefined
-		});
+	if (book.data) {
+		// data field contains format info but not in a structured way
+		// We'll extract from the path or just note it exists
 	}
-
-	// Language
-	const language = xmlTag(entry, 'dcterms:language') || undefined;
 
 	return {
 		id: `${bookId}:${config.id}`,
@@ -145,25 +173,25 @@ function normalize(config: ServiceConfig, entry: string): UnifiedMedia {
 		serviceId: config.id,
 		serviceType: 'calibre',
 		type: 'book',
-		title,
+		title: book.title,
 		description,
 		poster,
 		year: year && !isNaN(year) ? year : undefined,
 		rating,
 		genres,
-		status: 'available',
+		status: book.read_status ? 'completed' : 'available',
 		metadata: {
 			calibreId: bookId,
-			author,
-			publisher,
-			language,
-			seriesName,
-			seriesIndex,
-			formats,
-			fileLinks
+			author: book.authors,
+			publisher: book.publishers || undefined,
+			language: book.languages !== 'Unknown' ? book.languages : undefined,
+			seriesName: book.series || undefined,
+			seriesIndex: book.series_index || undefined,
+			readStatus: book.read_status,
+			uuid: book.uuid
 		},
 		actionLabel: 'Read',
-		actionUrl: `${config.url}/book/${bookId}`
+		actionUrl: `${config.url}/book/${book.id}`
 	};
 }
 
@@ -182,8 +210,8 @@ export const calibreAdapter: ServiceAdapter = {
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {
-			const xml = await calibreFetch(config, '/opds');
-			if (!xml.includes('<feed')) throw new Error('Not an OPDS feed');
+			const data = await fetchBooks(config, { limit: 1 });
+			if (typeof data.total !== 'number') throw new Error('Unexpected response');
 			return {
 				serviceId: config.id,
 				name: config.name,
@@ -204,8 +232,8 @@ export const calibreAdapter: ServiceAdapter = {
 
 	async getRecentlyAdded(config, userCred): Promise<UnifiedMedia[]> {
 		try {
-			const xml = await calibreFetch(config, '/opds/new', userCred);
-			return extractEntries(xml).map(e => normalize(config, e));
+			const data = await fetchBooks(config, { limit: 20, sort: 'id', order: 'desc' }, userCred);
+			return data.rows.map(b => normalize(config, b));
 		} catch {
 			return [];
 		}
@@ -213,24 +241,24 @@ export const calibreAdapter: ServiceAdapter = {
 
 	async search(config, query, userCred): Promise<UnifiedSearchResult> {
 		try {
-			const xml = await calibreFetch(config, `/opds/search/${encodeURIComponent(query)}`, userCred);
-			const items = extractEntries(xml).map(e => normalize(config, e));
-			return { items, total: items.length, source: 'calibre' };
+			const data = await fetchBooks(config, { limit: 50, search: query }, userCred);
+			const items = data.rows.map(b => normalize(config, b));
+			return { items, total: data.total, source: 'calibre' };
 		} catch {
 			return { items: [], total: 0, source: 'calibre' };
 		}
 	},
 
 	async getItem(config, sourceId, userCred): Promise<UnifiedMedia | null> {
-		// OPDS doesn't have a single-book endpoint — search all books and find by ID
 		try {
-			const xml = await calibreFetch(config, '/opds/books/letter/00', userCred);
-			const entries = extractEntries(xml);
-			for (const entry of entries) {
-				const item = normalize(config, entry);
-				if (item.sourceId === sourceId) return item;
-			}
-			return null;
+			// Fetch the specific book by searching with its ID
+			const data = await fetchBooks(config, { limit: 1, search: sourceId }, userCred);
+			const book = data.rows.find(b => String(b.id) === sourceId);
+			if (book) return normalize(config, book);
+			// Fallback: fetch all and find
+			const all = await fetchBooks(config, { limit: 5000 }, userCred);
+			const match = all.rows.find(b => String(b.id) === sourceId);
+			return match ? normalize(config, match) : null;
 		} catch {
 			return null;
 		}
@@ -238,20 +266,23 @@ export const calibreAdapter: ServiceAdapter = {
 
 	async getLibrary(config, opts, userCred): Promise<{ items: UnifiedMedia[]; total: number }> {
 		try {
-			const sortBy = opts?.sortBy ?? 'title';
-			let path: string;
-			switch (sortBy) {
-				case 'rating': path = '/opds/rated'; break;
-				case 'added': path = '/opds/new'; break;
-				default: path = '/opds/books/letter/00'; break;
-			}
-			const xml = await calibreFetch(config, path, userCred);
-			const items = extractEntries(xml).map(e => normalize(config, e));
-			const offset = opts?.offset ?? 0;
-			const limit = opts?.limit ?? 50;
+			const sortMap: Record<string, string> = {
+				title: 'sort',
+				year: 'pubdate',
+				rating: 'ratings',
+				added: 'id'
+			};
+			const sort = sortMap[opts?.sortBy ?? 'title'] ?? 'sort';
+			const order = (opts?.sortBy === 'added' || opts?.sortBy === 'year') ? 'desc' : 'asc';
+			const data = await fetchBooks(config, {
+				offset: opts?.offset ?? 0,
+				limit: opts?.limit ?? 50,
+				sort,
+				order
+			}, userCred);
 			return {
-				items: items.slice(offset, offset + limit),
-				total: items.length
+				items: data.rows.map(b => normalize(config, b)),
+				total: data.total
 			};
 		} catch {
 			return { items: [], total: 0 };
@@ -259,13 +290,88 @@ export const calibreAdapter: ServiceAdapter = {
 	},
 
 	async authenticateUser(config, username, password) {
-		// Calibre-Web uses Basic auth — verify by hitting /opds
-		const creds = btoa(`${username}:${password}`);
-		const res = await fetch(`${config.url}/opds`, {
-			headers: { Authorization: `Basic ${creds}` },
+		// Test login by getting a session
+		const testConfig = { ...config, username, password };
+		await getSession(testConfig);
+		return {
+			accessToken: password,
+			externalUserId: username,
+			externalUsername: username
+		};
+	},
+
+	async createUser(config, username, password) {
+		// 1. Get admin session
+		const cookie = await getSession(config);
+
+		// 2. GET the new-user form to extract CSRF token and default values
+		const formRes = await fetch(`${config.url}/admin/user/new`, {
+			headers: { Cookie: cookie },
 			signal: AbortSignal.timeout(8000)
 		});
-		if (!res.ok) throw new Error(`Calibre auth failed: ${res.status}`);
+		if (!formRes.ok) throw new Error(`Calibre admin user form failed: ${formRes.status}`);
+		const html = await formRes.text();
+		const csrfMatch = html.match(/name="csrf_token"\s+value="([^"]+)"/);
+		if (!csrfMatch) throw new Error('Could not find CSRF token on admin user form — is the admin account configured correctly?');
+
+		// Extract default_language and locale from the form's selected options
+		const defaultLang = html.match(/name="default_language"[^>]*>[\s\S]*?<option[^>]*selected[^>]*value="([^"]*)"/)?.[1]
+			?? html.match(/id="default_language"[^>]*>[\s\S]*?<option[^>]*selected[^>]*value="([^"]*)"/)?.[1]
+			?? 'all';
+		const locale = html.match(/name="locale"[^>]*>[\s\S]*?<option[^>]*selected[^>]*value="([^"]*)"/)?.[1]
+			?? html.match(/id="locale"[^>]*>[\s\S]*?<option[^>]*selected[^>]*value="([^"]*)"/)?.[1]
+			?? 'en';
+
+		// 3. POST to create the user
+		// Calibre-Web requires: name, email, password, default_language, locale
+		const body = new URLSearchParams({
+			name: username,
+			password: password,
+			email: `${username}@nexus.local`,
+			default_language: defaultLang,
+			locale: locale,
+			csrf_token: csrfMatch[1]
+		});
+		const createRes = await fetch(`${config.url}/admin/user/new`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/x-www-form-urlencoded',
+				Cookie: cookie
+			},
+			body: body.toString(),
+			redirect: 'manual',
+			signal: AbortSignal.timeout(10000)
+		});
+
+		// Calibre-Web returns 200 for both success and failure — check flash messages in response
+		const resHtml = createRes.status === 200 ? await createRes.text() : '';
+		const created = resHtml.includes('created') && resHtml.includes('alert-success');
+		const alreadyExists = resHtml.includes('existing account') || resHtml.includes('already exists');
+
+		if (createRes.status === 200 && !created && !alreadyExists) {
+			if (resHtml.includes('Please complete all fields')) {
+				throw new Error('Calibre user creation failed — missing required fields');
+			}
+			throw new Error('Calibre user creation failed — check admin credentials and permissions');
+		}
+
+		if (alreadyExists) {
+			// User already exists in Calibre — try to authenticate with the provided password.
+			// This works when provisioning at registration time (password matches).
+			// For admin-triggered provisioning with random passwords, this will fail gracefully.
+			try {
+				const testConfig = { ...config, username, password };
+				await getSession(testConfig);
+				return { accessToken: password, externalUserId: username, externalUsername: username };
+			} catch {
+				throw new Error(`Calibre user "${username}" already exists — link manually via My Accounts`);
+			}
+		}
+
+		// Verify by authenticating as the new user
+		const testConfig = { ...config, username, password };
+		await getSession(testConfig);
+
 		return {
 			accessToken: password,
 			externalUserId: username,
@@ -275,7 +381,7 @@ export const calibreAdapter: ServiceAdapter = {
 };
 
 // ---------------------------------------------------------------------------
-// Exported helpers for book detail enrichment
+// Exported helpers for book enrichment
 // ---------------------------------------------------------------------------
 
 export interface CalibreSeries {
@@ -286,20 +392,16 @@ export interface CalibreSeries {
 export async function getCalibreSeries(config: ServiceConfig, userCred?: UserCredential): Promise<CalibreSeries[]> {
 	return withCache(`calibre-series:${config.id}`, 300_000, async () => {
 		try {
-			const xml = await calibreFetch(config, '/opds/series/letter/00', userCred);
-			const entries = extractEntries(xml);
-			const series: CalibreSeries[] = [];
-			for (const entry of entries) {
-				const name = xmlTag(entry, 'title');
-				const href = xmlAttr(entry, 'link', 'href');
-				if (!href) continue;
-				try {
-					const seriesXml = await calibreFetch(config, href, userCred);
-					const books = extractEntries(seriesXml).map(e => normalize(config, e));
-					series.push({ name, books });
-				} catch { /* skip */ }
+			const data = await fetchBooks(config, { limit: 5000, sort: 'sort', order: 'asc' }, userCred);
+			const seriesMap = new Map<string, UnifiedMedia[]>();
+			for (const book of data.rows) {
+				if (!book.series) continue;
+				const item = normalize(config, book);
+				const existing = seriesMap.get(book.series) ?? [];
+				existing.push(item);
+				seriesMap.set(book.series, existing);
 			}
-			return series;
+			return Array.from(seriesMap.entries()).map(([name, books]) => ({ name, books }));
 		} catch {
 			return [];
 		}
@@ -309,8 +411,14 @@ export async function getCalibreSeries(config: ServiceConfig, userCred?: UserCre
 export async function getCalibreCategories(config: ServiceConfig, userCred?: UserCredential): Promise<string[]> {
 	return withCache(`calibre-categories:${config.id}`, 300_000, async () => {
 		try {
-			const xml = await calibreFetch(config, '/opds/category/letter/00', userCred);
-			return extractEntries(xml).map(e => xmlTag(e, 'title')).filter(Boolean);
+			const data = await fetchBooks(config, { limit: 5000 }, userCred);
+			const tags = new Set<string>();
+			for (const book of data.rows) {
+				if (book.tags) {
+					book.tags.split(',').forEach(t => { const trimmed = t.trim(); if (trimmed) tags.add(trimmed); });
+				}
+			}
+			return Array.from(tags).sort();
 		} catch {
 			return [];
 		}

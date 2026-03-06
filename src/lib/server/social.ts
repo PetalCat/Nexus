@@ -227,6 +227,87 @@ export function removeFriend(userId: string, friendId: string): boolean {
 	return result.changes > 0;
 }
 
+export function blockUser(userId: string, targetId: string): boolean {
+	if (userId === targetId) return false;
+
+	const db = getDb();
+
+	// Check for existing friendship row in either direction
+	const existing = db
+		.select()
+		.from(schema.friendships)
+		.where(
+			or(
+				and(eq(schema.friendships.userId, userId), eq(schema.friendships.friendId, targetId)),
+				and(eq(schema.friendships.userId, targetId), eq(schema.friendships.friendId, userId))
+			)
+		)
+		.get();
+
+	if (existing) {
+		if (existing.status === 'blocked' && existing.userId === userId) return true; // already blocked by us
+		// Delete the existing row and create a new one with blocker as userId
+		db.delete(schema.friendships).where(eq(schema.friendships.id, existing.id)).run();
+	}
+
+	const id = genId();
+	db.insert(schema.friendships).values({
+		id,
+		userId, // blocker
+		friendId: targetId, // blocked
+		status: 'blocked',
+		createdAt: now()
+	}).run();
+	return true;
+}
+
+export function unblockUser(userId: string, targetId: string): boolean {
+	const db = getDb();
+	const result = db
+		.delete(schema.friendships)
+		.where(
+			and(
+				eq(schema.friendships.status, 'blocked'),
+				eq(schema.friendships.userId, userId),
+				eq(schema.friendships.friendId, targetId)
+			)
+		)
+		.run();
+	return result.changes > 0;
+}
+
+export function getBlockedUserIds(userId: string): string[] {
+	const db = getDb();
+	// Users that userId has blocked
+	const blocked = db
+		.select({ friendId: schema.friendships.friendId })
+		.from(schema.friendships)
+		.where(
+			and(
+				eq(schema.friendships.status, 'blocked'),
+				eq(schema.friendships.userId, userId)
+			)
+		)
+		.all();
+	return blocked.map((r) => r.friendId);
+}
+
+export function getBlockedByUserIds(userId: string): string[] {
+	const db = getDb();
+	// Users who have blocked userId
+	const blockedBy = db
+		.select({ userId: schema.friendships.userId })
+		.from(schema.friendships)
+		.where(
+			and(
+				eq(schema.friendships.status, 'blocked'),
+				eq(schema.friendships.friendId, userId)
+			)
+		)
+		.all();
+	return blockedBy.map((r) => r.userId);
+}
+
 // ── Presence ─────────────────────────────────────────────────────────────
 
 export function getPresence(userId: string) {

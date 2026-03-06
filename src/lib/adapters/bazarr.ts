@@ -384,7 +384,7 @@ export const bazarrAdapter: ServiceAdapter = {
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {
-			await bazarrFetch(config, '/api/system/status', 5000);
+			await bazarrFetch(config, '/api/system/health', 5000);
 			return {
 				serviceId: config.id,
 				name: config.name,

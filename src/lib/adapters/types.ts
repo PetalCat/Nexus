@@ -1,4 +1,4 @@
-export type MediaType = 'movie' | 'show' | 'episode' | 'book' | 'game' | 'music' | 'album' | 'live';
+export type MediaType = 'movie' | 'show' | 'episode' | 'book' | 'game' | 'music' | 'album' | 'live' | 'video';
 
 export type MediaStatus = 'available' | 'requested' | 'downloading' | 'missing' | 'continuing';
 
