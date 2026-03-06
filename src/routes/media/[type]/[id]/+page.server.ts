@@ -4,6 +4,7 @@ import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSeasons as getJellyfinSeasons } from '$lib/adapters/jellyfin';
 import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr';
+import { getRomSaves, getRomStates, getRomScreenshots } from '$lib/adapters/romm';
 import { emitMediaEvent } from '$lib/server/analytics';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { JellyfinSeason } from '$lib/adapters/jellyfin';
@@ -196,6 +197,21 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		});
 	}
 
+	// ── Game-specific data (RomM saves, states, screenshots) ────────────
+	let gameSaves: Awaited<ReturnType<typeof getRomSaves>> = [];
+	let gameStates: Awaited<ReturnType<typeof getRomStates>> = [];
+	let gameScreenshots: Awaited<ReturnType<typeof getRomScreenshots>> = [];
+
+	if (item.type === 'game' && resolvedServiceType === 'romm') {
+		try {
+			[gameSaves, gameStates, gameScreenshots] = await Promise.all([
+				getRomSaves(config, params.id, userCred),
+				getRomStates(config, params.id, userCred),
+				getRomScreenshots(config, params.id, userCred)
+			]);
+		} catch { /* silent — best-effort enrichment */ }
+	}
+
 	return {
 		item,
 		serviceType: resolvedServiceType,
@@ -206,6 +222,9 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		selectedSeason,
 		canRequest,
 		overseerrServiceId,
-		isAdmin: locals.user?.isAdmin ?? false
+		isAdmin: locals.user?.isAdmin ?? false,
+		gameSaves,
+		gameStates,
+		gameScreenshots
 	};
 };
