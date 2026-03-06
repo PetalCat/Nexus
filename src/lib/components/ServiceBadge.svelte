@@ -7,7 +7,7 @@
 
 	const colors: Record<string, string> = {
 		jellyfin: '#00a4dc',
-		kavita: '#7b68ee',
+		calibre: '#7b68ee',
 		romm: '#e84393',
 		overseerr: '#f59e0b',
 		radarr: '#fbbf24',
