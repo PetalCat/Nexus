@@ -331,6 +331,7 @@ export const musicPlaylists = sqliteTable('music_playlists', {
 	userId: text('user_id').notNull(),
 	name: text('name').notNull(),
 	description: text('description'),
+	isCollaborative: integer('is_collaborative').notNull().default(0),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
 });
@@ -344,9 +345,18 @@ export const musicPlaylistTracks = sqliteTable('music_playlist_tracks', {
 	addedAt: integer('added_at').notNull()
 });
 
+export const playlistCollaborators = sqliteTable('playlist_collaborators', {
+	id: text('id').primaryKey(),
+	playlistId: text('playlist_id').notNull(),
+	userId: text('user_id').notNull(),
+	role: text('role').notNull().default('editor'), // 'editor' | 'viewer'
+	addedAt: integer('added_at').notNull()
+});
+
 export type MusicLikedTrack = typeof musicLikedTracks.$inferSelect;
 export type MusicPlaylist = typeof musicPlaylists.$inferSelect;
 export type MusicPlaylistTrack = typeof musicPlaylistTracks.$inferSelect;
+export type PlaylistCollaborator = typeof playlistCollaborators.$inferSelect;
 
 // ── App Settings ─────────────────────────────────────────────────────
 

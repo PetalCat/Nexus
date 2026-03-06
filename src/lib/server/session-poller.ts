@@ -6,6 +6,16 @@ import {
 	heightToResolution,
 	channelsToLabel
 } from './analytics';
+import { updatePresence, isGhostMode, getFriendIds } from './social';
+import { broadcastToFriends } from './ws';
+
+function updateActivityPresence(userId: string, activity: Record<string, unknown> | null) {
+	updatePresence(userId, { currentActivity: activity, lastSeen: Date.now() });
+	if (!isGhostMode(userId)) {
+		const type = activity ? 'presence:activity_started' : 'presence:activity_stopped';
+		broadcastToFriends(userId, { type, data: activity ? { userId, activity } : { userId } }, () => getFriendIds(userId));
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,6 +182,10 @@ async function pollJellyfinSessions() {
 						clientName: session.Client,
 						metadata: extractMetadata(session)
 					});
+					updateActivityPresence(nexusUserId, {
+						mediaId: item.Id, mediaType: mType, mediaTitle: item.Name,
+						serviceId: config.id, deviceName: session.DeviceName, clientName: session.Client
+					});
 				} else if (existing.mediaId !== item.Id) {
 					// Media changed — stop old, start new
 					emitMediaEvent({
@@ -213,6 +227,10 @@ async function pollJellyfinSessions() {
 						deviceName: session.DeviceName,
 						clientName: session.Client,
 						metadata: extractMetadata(session)
+					});
+					updateActivityPresence(nexusUserId, {
+						mediaId: item.Id, mediaType: mType, mediaTitle: item.Name,
+						serviceId: config.id, deviceName: session.DeviceName, clientName: session.Client
 					});
 				} else {
 					// Same media — detect pause/resume
@@ -268,6 +286,7 @@ async function pollJellyfinSessions() {
 				playDurationMs: now - session.startedAt,
 				timestamp: now
 			});
+			updateActivityPresence(session.userId, null);
 			activeSessions.delete(key);
 		}
 	}

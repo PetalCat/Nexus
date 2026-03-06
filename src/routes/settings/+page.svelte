@@ -40,6 +40,12 @@
 	let migratePreview = $state<Array<{ serviceId: string; serviceName: string; externalId: string; username: string; isAdmin: boolean }> | null>(null);
 	let migrateResult = $state<{ imported: number; results: Array<{ username: string; status: string }> } | null>(null);
 
+	// ── Provision state ──────────────────────────────────────
+	let provisionUserId = $state<string | null>(null);
+	let provisioning = $state(false);
+	let provisionResult = $state<Array<{ serviceId: string; serviceName: string; serviceType: string; status: string; externalUsername?: string; error?: string }> | null>(null);
+	let provisionError = $state<string | null>(null);
+
 	// ── Registration & password reset state ────────────────────
 	let savingSettings = $state(false);
 	let resetPasswordUserId = $state<string | null>(null);
@@ -245,6 +251,23 @@
 			await invalidateAll();
 		} catch (e) { console.error(e); }
 		finally { approveLoading = null; }
+	}
+
+	// ── Provision functions ───────────────────────────────────
+	async function provisionUser(userId: string) {
+		provisioning = true; provisionError = null; provisionResult = null;
+		provisionUserId = userId;
+		try {
+			const res = await fetch('/api/admin/provision', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId })
+			});
+			const body = await res.json();
+			if (!res.ok) { provisionError = body.error ?? 'Provisioning failed'; return; }
+			provisionResult = body.results;
+			await invalidateAll();
+		} catch (e) { provisionError = String(e); }
+		finally { provisioning = false; }
 	}
 
 	// ── Account linking functions ──────────────────────────────
@@ -511,7 +534,7 @@
 												</div>
 											{/if}
 										{/if}
-										{#if editForm.type === 'romm'}
+										{#if editForm.type === 'romm' || editForm.type === 'calibre' || editForm.type === 'invidious'}
 											<div>
 												<label for="ef-user" class="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
 												<input id="ef-user" bind:value={editForm.username} class="input text-sm" placeholder="admin" autocomplete="username" />
@@ -520,7 +543,19 @@
 												<label for="ef-pass" class="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
 												<input id="ef-pass" bind:value={editForm.password} class="input text-sm" type="password" placeholder="Leave blank to keep current" autocomplete="current-password" />
 											</div>
-											<p class="sm:col-span-2 text-[10px] text-[var(--color-muted)]">Admin credentials are used to automatically create individual accounts for new users — each user then browses with their own account.</p>
+											{#if editForm.type === 'invidious'}
+												<div class="sm:col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+													<p class="text-[11px] font-medium text-amber-400">Invidious Config Requirements</p>
+													<ul class="mt-1.5 space-y-1 text-[10px] text-[var(--color-muted)]">
+														<li><code class="text-[var(--color-text)]">login_enabled: true</code></li>
+														<li><code class="text-[var(--color-text)]">registration_enabled: true</code></li>
+														<li><code class="text-[var(--color-text)]">captcha_enabled: false</code></li>
+													</ul>
+													<p class="mt-1.5 text-[10px] text-[var(--color-muted)]">Set these in your Invidious config.yml or INVIDIOUS_CONFIG env var. Nexus auto-creates accounts for users on sign-in.</p>
+												</div>
+											{:else}
+												<p class="sm:col-span-2 text-[10px] text-[var(--color-muted)]">Admin credentials are used to automatically create individual accounts for new users — each user then browses with their own account.</p>
+											{/if}
 										{/if}
 									</div>
 									{#if editTestResult}
@@ -669,7 +704,7 @@
 							<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">API Key</label>
 							<input bind:value={form.apiKey} class="input font-mono text-sm" type="password" placeholder="••••••••" />
 						</div>
-						{#if form.type === 'romm'}
+						{#if form.type === 'romm' || form.type === 'calibre' || form.type === 'invidious'}
 							<div>
 								<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
 								<input bind:value={form.username} class="input text-sm" placeholder="admin" autocomplete="username" />
@@ -678,7 +713,19 @@
 								<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
 								<input bind:value={form.password} class="input text-sm" type="password" placeholder="••••••••" autocomplete="current-password" />
 							</div>
-							<p class="sm:col-span-2 text-[10px] text-[var(--color-muted)]">Admin credentials are used to automatically create individual accounts for new users — each user then browses with their own account.</p>
+							{#if form.type === 'invidious'}
+								<div class="sm:col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+									<p class="text-[11px] font-medium text-amber-400">Invidious Config Requirements</p>
+									<ul class="mt-1.5 space-y-1 text-[10px] text-[var(--color-muted)]">
+										<li><code class="text-[var(--color-text)]">login_enabled: true</code></li>
+										<li><code class="text-[var(--color-text)]">registration_enabled: true</code></li>
+										<li><code class="text-[var(--color-text)]">captcha_enabled: false</code></li>
+									</ul>
+									<p class="mt-1.5 text-[10px] text-[var(--color-muted)]">Set these in your Invidious config.yml or INVIDIOUS_CONFIG env var. Nexus auto-creates accounts for users on sign-in.</p>
+								</div>
+							{:else}
+								<p class="sm:col-span-2 text-[10px] text-[var(--color-muted)]">Admin credentials are used to automatically create individual accounts for new users — each user then browses with their own account.</p>
+							{/if}
 						{/if}
 					</div>
 
@@ -774,6 +821,8 @@
 			<h2 class="text-display text-base font-semibold mb-4">Users ({data.users.length})</h2>
 			<div class="flex flex-col gap-2">
 				{#each data.users as user}
+					{@const userCreds = data.allUserCredentials[user.id] ?? []}
+					{@const unlinkedProvisionable = data.provisionableServices.filter((s) => s.supportsCreate && !userCreds.some((uc) => uc.serviceId === s.id))}
 					<div class="card-raised flex items-center gap-4 px-4 py-3">
 						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-nebula)]/10 text-[var(--color-nebula)] text-xs font-bold">
 							{user.displayName.slice(0, 2).toUpperCase()}
@@ -795,7 +844,35 @@
 									<span class="badge text-[10px] bg-amber-500/20 text-amber-400">Pending</span>
 								{/if}
 							</div>
-							<p class="text-xs text-[var(--color-muted)]">Joined {new Date(user.createdAt).toLocaleDateString()}</p>
+							<div class="mt-0.5 flex items-center gap-1.5 flex-wrap">
+								{#if userCreds.length > 0}
+									{#each userCreds as uc}
+										{@const svcColor = serviceColors[uc.serviceType] ?? '#7c6cf8'}
+										<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium" style="background: {svcColor}15; color: {svcColor}" title="{uc.serviceType} — @{uc.externalUsername}">
+											<span class="h-1.5 w-1.5 rounded-full" style="background: {svcColor}"></span>
+											{uc.serviceType}
+										</span>
+									{/each}
+								{:else}
+									<span class="text-[10px] text-[var(--color-subtle)]">No linked services</span>
+								{/if}
+								{#if unlinkedProvisionable.length > 0 && !user.isAdmin}
+									<button
+										class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-body)] hover:bg-[var(--color-raised)] transition-colors"
+										onclick={() => provisionUser(user.id)}
+										disabled={provisioning && provisionUserId === user.id}
+										title="Create accounts on {unlinkedProvisionable.map(s => s.type).join(', ')}"
+									>
+										{#if provisioning && provisionUserId === user.id}
+											<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="animate-spin" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="9" stroke-dasharray="28" stroke-dashoffset="10"/></svg>
+											Provisioning…
+										{:else}
+											<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+											Provision ({unlinkedProvisionable.length})
+										{/if}
+									</button>
+								{/if}
+							</div>
 						</div>
 						<div class="flex items-center gap-1 flex-shrink-0">
 							{#if !user.isAdmin}
@@ -816,6 +893,27 @@
 							{/if}
 						</div>
 					</div>
+					{#if provisionUserId === user.id && (provisionResult || provisionError)}
+						<div class="border-t border-[var(--color-border)] px-4 py-2.5 bg-[var(--color-surface)]/50">
+							{#if provisionError}
+								<div class="text-xs text-[var(--color-nova)]">{provisionError}</div>
+							{/if}
+							{#if provisionResult}
+								<div class="flex flex-col gap-1">
+									{#each provisionResult as r}
+										{@const svcColor = serviceColors[r.serviceType] ?? '#7c6cf8'}
+										<div class="flex items-center gap-2 text-xs">
+											<span class="h-1.5 w-1.5 rounded-full" style="background: {svcColor}"></span>
+											<span class="font-medium">{r.serviceName}</span>
+											<span class="{r.status === 'created' ? 'text-[var(--color-pulsar)]' : r.status === 'linked' ? 'text-[var(--color-muted)]' : r.status === 'error' ? 'text-[var(--color-nova)]' : 'text-[var(--color-subtle)]'}">
+												{r.status === 'created' ? `✓ Created as @${r.externalUsername}` : r.status === 'linked' ? `Already linked` : r.status === 'skipped' ? 'Skipped' : `✗ ${r.error ?? 'Failed'}`}
+											</span>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/if}
 					{#if resetPasswordUserId === user.id}
 						<div class="border-t border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
 							<input

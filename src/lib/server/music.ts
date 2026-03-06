@@ -242,27 +242,43 @@ export function unlikeTrack(userId: string, trackId: string, serviceId: string):
 
 export function getUserPlaylists(userId: string) {
 	const db = getDb();
-	const playlists = db
+	// Own playlists + collaborative playlists user has been invited to
+	const owned = db
 		.select()
 		.from(schema.musicPlaylists)
 		.where(eq(schema.musicPlaylists.userId, userId))
 		.orderBy(desc(schema.musicPlaylists.updatedAt))
 		.all();
 
-	return playlists.map((p) => {
+	const collabRows = db.all<{ playlist_id: string; role: string }>(
+		sql`SELECT playlist_id, role FROM playlist_collaborators WHERE user_id = ${userId}`
+	);
+	const collabIds = collabRows.map((r) => r.playlist_id);
+	const collabPlaylists = collabIds.length > 0
+		? db.select().from(schema.musicPlaylists)
+			.where(sql`${schema.musicPlaylists.id} IN (${sql.join(collabIds.map(id => sql`${id}`), sql`,`)})`)
+			.orderBy(desc(schema.musicPlaylists.updatedAt))
+			.all()
+		: [];
+
+	const all = [...owned, ...collabPlaylists.filter((p) => !owned.some((o) => o.id === p.id))];
+
+	return all.map((p) => {
 		const trackCount = db.get<{ n: number }>(
 			sql`SELECT COUNT(*) as n FROM music_playlist_tracks WHERE playlist_id = ${p.id}`
 		);
-		return { ...p, trackCount: trackCount?.n ?? 0 };
+		const collaborators = getPlaylistCollaborators(p.id);
+		const role = p.userId === userId ? 'owner' : (collabRows.find((r) => r.playlist_id === p.id)?.role ?? 'viewer');
+		return { ...p, trackCount: trackCount?.n ?? 0, collaborators, role };
 	});
 }
 
-export function createPlaylist(userId: string, name: string, description?: string): string {
+export function createPlaylist(userId: string, name: string, description?: string, isCollaborative = false): string {
 	const db = getDb();
 	const id = genId();
 	const ts = now();
 	db.insert(schema.musicPlaylists).values({
-		id, userId, name, description: description ?? null, createdAt: ts, updatedAt: ts
+		id, userId, name, description: description ?? null, isCollaborative: isCollaborative ? 1 : 0, createdAt: ts, updatedAt: ts
 	}).run();
 	return id;
 }
@@ -270,16 +286,27 @@ export function createPlaylist(userId: string, name: string, description?: strin
 export function getPlaylist(playlistId: string, userId: string) {
 	const db = getDb();
 	const playlist = db.select().from(schema.musicPlaylists)
-		.where(and(eq(schema.musicPlaylists.id, playlistId), eq(schema.musicPlaylists.userId, userId)))
+		.where(eq(schema.musicPlaylists.id, playlistId))
 		.get();
 	if (!playlist) return null;
+
+	// Check access: owner, or collaborator
+	if (playlist.userId !== userId) {
+		const collab = db.select().from(schema.playlistCollaborators)
+			.where(and(eq(schema.playlistCollaborators.playlistId, playlistId), eq(schema.playlistCollaborators.userId, userId)))
+			.get();
+		if (!collab) return null;
+	}
 
 	const tracks = db.select().from(schema.musicPlaylistTracks)
 		.where(eq(schema.musicPlaylistTracks.playlistId, playlistId))
 		.orderBy(schema.musicPlaylistTracks.position)
 		.all();
 
-	return { ...playlist, tracks };
+	const collaborators = getPlaylistCollaborators(playlistId);
+	const role = playlist.userId === userId ? 'owner' : 'editor';
+
+	return { ...playlist, tracks, collaborators, role };
 }
 
 export function updatePlaylist(playlistId: string, userId: string, updates: { name?: string; description?: string }): boolean {
@@ -311,10 +338,7 @@ export function deletePlaylist(playlistId: string, userId: string): boolean {
 
 export function addTrackToPlaylist(playlistId: string, userId: string, trackId: string, serviceId: string): string | null {
 	const db = getDb();
-	const playlist = db.select().from(schema.musicPlaylists)
-		.where(and(eq(schema.musicPlaylists.id, playlistId), eq(schema.musicPlaylists.userId, userId)))
-		.get();
-	if (!playlist) return null;
+	if (!canEditPlaylist(playlistId, userId)) return null;
 
 	const maxPos = db.get<{ m: number }>(
 		sql`SELECT COALESCE(MAX(position), -1) as m FROM music_playlist_tracks WHERE playlist_id = ${playlistId}`
@@ -331,10 +355,7 @@ export function addTrackToPlaylist(playlistId: string, userId: string, trackId: 
 
 export function removeTrackFromPlaylist(playlistId: string, userId: string, trackId: string): boolean {
 	const db = getDb();
-	const playlist = db.select().from(schema.musicPlaylists)
-		.where(and(eq(schema.musicPlaylists.id, playlistId), eq(schema.musicPlaylists.userId, userId)))
-		.get();
-	if (!playlist) return false;
+	if (!canEditPlaylist(playlistId, userId)) return false;
 
 	const result = db
 		.delete(schema.musicPlaylistTracks)
@@ -348,6 +369,81 @@ export function removeTrackFromPlaylist(playlistId: string, userId: string, trac
 		db.update(schema.musicPlaylists).set({ updatedAt: now() }).where(eq(schema.musicPlaylists.id, playlistId)).run();
 	}
 	return result.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Collaborative playlist helpers
+// ---------------------------------------------------------------------------
+
+function canEditPlaylist(playlistId: string, userId: string): boolean {
+	const db = getDb();
+	const playlist = db.select().from(schema.musicPlaylists)
+		.where(eq(schema.musicPlaylists.id, playlistId))
+		.get();
+	if (!playlist) return false;
+	if (playlist.userId === userId) return true;
+	const collab = db.select().from(schema.playlistCollaborators)
+		.where(and(eq(schema.playlistCollaborators.playlistId, playlistId), eq(schema.playlistCollaborators.userId, userId)))
+		.get();
+	return collab?.role === 'editor';
+}
+
+function getPlaylistCollaborators(playlistId: string) {
+	const db = getDb();
+	return db.select().from(schema.playlistCollaborators)
+		.where(eq(schema.playlistCollaborators.playlistId, playlistId))
+		.all()
+		.map((c) => ({ userId: c.userId, role: c.role, addedAt: c.addedAt }));
+}
+
+export function addCollaborator(playlistId: string, ownerId: string, collaboratorUserId: string, role: 'editor' | 'viewer' = 'editor'): boolean {
+	const db = getDb();
+	const playlist = db.select().from(schema.musicPlaylists)
+		.where(and(eq(schema.musicPlaylists.id, playlistId), eq(schema.musicPlaylists.userId, ownerId)))
+		.get();
+	if (!playlist) return false;
+
+	// Don't add owner as collaborator
+	if (collaboratorUserId === ownerId) return false;
+
+	// Check if already a collaborator
+	const existing = db.select().from(schema.playlistCollaborators)
+		.where(and(eq(schema.playlistCollaborators.playlistId, playlistId), eq(schema.playlistCollaborators.userId, collaboratorUserId)))
+		.get();
+	if (existing) return true;
+
+	db.insert(schema.playlistCollaborators).values({
+		id: genId(),
+		playlistId,
+		userId: collaboratorUserId,
+		role,
+		addedAt: now()
+	}).run();
+
+	// Mark playlist as collaborative
+	db.update(schema.musicPlaylists).set({ isCollaborative: 1, updatedAt: now() }).where(eq(schema.musicPlaylists.id, playlistId)).run();
+	return true;
+}
+
+export function removeCollaborator(playlistId: string, ownerId: string, collaboratorUserId: string): boolean {
+	const db = getDb();
+	const playlist = db.select().from(schema.musicPlaylists)
+		.where(and(eq(schema.musicPlaylists.id, playlistId), eq(schema.musicPlaylists.userId, ownerId)))
+		.get();
+	if (!playlist) return false;
+
+	db.delete(schema.playlistCollaborators)
+		.where(and(eq(schema.playlistCollaborators.playlistId, playlistId), eq(schema.playlistCollaborators.userId, collaboratorUserId)))
+		.run();
+
+	// If no collaborators left, mark as non-collaborative
+	const remaining = db.select().from(schema.playlistCollaborators)
+		.where(eq(schema.playlistCollaborators.playlistId, playlistId))
+		.all();
+	if (remaining.length === 0) {
+		db.update(schema.musicPlaylists).set({ isCollaborative: 0, updatedAt: now() }).where(eq(schema.musicPlaylists.id, playlistId)).run();
+	}
+	return true;
 }
 
 // ---------------------------------------------------------------------------

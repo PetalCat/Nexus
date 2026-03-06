@@ -25,6 +25,7 @@ import { rommAdapter } from './romm';
 import { sonarrAdapter } from './sonarr';
 import { streamystatsAdapter } from './streamystats';
 import { bazarrAdapter } from './bazarr';
+import { invidiousAdapter } from './invidious';
 
 class AdapterRegistry {
 	private adapters = new Map<string, ServiceAdapter>();
@@ -65,7 +66,8 @@ export const registry = new AdapterRegistry()
 	.register(lidarrAdapter)
 	.register(prowlarrAdapter)
 	.register(streamystatsAdapter)
-	.register(bazarrAdapter);
+	.register(bazarrAdapter)
+	.register(invidiousAdapter);
 
 // ── Custom adapter registration ──────────────────────────────────────────────
 // Add your own adapters here. They will be picked up automatically.

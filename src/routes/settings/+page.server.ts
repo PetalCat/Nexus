@@ -1,6 +1,6 @@
 import { registry } from '$lib/adapters/registry';
 import { getAllUsers, getAllSettings, getInviteLinks, getPendingUsers, getUserCredentials, getUserCredentialForService } from '$lib/server/auth';
-import { checkAllServices, getServiceConfigs, autoLinkJellyfinServices } from '$lib/server/services';
+import { checkAllServices, getServiceConfigs, autoLinkJellyfinServices, getUserLinkableServices } from '$lib/server/services';
 import type { PageServerLoad } from './$types';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const invites = isAdmin ? getInviteLinks() : [];
 	const settings = isAdmin ? getAllSettings() : {};
 	const pendingUsers = isAdmin ? getPendingUsers() : [];
+
+	// Per-user credential map for admin Users tab (which services each user has linked)
+	const allUserCredentials: Record<string, Array<{ serviceId: string; serviceType: string; externalUsername: string }>> = {};
+	const provisionableServices = isAdmin ? getUserLinkableServices() : [];
+	if (isAdmin) {
+		for (const u of users) {
+			const creds = getUserCredentials(u.id);
+			allUserCredentials[u.id] = creds.map((c) => {
+				const svc = services.find((s) => s.id === c.serviceId);
+				return {
+					serviceId: c.serviceId,
+					serviceType: svc?.type ?? 'unknown',
+					externalUsername: c.externalUsername ?? ''
+				};
+			});
+		}
+	}
 
 	// Silently auto-link Overseerr (and similar) via Jellyfin credentials
 	if (locals.user) {
@@ -100,5 +117,5 @@ export const load: PageServerLoad = async ({ locals }) => {
 			};
 		});
 
-	return { services, available, health, isAdmin, users, invites, myCredentials, linkableServices, settings, pendingUsers };
+	return { services, available, health, isAdmin, users, invites, myCredentials, linkableServices, settings, pendingUsers, allUserCredentials, provisionableServices };
 };

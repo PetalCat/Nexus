@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { COOKIE_NAME, createSession, getUserByUsername, getUserCount, getUserCredentialForService, upsertUserCredential, verifyPassword } from '$lib/server/auth';
+import { COOKIE_NAME, createSession, getSetting, getUserByUsername, getUserCount, getUserCredentialForService, upsertUserCredential, verifyPassword } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getServiceConfigs } from '$lib/server/services';
 import type { Actions, PageServerLoad } from './$types';
@@ -7,7 +7,8 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, url }) => {
 	if (getUserCount() === 0) throw redirect(303, '/setup');
 	if (locals.user) throw redirect(303, url.searchParams.get('next') || '/');
-	return {};
+	const registrationEnabled = getSetting('registration_enabled') === 'true';
+	return { registrationEnabled };
 };
 
 /**
@@ -75,6 +76,16 @@ export const actions: Actions = {
 			sameSite: 'lax',
 			maxAge: 60 * 60 * 24 * 30
 		});
+
+		// Pending approval — redirect to waiting page
+		if (user.status === 'pending') {
+			throw redirect(303, '/pending-approval');
+		}
+
+		// Force password reset — redirect before normal flow
+		if (user.forcePasswordReset) {
+			throw redirect(303, '/reset-password');
+		}
 
 		// Fire-and-forget: auto-link Overseerr if Jellyfin creds are present
 		autoLinkOverseerr(user.id);

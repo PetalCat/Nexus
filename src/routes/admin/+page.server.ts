@@ -3,6 +3,8 @@ import type { PageServerLoad } from './$types';
 import { getEnabledConfigs, checkAllServices, getQueue } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
+import { getProwlarrIndexers, getProwlarrStats } from '$lib/adapters/prowlarr';
+import type { ProwlarrIndexer, ProwlarrStats } from '$lib/adapters/prowlarr';
 
 // ---------------------------------------------------------------------------
 // Jellyfin session types
@@ -84,7 +86,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 
-	const [sessionsResult, requestsResult, healthResult, queueResult] = await Promise.allSettled([
+	const prowlarrConfigs = getEnabledConfigs().filter((c) => c.type === 'prowlarr');
+
+	const [sessionsResult, requestsResult, healthResult, queueResult, prowlarrResult] = await Promise.allSettled([
 		// Live sessions from all Jellyfin instances (short cache — 10s)
 		withCache('admin-sessions', 10_000, () =>
 			Promise.all(jellyfinConfigs.map(fetchJellyfinSessions)).then((all) =>
@@ -108,7 +112,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 		checkAllServices(),
 
 		// Download queue from *arr services
-		withCache('admin-queue', 30_000, () => getQueue())
+		withCache('admin-queue', 30_000, () => getQueue()),
+
+		// Prowlarr indexer stats
+		withCache('admin-prowlarr', 30_000, async () => {
+			if (prowlarrConfigs.length === 0) return null;
+			const config = prowlarrConfigs[0];
+			const [indexers, stats] = await Promise.all([
+				getProwlarrIndexers(config),
+				getProwlarrStats(config)
+			]);
+			return { indexers, stats };
+		})
 	]);
 
 	return {
@@ -116,6 +131,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		requests: requestsResult.status === 'fulfilled' ? requestsResult.value : [],
 		health: healthResult.status === 'fulfilled' ? healthResult.value : [],
 		queue: queueResult.status === 'fulfilled' ? queueResult.value : [],
-		jellyfinUrls: Object.fromEntries(jellyfinConfigs.map((c) => [c.id, c.url]))
+		jellyfinUrls: Object.fromEntries(jellyfinConfigs.map((c) => [c.id, c.url])),
+		prowlarr: prowlarrResult.status === 'fulfilled' ? prowlarrResult.value : null
 	};
 };

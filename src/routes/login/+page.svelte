@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { ActionData } from './$types';
+	import type { ActionData, PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let loading = $state(false);
 </script>
 
@@ -44,5 +44,11 @@
 				{loading ? 'Signing in…' : 'Sign In'}
 			</button>
 		</form>
+
+		{#if data.registrationEnabled}
+			<p class="mt-4 text-center text-xs text-[var(--color-muted)]">
+				Don't have an account? <a href="/register" class="text-[var(--color-nebula)] hover:underline">Create one</a>
+			</p>
+		{/if}
 	</div>
 </div>

@@ -26,7 +26,7 @@ export interface ServiceAdapter {
 	readonly icon?: string;
 
 	/** Categories of media this adapter provides */
-	readonly mediaTypes?: Array<'movie' | 'show' | 'book' | 'game' | 'music' | 'live' | 'other'>;
+	readonly mediaTypes?: Array<'movie' | 'show' | 'book' | 'game' | 'music' | 'live' | 'video' | 'other'>;
 
 	/**
 	 * Whether individual users can/should link their own accounts.
