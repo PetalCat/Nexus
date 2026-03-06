@@ -316,6 +316,38 @@ export const userFavorites = sqliteTable('user_favorites', {
 
 export type UserFavorite = typeof userFavorites.$inferSelect;
 
+// ── Music ────────────────────────────────────────────────────────────
+
+export const musicLikedTracks = sqliteTable('music_liked_tracks', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	trackId: text('track_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	createdAt: integer('created_at').notNull()
+});
+
+export const musicPlaylists = sqliteTable('music_playlists', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	name: text('name').notNull(),
+	description: text('description'),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const musicPlaylistTracks = sqliteTable('music_playlist_tracks', {
+	id: text('id').primaryKey(),
+	playlistId: text('playlist_id').notNull(),
+	trackId: text('track_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	position: integer('position').notNull().default(0),
+	addedAt: integer('added_at').notNull()
+});
+
+export type MusicLikedTrack = typeof musicLikedTracks.$inferSelect;
+export type MusicPlaylist = typeof musicPlaylists.$inferSelect;
+export type MusicPlaylistTrack = typeof musicPlaylistTracks.$inferSelect;
+
 // ── App Settings ─────────────────────────────────────────────────────
 
 export const appSettings = sqliteTable('app_settings', {
