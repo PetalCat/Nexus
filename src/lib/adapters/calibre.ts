@@ -163,14 +163,11 @@ function normalize(config: ServiceConfig, book: CalibreBook): UnifiedMedia {
 		? `/api/media/image?service=${encodeURIComponent(config.id)}&path=${encodeURIComponent(`/cover/${book.id}`)}`
 		: undefined;
 
-	// Formats from data field — Calibre-Web returns comma-separated format names
-	const formats: string[] = [];
-	if (book.data) {
-		book.data.split(',').forEach(f => {
-			const trimmed = f.trim().toUpperCase();
-			if (trimmed && /^[A-Z0-9]+$/.test(trimmed)) formats.push(trimmed);
-		});
-	}
+	// Calibre-Web's /ajax/listbooks serializes the `data` relationship via
+	// Data.get() which returns filenames, NOT format names. Format discovery
+	// requires scraping /book/{id} — done by getCalibreBookFormats().
+	// Count entries to know how many formats exist (used as a hint).
+	const formatCount = book.data ? book.data.split(',').filter(Boolean).length : 0;
 
 	return {
 		id: `${bookId}:${config.id}`,
@@ -195,10 +192,11 @@ function normalize(config: ServiceConfig, book: CalibreBook): UnifiedMedia {
 			seriesIndex: book.series_index || undefined,
 			readStatus: book.read_status,
 			uuid: book.uuid,
-			formats
+			formatCount
 		},
 		actionLabel: 'Read',
-		actionUrl: `${config.url}/book/${book.id}`
+		actionUrl: `/books/read/${book.id}?service=${config.id}`,
+		streamUrl: formatCount > 0 ? `/api/books/${book.id}/read` : undefined
 	};
 }
 
@@ -467,24 +465,19 @@ export async function getCalibreBookFormats(
 	userCred?: UserCredential
 ): Promise<CalibreBookFormats> {
 	try {
-		const res = await calibreFetch(config, `/ajax/book/${bookId}`, userCred);
-		const data = await res.json() as any;
+		// Scrape the book detail page for download links — the only reliable
+		// way to discover formats in Calibre-Web (the AJAX API doesn't expose them)
+		const res = await calibreFetch(config, `/book/${bookId}`, userCred);
+		const html = await res.text();
+		const dlMatches = html.match(/\/download\/\d+\/([a-z0-9]+)/gi);
+		if (!dlMatches) return { formats: [] };
+		const seen = new Set<string>();
 		const formats: { name: string; downloadUrl: string }[] = [];
-		if (data.main_format) {
-			for (const [fmt, info] of Object.entries(data.main_format as Record<string, any>)) {
-				formats.push({
-					name: fmt.toUpperCase(),
-					downloadUrl: `/api/books/${bookId}/download/${fmt.toLowerCase()}`
-				});
-			}
-		}
-		// Fallback: use data_files or format_metadata
-		if (formats.length === 0 && data.format_metadata) {
-			for (const fmt of Object.keys(data.format_metadata)) {
-				formats.push({
-					name: fmt.toUpperCase(),
-					downloadUrl: `/api/books/${bookId}/download/${fmt.toLowerCase()}`
-				});
+		for (const m of dlMatches) {
+			const fmt = m.split('/').pop()!.toLowerCase();
+			if (!seen.has(fmt)) {
+				seen.add(fmt);
+				formats.push({ name: fmt.toUpperCase(), downloadUrl: `/api/books/${bookId}/download/${fmt}` });
 			}
 		}
 		return { formats };
@@ -557,7 +550,7 @@ export async function downloadBook(
 ): Promise<Response> {
 	const cookie = await getSession(config, userCred);
 	// Calibre-Web download URL pattern
-	const res = await fetch(`${config.url}/download/${bookId}/${format.toUpperCase()}`, {
+	const res = await fetch(`${config.url}/download/${bookId}/${format.toLowerCase()}`, {
 		headers: { Cookie: cookie },
 		signal: AbortSignal.timeout(30000),
 		redirect: 'follow'

@@ -5,6 +5,8 @@ import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import { getProwlarrIndexers, getProwlarrStats } from '$lib/adapters/prowlarr';
 import type { ProwlarrIndexer, ProwlarrStats } from '$lib/adapters/prowlarr';
+import { getConnectedUserCount } from '$lib/server/ws';
+import { getRawDb } from '$lib/db';
 
 // ---------------------------------------------------------------------------
 // Jellyfin session types
@@ -88,7 +90,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const prowlarrConfigs = getEnabledConfigs().filter((c) => c.type === 'prowlarr');
 
-	const [sessionsResult, requestsResult, healthResult, queueResult, prowlarrResult] = await Promise.allSettled([
+	const hasInvidious = getEnabledConfigs().some((c) => c.type === 'invidious');
+
+	const [sessionsResult, requestsResult, healthResult, queueResult, prowlarrResult, proxyResult] = await Promise.allSettled([
 		// Live sessions from all Jellyfin instances (short cache — 10s)
 		withCache('admin-sessions', 10_000, () =>
 			Promise.all(jellyfinConfigs.map(fetchJellyfinSessions)).then((all) =>
@@ -123,8 +127,46 @@ export const load: PageServerLoad = async ({ locals }) => {
 				getProwlarrStats(config)
 			]);
 			return { indexers, stats };
+		}),
+
+		// Stream proxy stats (Rust sub-server on port 3939)
+		withCache('admin-proxy-stats', 10_000, async () => {
+			if (!hasInvidious) return null;
+			try {
+				const res = await fetch('http://localhost:3939/stats', { signal: AbortSignal.timeout(3000) });
+				if (!res.ok) return null;
+				return await res.json();
+			} catch {
+				return null;
+			}
 		})
 	]);
+
+	// ── New Overview metrics ─────────────────────────────────────────────
+	const db = getRawDb();
+	const onlineUsers = getConnectedUserCount();
+	const totalUsers = (db.prepare(`SELECT COUNT(*) as count FROM users`).get() as any)?.count ?? 0;
+
+	// Play time today
+	const todayStart = new Date();
+	todayStart.setHours(0, 0, 0, 0);
+	const playTimeToday = (db.prepare(`
+		SELECT COALESCE(SUM(play_duration_ms), 0) as total
+		FROM media_events
+		WHERE event_type = 'play_stop' AND timestamp >= ?
+	`).get(todayStart.getTime()) as any)?.total ?? 0;
+
+	// Recent media events (last 10)
+	const recentEvents = db.prepare(`
+		SELECT me.user_id, u.display_name as userName, me.event_type as eventType,
+		       me.media_title as mediaTitle, me.media_type as mediaType, me.timestamp,
+		       me.play_duration_ms as playDurationMs
+		FROM media_events me
+		LEFT JOIN users u ON u.id = me.user_id
+		WHERE me.event_type IN ('play_start', 'play_stop', 'complete')
+		ORDER BY me.timestamp DESC
+		LIMIT 10
+	`).all() as any[];
 
 	return {
 		sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : [],
@@ -132,6 +174,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		health: healthResult.status === 'fulfilled' ? healthResult.value : [],
 		queue: queueResult.status === 'fulfilled' ? queueResult.value : [],
 		jellyfinUrls: Object.fromEntries(jellyfinConfigs.map((c) => [c.id, c.url])),
-		prowlarr: prowlarrResult.status === 'fulfilled' ? prowlarrResult.value : null
+		prowlarr: prowlarrResult.status === 'fulfilled' ? prowlarrResult.value : null,
+		proxyStats: proxyResult.status === 'fulfilled' ? proxyResult.value : null,
+		onlineUsers,
+		totalUsers,
+		playTimeToday,
+		recentEvents
 	};
 };

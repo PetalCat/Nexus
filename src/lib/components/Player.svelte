@@ -27,6 +27,7 @@
 		autoplay?: boolean;
 		serviceId?: string;
 		itemId?: string;
+		videoId?: string; // Invidious video ID for progress tracking
 		mode?: 'hls' | 'direct';
 		formats?: VideoFormat[];
 		captions?: CaptionTrack[];
@@ -45,6 +46,7 @@
 		autoplay = false,
 		serviceId = '',
 		itemId = '',
+		videoId = '',
 		mode = 'hls',
 		formats = [],
 		captions = [],
@@ -60,6 +62,7 @@
 	let scrubEl: HTMLDivElement | undefined = $state();
 	let volSliderEl: HTMLDivElement | undefined = $state();
 	let hls: any = $state(null);
+	let dashPlayer: any = $state(null);
 
 	/* ── Playback State ── */
 	let playing = $state(false);
@@ -75,9 +78,10 @@
 	let controlsTimeout: ReturnType<typeof setTimeout> | undefined;
 	let progressInterval: ReturnType<typeof setInterval> | undefined;
 
-	/* ── Jellyfin session tracking ── */
+	/* ── Session tracking (Jellyfin + Invidious) ── */
 	let sessionStarted = false;
 	let lastReportedTicks = 0;
+	const hasTracking = $derived(!!(serviceId && itemId) || !!videoId);
 
 	/* ── Scrub dragging ── */
 	let isScrubbing = $state(false);
@@ -121,8 +125,9 @@
 	let currentDirectQuality = $state('');
 
 	// Sync directFormats when formats prop updates (fetched async)
+	// Only used for direct fallback mode (not DASH)
 	$effect(() => {
-		if (formats.length > 0) {
+		if (formats.length > 0 && !dashPlayer) {
 			directFormats = formats;
 			const videoFmts = formats.filter((f) => !f.isAudio);
 			qualityLevels = videoFmts.map((f, i) => ({
@@ -130,6 +135,35 @@
 				height: parseInt(f.quality) || 0,
 				bitrate: 0
 			}));
+
+			// Pre-select best quality (highest resolution)
+			if (!currentDirectQuality) {
+				const best = videoFmts[0]; // sorted by resolution desc
+				if (best) {
+					currentDirectQuality = String(best.itag);
+
+					// If already playing, live-switch
+					if (videoEl && hasStarted) {
+						const wasPlaying = !videoEl.paused;
+						const savedTime = videoEl.currentTime;
+
+						cleanupSyncAudio();
+
+						videoEl.src = `${streamUrl}?itag=${best.itag}`;
+						videoEl.load();
+
+						if (!best.muxed) {
+							const audioItag = getBestAudioItag();
+							if (audioItag) setupSyncAudio(audioItag);
+						}
+
+						videoEl.addEventListener('canplay', () => {
+							if (savedTime > 0) videoEl!.currentTime = savedTime;
+							if (wasPlaying) videoEl!.play().catch(() => {});
+						}, { once: true });
+					}
+				}
+			}
 		}
 	});
 
@@ -265,8 +299,24 @@
 
 	/* ── Track selection ── */
 	function setQuality(index: number) {
+		if (dashPlayer) {
+			// DASH mode: use dash.js v5 quality switching
+			if (index === -1) {
+				dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
+				currentQuality = -1;
+			} else {
+				dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
+				try {
+					dashPlayer.setRepresentationForTypeByIndex?.('video', index) ??
+						dashPlayer.setQualityFor?.('video', index);
+				} catch { /* fallback silently */ }
+				currentQuality = index;
+			}
+			activePanel = 'none';
+			return;
+		}
 		if (isDirectMode) {
-			// Direct mode: index maps to video formats (excluding audio)
+			// Direct mode fallback: index maps to video formats (excluding audio)
 			const videoFmts = directFormats.filter(f => !f.isAudio);
 			const fmt = videoFmts[index];
 			if (fmt && videoEl) {
@@ -275,13 +325,11 @@
 				currentDirectQuality = String(fmt.itag);
 				isLoading = true;
 
-				// Clean up existing sync audio
-				if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); syncAudioEl = null; }
+				cleanupSyncAudio();
 
 				videoEl.src = `${streamUrl}?itag=${fmt.itag}`;
 				videoEl.load();
 
-				// If adaptive (video-only), set up synced audio
 				if (!fmt.muxed) {
 					const audioItag = getBestAudioItag();
 					if (audioItag) setupSyncAudio(audioItag);
@@ -395,6 +443,7 @@
 		const e = activeEl();
 		if (e) e.pause();
 		if (hls) { hls.destroy(); hls = null; }
+		if (dashPlayer) { dashPlayer.destroy(); dashPlayer = null; }
 		hasStarted = false;
 		playing = false;
 		sessionStarted = false;
@@ -460,90 +509,107 @@
 	   ═══════════════════════════════════════════════ */
 
 	function reportStart() {
-		if (!serviceId || !itemId || sessionStarted) return;
+		if (!hasTracking || sessionStarted) return;
 		sessionStarted = true;
 		const e = activeEl();
-		const ticks = e ? Math.round(e.currentTime * 10_000_000) : 0;
-		fetch('/api/stream/' + serviceId + '/progress', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				itemId,
-				positionTicks: ticks,
-				isPaused: false,
-				isStopped: false,
-				isStart: true,
-				isMuted: muted,
-				volumeLevel: Math.round(volume * 100)
-			})
-		}).catch(() => {});
+		if (videoId) {
+			// Invidious tracking
+			fetch('/api/video/progress', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					videoId, title,
+					positionSeconds: e?.currentTime ?? 0,
+					durationSeconds: totalDuration || duration || 0,
+					isStart: true, isPaused: false, isStopped: false
+				})
+			}).catch(() => {});
+		} else {
+			const ticks = e ? Math.round(e.currentTime * 10_000_000) : 0;
+			fetch('/api/stream/' + serviceId + '/progress', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: false, isStopped: false, isStart: true, isMuted: muted, volumeLevel: Math.round(volume * 100) })
+			}).catch(() => {});
+		}
 	}
 
 	function reportProgress() {
-		if (!serviceId || !itemId || !sessionStarted) return;
+		if (!hasTracking || !sessionStarted) return;
 		const e = activeEl();
 		if (!e || e.paused) return;
 		const ticks = Math.round(e.currentTime * 10_000_000);
 		if (ticks === lastReportedTicks) return;
 		lastReportedTicks = ticks;
-		fetch('/api/stream/' + serviceId + '/progress', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				itemId,
-				positionTicks: ticks,
-				isPaused: false,
-				isStopped: false,
-				isMuted: muted,
-				volumeLevel: Math.round(volume * 100)
-			})
-		}).catch(() => {});
-	}
-
-	function reportStop() {
-		if (!serviceId || !itemId || !sessionStarted) return;
-		sessionStarted = false;
-		const e = activeEl();
-		const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
-		const body = JSON.stringify({
-			itemId,
-			positionTicks: ticks,
-			isPaused: true,
-			isStopped: true,
-			isMuted: muted,
-			volumeLevel: Math.round(volume * 100)
-		});
-		if (navigator.sendBeacon) {
-			navigator.sendBeacon(
-				'/api/stream/' + serviceId + '/progress',
-				new Blob([body], { type: 'application/json' })
-			);
+		if (videoId) {
+			fetch('/api/video/progress', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					videoId, title,
+					positionSeconds: e.currentTime,
+					durationSeconds: totalDuration || duration || 0,
+					isPaused: false, isStopped: false
+				})
+			}).catch(() => {});
 		} else {
 			fetch('/api/stream/' + serviceId + '/progress', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body,
-				keepalive: true
+				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: false, isStopped: false, isMuted: muted, volumeLevel: Math.round(volume * 100) })
 			}).catch(() => {});
 		}
 	}
 
-	function reportPause() {
-		if (!serviceId || !itemId || !sessionStarted) return;
+	function reportStop() {
+		if (!hasTracking || !sessionStarted) return;
+		sessionStarted = false;
 		const e = activeEl();
-		const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
-		fetch('/api/stream/' + serviceId + '/progress', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				itemId,
-				positionTicks: ticks,
-				isPaused: true,
-				isStopped: false,
-				isMuted: muted,
-				volumeLevel: Math.round(volume * 100)
-			})
-		}).catch(() => {});
+		if (videoId) {
+			const body = JSON.stringify({
+				videoId, title,
+				positionSeconds: e?.currentTime ?? 0,
+				durationSeconds: totalDuration || duration || 0,
+				isPaused: true, isStopped: true
+			});
+			if (navigator.sendBeacon) {
+				navigator.sendBeacon('/api/video/progress', new Blob([body], { type: 'application/json' }));
+			} else {
+				fetch('/api/video/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+			}
+		} else {
+			const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
+			const body = JSON.stringify({ itemId, positionTicks: ticks, isPaused: true, isStopped: true, isMuted: muted, volumeLevel: Math.round(volume * 100) });
+			if (navigator.sendBeacon) {
+				navigator.sendBeacon('/api/stream/' + serviceId + '/progress', new Blob([body], { type: 'application/json' }));
+			} else {
+				fetch('/api/stream/' + serviceId + '/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+			}
+		}
+	}
+
+	function reportPause() {
+		if (!hasTracking || !sessionStarted) return;
+		const e = activeEl();
+		if (videoId) {
+			fetch('/api/video/progress', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					videoId, title,
+					positionSeconds: e?.currentTime ?? 0,
+					durationSeconds: totalDuration || duration || 0,
+					isPaused: true, isStopped: false
+				})
+			}).catch(() => {});
+		} else {
+			const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
+			fetch('/api/stream/' + serviceId + '/progress', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: true, isStopped: false, isMuted: muted, volumeLevel: Math.round(volume * 100) })
+			}).catch(() => {});
+		}
 	}
 
 	function handleBeforeUnload() {
@@ -663,42 +729,192 @@
 		return String(audioFmts[0].itag);
 	}
 
+	/** Clean up sync audio event listeners and interval */
+	let syncCleanups: (() => void)[] = [];
+
 	/** Set up synced audio element for adaptive (video-only) streams */
 	function setupSyncAudio(audioItag: string) {
-		if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); }
+		// Clean up previous sync
+		cleanupSyncAudio();
+
 		const el = document.createElement('audio');
 		el.src = `${streamUrl}?itag=${audioItag}`;
 		el.preload = 'auto';
+		document.body.appendChild(el); // Must be in DOM for some browsers to load
 		syncAudioEl = el;
 
-		// Sync audio with video
-		videoEl!.addEventListener('play', () => { el.currentTime = videoEl!.currentTime; el.play().catch(() => {}); });
-		videoEl!.addEventListener('pause', () => el.pause());
-		videoEl!.addEventListener('seeked', () => { el.currentTime = videoEl!.currentTime; });
-		videoEl!.addEventListener('ratechange', () => { el.playbackRate = videoEl!.playbackRate; });
-		videoEl!.addEventListener('volumechange', () => { el.volume = videoEl!.volume; el.muted = videoEl!.muted; });
+		let isSeeking = false;
 
-		// Periodic sync to prevent drift
-		const syncInterval = setInterval(() => {
-			if (videoEl && syncAudioEl && Math.abs(videoEl.currentTime - syncAudioEl.currentTime) > 0.3) {
-				syncAudioEl.currentTime = videoEl.currentTime;
+		let audioReady = false;
+		el.addEventListener('canplay', () => { audioReady = true; }, { once: true });
+
+		const onPlay = () => {
+			if (isSeeking) return;
+			el.currentTime = videoEl!.currentTime;
+			if (audioReady) {
+				el.play().catch(() => {});
+			} else {
+				// Wait for audio to be ready before playing
+				el.addEventListener('canplay', () => {
+					el.currentTime = videoEl!.currentTime;
+					if (!videoEl!.paused) el.play().catch(() => {});
+				}, { once: true });
 			}
-		}, 2000);
-		el.addEventListener('ended', () => clearInterval(syncInterval), { once: true });
+		};
+		const onPause = () => {
+			el.pause();
+		};
+		const onSeeking = () => {
+			// Pause audio immediately when video starts seeking to prevent stutter
+			isSeeking = true;
+			el.pause();
+		};
+		const onSeeked = () => {
+			// Video finished seeking — sync audio position, then resume if video is playing
+			el.currentTime = videoEl!.currentTime;
+			isSeeking = false;
+			if (!videoEl!.paused) {
+				el.play().catch(() => {});
+			}
+		};
+		const onRateChange = () => { el.playbackRate = videoEl!.playbackRate; };
+		const onVolumeChange = () => { el.volume = videoEl!.volume; el.muted = videoEl!.muted; };
+
+		videoEl!.addEventListener('play', onPlay);
+		videoEl!.addEventListener('pause', onPause);
+		videoEl!.addEventListener('seeking', onSeeking);
+		videoEl!.addEventListener('seeked', onSeeked);
+		videoEl!.addEventListener('ratechange', onRateChange);
+		videoEl!.addEventListener('volumechange', onVolumeChange);
+
+		// Gentle periodic drift correction — only nudge if both are playing
+		const syncInterval = setInterval(() => {
+			if (videoEl && syncAudioEl && !isSeeking && !videoEl.paused && !syncAudioEl.paused) {
+				const drift = Math.abs(videoEl.currentTime - syncAudioEl.currentTime);
+				if (drift > 0.3) {
+					syncAudioEl.currentTime = videoEl.currentTime;
+				}
+			}
+		}, 3000);
+
+		syncCleanups = [
+			() => { videoEl?.removeEventListener('play', onPlay); },
+			() => { videoEl?.removeEventListener('pause', onPause); },
+			() => { videoEl?.removeEventListener('seeking', onSeeking); },
+			() => { videoEl?.removeEventListener('seeked', onSeeked); },
+			() => { videoEl?.removeEventListener('ratechange', onRateChange); },
+			() => { videoEl?.removeEventListener('volumechange', onVolumeChange); },
+			() => { clearInterval(syncInterval); }
+		];
 	}
 
-	function initDirectVideo() {
+	function cleanupSyncAudio() {
+		syncCleanups.forEach(fn => fn());
+		syncCleanups = [];
+		if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); syncAudioEl = null; }
+	}
+
+	async function initDirectVideo() {
 		if (!videoEl) return;
 
-		// Determine which format to use
-		const isAdaptive = currentDirectQuality && directFormats.find(f => String(f.itag) === currentDirectQuality && f.muxed === false);
+		// Try DASH first for Invidious videos (proper adaptive streaming with audio)
+		if (videoId) {
+			try {
+				const dashjsModule = await import('dashjs');
+				const dashUrl = `${streamUrl}/dash?_t=${Date.now()}`;
+				// dashjs exports MediaPlayer as both default.MediaPlayer and named export
+				const factory = (dashjsModule as any).MediaPlayer ?? (dashjsModule as any).default?.MediaPlayer ?? (dashjsModule as any).default;
+				dashPlayer = typeof factory === 'function' ? factory().create() : factory.create();
+				dashPlayer.initialize(videoEl, dashUrl, false);
+
+				// Configure for best quality by default
+				dashPlayer.updateSettings({
+					streaming: {
+						abr: {
+							autoSwitchBitrate: { video: true, audio: true },
+							initialBitrate: { video: 10000 }, // Start high (kbps)
+						},
+						buffer: {
+							fastSwitchEnabled: true,
+							bufferTimeAtTopQuality: 30
+						},
+						retryAttempts: {
+							HTTPMaxRetry: 3
+						},
+						retryIntervals: {
+							HTTPBaseWaitingTime: 1000
+						}
+					}
+				});
+
+				dashPlayer.on('streamInitialized', () => {
+					// Set initial position for resume
+					if (progress > 0 && totalDuration > 0) dashPlayer.seek(progress * totalDuration);
+					else if (progress > 0 && duration > 0) dashPlayer.seek(progress * duration);
+					dashPlayer.play();
+					isLoading = false;
+
+					// Populate quality levels from DASH (v5 API)
+					try {
+						const reps = dashPlayer.getRepresentationsByType?.('video') ?? [];
+						qualityLevels = reps.map((r: any, i: number) => ({
+							index: i,
+							height: r.height ?? 0,
+							bitrate: r.bandwidth ?? r.bitrate ?? 0
+						}));
+					} catch (e) {
+						console.warn('[Player] Could not get DASH representations:', e);
+					}
+				});
+
+				dashPlayer.on('error', (e: any) => {
+					console.error('[Player] DASH error:', e);
+					// Fall back to direct stream
+					dashPlayer?.destroy();
+					dashPlayer = null;
+					initDirectFallback();
+				});
+
+				// Set up captions
+				if (captions.length > 0) {
+					subtitleTracks = captions.map((c, i) => ({
+						id: 1000 + i,
+						name: c.label,
+						lang: c.lang,
+						source: 'external' as const,
+						vttUrl: c.url
+					}));
+					captions.forEach((c) => {
+						const el = document.createElement('track');
+						el.kind = 'subtitles';
+						el.label = c.label;
+						el.srclang = c.lang;
+						el.src = c.url;
+						videoEl!.appendChild(el);
+					});
+				}
+
+				return; // DASH initialized successfully
+			} catch (e) {
+				console.warn('[Player] DASH init failed, falling back to direct:', e);
+			}
+		}
+
+		// Fallback: direct single-stream mode
+		initDirectFallback();
+	}
+
+	function initDirectFallback() {
+		if (!videoEl) return;
+
 		const src = currentDirectQuality
 			? `${streamUrl}?itag=${currentDirectQuality}`
 			: streamUrl;
 		videoEl.src = src;
 		videoEl.load();
 
-		// If playing an adaptive (video-only) format, set up synced audio
+		// If adaptive (video-only), set up synced audio
+		const isAdaptive = currentDirectQuality && directFormats.find(f => String(f.itag) === currentDirectQuality && f.muxed === false);
 		if (isAdaptive) {
 			const audioItag = getBestAudioItag();
 			if (audioItag) setupSyncAudio(audioItag);
@@ -717,7 +933,7 @@
 			errorMsg = 'Unable to play this video. The format may be unsupported.';
 		}, { once: true });
 
-		// Set up quality levels from ALL video formats (muxed + adaptive video)
+		// Set up quality levels
 		const videoFmts = directFormats.filter((f) => !f.isAudio);
 		if (videoFmts.length > 0) {
 			qualityLevels = videoFmts.map((f, i) => ({
@@ -727,7 +943,7 @@
 			}));
 		}
 
-		// Set up captions from captions prop
+		// Set up captions
 		if (captions.length > 0) {
 			subtitleTracks = captions.map((c, i) => ({
 				id: 1000 + i,
@@ -736,7 +952,6 @@
 				source: 'external' as const,
 				vttUrl: c.url
 			}));
-			// Inject <track> elements
 			captions.forEach((c) => {
 				const el = document.createElement('track');
 				el.kind = 'subtitles';
@@ -856,10 +1071,12 @@
 
 	onDestroy(() => {
 		reportStop();
-		if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); syncAudioEl = null; }
+		cleanupSyncAudio();
 		if (hls) { hls.destroy(); hls = null; }
+		if (dashPlayer) { dashPlayer.destroy(); dashPlayer = null; }
 		if (controlsTimeout) clearTimeout(controlsTimeout);
 		if (progressInterval) clearInterval(progressInterval);
+		if (typeof document === 'undefined') return; // SSR guard
 		document.removeEventListener('keydown', handleKeydown);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -1074,7 +1291,7 @@
 						{/if}
 
 						<!-- Quality -->
-						{#if isDirectMode && directFormats.filter(f => !f.isAudio).length > 0}
+						{#if isDirectMode && !dashPlayer && directFormats.filter(f => !f.isAudio).length > 0}
 							<div class="ctrl-panel-wrap">
 								<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
 									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>

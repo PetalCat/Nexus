@@ -3,7 +3,7 @@ import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getRomSaves, getRomStates } from '$lib/adapters/romm';
-import { isPlayableInBrowser, getEmulatorJSConfig } from '$lib/emulator/cores';
+import { isPlayableInBrowser } from '$lib/emulator/cores';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
@@ -11,7 +11,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	let serviceId = url.searchParams.get('serviceId');
 
-	// Find the RomM service if not specified
 	if (!serviceId) {
 		const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
 		if (rommConfigs.length > 0) serviceId = rommConfigs[0].id;
@@ -33,21 +32,25 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		throw error(400, `Platform "${platformSlug ?? 'unknown'}" is not supported for in-browser emulation`);
 	}
 
-	const romUrl = `/api/games/${params.id}/rom?serviceId=${serviceId}`;
-	const ejsConfig = getEmulatorJSConfig(platformSlug, romUrl);
-	if (!ejsConfig) throw error(500, 'Could not resolve emulator config');
-
-	// Fetch saves/states for the toolbar
+	// Fetch saves/states for the cloud save modal
 	const [saves, states] = await Promise.all([
 		getRomSaves(config, params.id, userCred),
 		getRomStates(config, params.id, userCred)
 	]);
 
+	// Proxy screenshot URLs through Nexus image proxy
+	const proxyScreenshot = (url?: string) => {
+		if (!url) return undefined;
+		try {
+			const path = new URL(url).pathname;
+			return `/api/media/image?service=${serviceId}&path=${encodeURIComponent(path)}`;
+		} catch { return undefined; }
+	};
+
 	return {
 		item,
 		serviceId,
-		ejsConfig,
-		saves,
-		states
+		saves: saves.map(s => ({ ...s, screenshot_url: proxyScreenshot(s.screenshot_url) })),
+		states: states.map(s => ({ ...s, screenshot_url: proxyScreenshot(s.screenshot_url) }))
 	};
 };

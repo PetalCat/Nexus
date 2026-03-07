@@ -18,7 +18,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	if (!calibreConfig) throw error(404, 'No Calibre service configured');
 
-	const adapter = registry.get('calibre')!;
+	const adapter = registry.get('calibre');
+	if (!adapter?.getItem) throw error(500, 'Calibre adapter not available');
 	const userCred = getUserCredentialForService(userId, calibreConfig.id) ?? undefined;
 
 	const item = await adapter.getItem(calibreConfig, params.id, userCred);
@@ -55,10 +56,20 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	// so we fetch it from the progress API pattern. For now, use the activity row if it exists.
 	const savedPosition: string | undefined = undefined;
 
+	// Determine format to read — default to EPUB, allow ?format=pdf etc
+	const requestedFormat = (url.searchParams.get('format') ?? 'epub').toLowerCase();
+	const availableFormats = (item.metadata?.formats as string[]) ?? [];
+	const format = availableFormats.map(f => f.toLowerCase()).includes(requestedFormat) ? requestedFormat : 'epub';
+	const bookUrl = format === 'epub'
+		? `/api/books/${params.id}/read`
+		: `/api/books/${params.id}/download/${format}`;
+
 	return {
 		book: item,
 		serviceId: calibreConfig.id,
-		epubUrl: `/api/books/${params.id}/read`,
+		bookUrl,
+		format,
+		availableFormats: availableFormats.map(f => f.toLowerCase()),
 		savedPosition,
 		progress: activityRow?.progress ?? 0,
 		bookmarks,

@@ -268,10 +268,13 @@ export interface RommSave {
 	rom_id: number;
 	file_name: string;
 	file_size_bytes: number;
+	download_path?: string;
+	screenshot?: { download_path?: string } | null;
 	screenshot_url?: string;
 	created_at: string;
 	updated_at: string;
 	emulator?: string;
+	slot?: string;
 }
 
 export interface RommState {
@@ -279,6 +282,8 @@ export interface RommState {
 	rom_id: number;
 	file_name: string;
 	file_size_bytes: number;
+	download_path?: string;
+	screenshot?: { download_path?: string } | null;
 	screenshot_url?: string;
 	created_at: string;
 	updated_at: string;
@@ -295,12 +300,14 @@ export interface RommScreenshot {
 
 export async function getRomSaves(config: ServiceConfig, romId: string | number, userCred?: UserCredential): Promise<RommSave[]> {
 	try {
-		const data = await rommFetch(config, `/roms/${romId}/saves`, userCred);
+		const data = await rommFetch(config, `/saves?rom_id=${romId}`, userCred);
 		const saves = Array.isArray(data) ? data : data?.items ?? [];
-		return saves.map((s: RommSave) => ({
+		return saves.map((s: any) => ({
 			...s,
-			screenshot_url: s.screenshot_url ?? (s.id ? `${config.url}/api/saves/${s.id}/screenshot` : undefined)
-		}));
+			screenshot_url: s.screenshot?.download_path
+				? `${config.url}${s.screenshot.download_path}`
+				: undefined
+		} as RommSave));
 	} catch {
 		return [];
 	}
@@ -308,12 +315,14 @@ export async function getRomSaves(config: ServiceConfig, romId: string | number,
 
 export async function getRomStates(config: ServiceConfig, romId: string | number, userCred?: UserCredential): Promise<RommState[]> {
 	try {
-		const data = await rommFetch(config, `/roms/${romId}/states`, userCred);
+		const data = await rommFetch(config, `/states?rom_id=${romId}`, userCred);
 		const states = Array.isArray(data) ? data : data?.items ?? [];
-		return states.map((s: RommState) => ({
+		return states.map((s: any) => ({
 			...s,
-			screenshot_url: s.screenshot_url ?? (s.id ? `${config.url}/api/states/${s.id}/screenshot` : undefined)
-		}));
+			screenshot_url: s.screenshot?.download_path
+				? `${config.url}${s.screenshot.download_path}`
+				: undefined
+		} as RommState));
 	} catch {
 		return [];
 	}
@@ -362,7 +371,10 @@ export async function toggleRomFavorite(
 	}
 }
 
-export function getRomDownloadUrl(config: ServiceConfig, romId: string | number): string {
+export function getRomDownloadUrl(config: ServiceConfig, romId: string | number, fileName?: string): string {
+	if (fileName) {
+		return `${config.url}/api/roms/${romId}/content/${encodeURIComponent(fileName)}`;
+	}
 	return `${config.url}/api/roms/${romId}/content`;
 }
 
@@ -389,9 +401,17 @@ export async function downloadRomContent(
 	range?: string
 ): Promise<Response> {
 	const headers: Record<string, string> = rommAuthHeaders(config, userCred);
+
+	// RomM requires the filename in the content path — fetch ROM metadata first
+	const romData = await rommFetch(config, `/roms/${romId}`, userCred);
+	const fileName = romData?.fs_name ?? romData?.file_name ?? '';
+	if (!fileName) {
+		return new Response('ROM filename not found', { status: 404 });
+	}
+
 	if (range) headers['Range'] = range;
 
-	return fetch(`${config.url}/api/roms/${romId}/content`, {
+	return fetch(`${config.url}/api/roms/${romId}/content/${encodeURIComponent(fileName)}`, {
 		headers,
 		signal: AbortSignal.timeout(120_000)
 	});
@@ -402,14 +422,46 @@ export async function uploadRomState(
 	romId: string | number,
 	stateBlob: Blob,
 	fileName: string,
-	userCred?: UserCredential
+	userCred?: UserCredential,
+	screenshotBlob?: Blob
 ): Promise<boolean> {
 	try {
 		const form = new FormData();
-		form.append('file', stateBlob, fileName);
+		form.append('stateFile', stateBlob, fileName);
+		if (screenshotBlob) {
+			form.append('screenshotFile', screenshotBlob, 'screenshot.png');
+		}
 		const headers = rommAuthHeaders(config, userCred);
 
-		const res = await fetch(`${config.url}/api/roms/${romId}/states`, {
+		const res = await fetch(`${config.url}/api/states?rom_id=${romId}`, {
+			method: 'POST',
+			headers,
+			body: form,
+			signal: AbortSignal.timeout(30_000)
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+export async function uploadRomSave(
+	config: ServiceConfig,
+	romId: string | number,
+	saveBlob: Blob,
+	fileName: string,
+	userCred?: UserCredential,
+	screenshotBlob?: Blob
+): Promise<boolean> {
+	try {
+		const form = new FormData();
+		form.append('saveFile', saveBlob, fileName);
+		if (screenshotBlob) {
+			form.append('screenshotFile', screenshotBlob, 'screenshot.png');
+		}
+		const headers = rommAuthHeaders(config, userCred);
+
+		const res = await fetch(`${config.url}/api/saves?rom_id=${romId}`, {
 			method: 'POST',
 			headers,
 			body: form,
@@ -427,8 +479,16 @@ export async function downloadRomState(
 	stateId: string | number,
 	userCred?: UserCredential
 ): Promise<Response> {
-	return fetch(`${config.url}/api/states/${stateId}/content`, {
-		headers: rommAuthHeaders(config, userCred),
+	const headers = rommAuthHeaders(config, userCred);
+	// Fetch state metadata to get download_path
+	const meta = await rommFetch(config, `/states/${stateId}`, userCred);
+	const dlPath = meta?.download_path;
+	if (!dlPath) {
+		return new Response('State download path not found', { status: 404 });
+	}
+	// download_path is an absolute path like "/api/states/{id}/content/{filename}"
+	return fetch(`${config.url}${dlPath}`, {
+		headers,
 		signal: AbortSignal.timeout(30_000)
 	});
 }
@@ -440,9 +500,12 @@ export async function deleteRomState(
 	userCred?: UserCredential
 ): Promise<boolean> {
 	try {
-		const res = await fetch(`${config.url}/api/states/${stateId}`, {
-			method: 'DELETE',
-			headers: rommAuthHeaders(config, userCred),
+		const headers = rommAuthHeaders(config, userCred);
+		headers['Content-Type'] = 'application/json';
+		const res = await fetch(`${config.url}/api/states/delete`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ states: [Number(stateId)] }),
 			signal: AbortSignal.timeout(8000)
 		});
 		return res.ok;
@@ -457,8 +520,14 @@ export async function downloadRomSave(
 	saveId: string | number,
 	userCred?: UserCredential
 ): Promise<Response> {
-	return fetch(`${config.url}/api/saves/${saveId}/content`, {
-		headers: rommAuthHeaders(config, userCred),
+	const headers = rommAuthHeaders(config, userCred);
+	const meta = await rommFetch(config, `/saves/${saveId}`, userCred);
+	const dlPath = meta?.download_path;
+	if (!dlPath) {
+		return new Response('Save download path not found', { status: 404 });
+	}
+	return fetch(`${config.url}${dlPath}`, {
+		headers,
 		signal: AbortSignal.timeout(30_000)
 	});
 }
@@ -470,9 +539,12 @@ export async function deleteRomSave(
 	userCred?: UserCredential
 ): Promise<boolean> {
 	try {
-		const res = await fetch(`${config.url}/api/saves/${saveId}`, {
-			method: 'DELETE',
-			headers: rommAuthHeaders(config, userCred),
+		const headers = rommAuthHeaders(config, userCred);
+		headers['Content-Type'] = 'application/json';
+		const res = await fetch(`${config.url}/api/saves/delete`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ saves: [Number(saveId)] }),
 			signal: AbortSignal.timeout(8000)
 		});
 		return res.ok;

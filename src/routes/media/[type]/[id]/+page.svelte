@@ -189,16 +189,17 @@
 	const bookAuthor = $derived((item.metadata?.author as string) ?? '');
 	const bookSeriesName = $derived((item.metadata?.seriesName as string) ?? '');
 	const bookSeriesIndex = $derived((item.metadata?.seriesIndex as number | undefined) ?? undefined);
-	const bookFormats = $derived((data as any).bookFormats?.formats ?? []);
+	const bookFormatsFromApi = $derived((data as any).bookFormats?.formats ?? []);
 	const bookRelated = $derived((data as any).bookRelated ?? { sameAuthor: [], sameSeries: [] });
 	const bookNotes = $derived((data as any).bookNotes ?? []);
 	const bookHighlights = $derived((data as any).bookHighlights ?? []);
 	const bookBookmarks = $derived((data as any).bookBookmarks ?? []);
-	const hasEpub = $derived(bookFormats.some((f: any) => f.name === 'EPUB'));
 	const bookReadStatus = $derived(!!item.metadata?.readStatus);
 	const bookPublisher = $derived((item.metadata?.publisher as string) ?? '');
 	const bookLanguage = $derived((item.metadata?.language as string) ?? '');
-	const bookMetaFormats = $derived((item.metadata?.formats as string[]) ?? []);
+	// Formats from getCalibreBookFormats (scrapes /book/{id} page)
+	const bookFormats = $derived(bookFormatsFromApi.length > 0 ? bookFormatsFromApi : []);
+	const hasEpub = $derived(bookFormats.some((f: any) => (f.name ?? f) === 'EPUB'));
 
 	let bookNoteContent = $state('');
 	let togglingRead = $state(false);
@@ -736,7 +737,12 @@
 
 						<!-- Actions -->
 						<div class="anim action-row" style="--d:580ms">
-							{#if isPlayable && !showPlayer && !isAudioType}
+							{#if isBook && item.actionUrl}
+								<a href={item.actionUrl} class="act-play" style="text-decoration:none">
+									<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
+									Read
+								</a>
+							{:else if isPlayable && !showPlayer && !isAudioType}
 								<button class="act-play" onclick={startPlayback}>
 									<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
 									{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
@@ -1185,6 +1191,13 @@
 				</section>
 			{/if}
 
+			<!-- Notes tab -->
+			{#if gameTab === 'notes'}
+				<section class="sect">
+					<GameNotes romId={item.sourceId} serviceId={data.serviceId} initialContent={gameNoteContent} />
+				</section>
+			{/if}
+
 			<!-- Files tab -->
 			{#if gameTab === 'files'}
 				<section class="sect">
@@ -1230,6 +1243,16 @@
 							</div>
 						{/if}
 					</div>
+					<a
+						href="/api/games/{item.sourceId}/download?serviceId={data.serviceId}"
+						class="download-rom-btn"
+						download
+					>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+						</svg>
+						Download ROM
+					</a>
 				</section>
 			{/if}
 		{/if}
@@ -1265,13 +1288,30 @@
 
 			<!-- Book actions -->
 			<section class="sect">
-				<div class="book-actions">
-					{#if hasEpub}
-						<a href="/books/read/{item.sourceId}?service={data.serviceId}" class="book-action-btn book-action-btn--primary">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-							Read
-						</a>
-					{/if}
+				<!-- Format picker: always show available formats -->
+				{#if bookFormats.length > 0}
+					<div class="book-format-picker">
+						<span class="book-format-label">Available formats</span>
+						<div class="book-format-options">
+							{#each bookFormats as fmt}
+								{@const fmtUpper = fmt.name.toUpperCase()}
+								{@const isReadable = fmtUpper === 'EPUB' || fmtUpper === 'PDF'}
+								<a href="/books/read/{item.sourceId}?service={data.serviceId}&format={fmt.name.toLowerCase()}" class="book-format-chip {fmtUpper === 'EPUB' ? 'book-format-chip--active' : ''}">
+									{#if fmtUpper === 'EPUB'}
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+									{:else if fmtUpper === 'PDF'}
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+									{:else}
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+									{/if}
+									{isReadable ? `Read ${fmtUpper}` : `Download ${fmtUpper}`}
+								</a>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<div class="book-actions" style="margin-top: 0.75rem">
 					<button
 						class="book-action-btn"
 						class:book-action-btn--read={currentReadStatus}
@@ -1285,12 +1325,6 @@
 						{/if}
 						{currentReadStatus ? 'Read' : 'Mark as Read'}
 					</button>
-					{#each bookFormats as fmt}
-						<a href={fmt.downloadUrl} class="book-action-btn" download>
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-							{fmt.name}
-						</a>
-					{/each}
 				</div>
 			</section>
 
@@ -1322,10 +1356,10 @@
 							<span class="book-meta-value">{item.year}</span>
 						</div>
 					{/if}
-					{#if bookMetaFormats.length > 0}
+					{#if bookFormats.length > 0}
 						<div class="book-meta-card">
 							<span class="book-meta-label">Formats</span>
-							<span class="book-meta-value">{bookMetaFormats.join(', ')}</span>
+							<span class="book-meta-value">{bookFormats.map((f: any) => f.name).join(', ')}</span>
 						</div>
 					{/if}
 					{#if item.rating}
@@ -1467,14 +1501,17 @@
 		<!-- Left column -->
 		<div class="video-main">
 			<!-- Inline Player -->
-			{#if videoStreamUrl}
+			{#if videoStreamUrl && item}
 				{#key videoStreamUrl}
 				<Player
 					streamUrl={videoStreamUrl}
 					type={item.type}
 					title={item.title}
 					poster={item.backdrop ?? item.poster}
+					progress={item.progress}
+					duration={item.duration}
 					autoplay={autoplay}
+					videoId={item.sourceId}
 					mode="direct"
 					formats={videoFormats}
 					captions={videoCaptions}
@@ -2397,6 +2434,27 @@
 	}
 	.game-copy-btn:hover { color: var(--color-cream); }
 
+	.download-rom-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 1rem;
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-pill);
+		background: var(--color-surface);
+		color: var(--color-cream);
+		font-size: 0.78rem;
+		font-weight: 500;
+		border: 1px solid rgba(240, 235, 227, 0.08);
+		text-decoration: none;
+		transition: all 0.15s;
+	}
+	.download-rom-btn:hover {
+		background: var(--color-raised);
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
 	/* ═══════════════════════════════════════
 	   GAME TABS
 	   ═══════════════════════════════════════ */
@@ -2488,6 +2546,31 @@
 		background: color-mix(in oklch, var(--color-steel) 15%, transparent);
 		color: var(--color-steel);
 	}
+
+	.save-actions {
+		display: flex; gap: 0.25rem;
+		padding: 0.25rem 0.65rem 0.5rem;
+	}
+	.save-action-btn {
+		display: flex; align-items: center; justify-content: center;
+		width: 28px; height: 28px; border-radius: 6px;
+		border: 1px solid rgba(240,235,227,0.08);
+		background: var(--color-raised); color: var(--color-muted);
+		cursor: pointer; transition: all 0.15s;
+	}
+	.save-action-btn:hover { color: var(--color-cream); border-color: var(--color-muted); }
+	.save-action-btn--danger:hover { color: #f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.08); }
+	.save-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+	.save-upload-btn {
+		display: inline-flex; align-items: center; gap: 0.375rem;
+		padding: 0.375rem 0.75rem; border-radius: 8px;
+		border: 1px dashed rgba(240,235,227,0.15);
+		background: transparent; color: var(--color-muted);
+		font-size: 0.8125rem; cursor: pointer;
+		transition: all 0.15s;
+	}
+	.save-upload-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 
 	/* ═══════════════════════════════════════
 	   SCREENSHOTS
@@ -2593,6 +2676,19 @@
 	.book-action-btn--primary { background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.2); color: var(--color-accent); }
 	.book-action-btn--primary:hover { background: rgba(212,162,83,0.2); border-color: rgba(212,162,83,0.3); }
 	.book-action-btn--read { color: var(--color-steel); border-color: rgba(61,143,132,0.2); background: rgba(61,143,132,0.08); }
+	.book-format-picker { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+	.book-format-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-muted); }
+	.book-format-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+	.book-format-chip {
+		display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; border-radius: 10px;
+		font-size: 0.8rem; font-weight: 500; text-decoration: none; transition: all 0.15s ease;
+		background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); color: var(--color-cream);
+	}
+	.book-format-chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
+	.book-format-chip--active {
+		background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.25); color: var(--color-accent);
+	}
+	.book-format-chip--active:hover { background: rgba(212,162,83,0.2); border-color: rgba(212,162,83,0.35); }
 	.book-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
 	.book-meta-card { padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); }
 	.book-meta-label { display: block; font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); margin-bottom: 0.25rem; }

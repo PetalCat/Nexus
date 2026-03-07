@@ -5,12 +5,31 @@ import { startStatsScheduler } from '$lib/server/stats-scheduler';
 import { startVideoNotificationPoller } from '$lib/server/video-notifications';
 import { startRecScheduler } from '$lib/server/rec-scheduler';
 import { initSocialWsHandlers } from '$lib/server/social-ws';
+import { startHealthWatchdog, onServiceRecovery } from '$lib/server/health-watchdog';
+import { broadcastToAll } from '$lib/server/ws';
+import { startStreamProxy } from '$lib/server/stream-proxy';
+import { getEnabledConfigs } from '$lib/server/services';
 
 // Start background analytics
 startSessionPoller();
 startStatsScheduler();
 startVideoNotificationPoller();
 startRecScheduler();
+
+// Start video stream proxy sub-server
+const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
+if (invConfig) startStreamProxy(invConfig.url);
+
+// Start health watchdog — detects service recovery and invalidates stale caches
+startHealthWatchdog();
+
+// When services recover, notify all connected clients so they can refresh
+onServiceRecovery((recoveredIds) => {
+	broadcastToAll({
+		type: 'services:recovered',
+		data: { serviceIds: recoveredIds }
+	});
+});
 
 // Register social WS event handlers
 initSocialWsHandlers();

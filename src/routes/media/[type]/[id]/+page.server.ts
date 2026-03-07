@@ -263,18 +263,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let bookBookmarks: any[] = [];
 
 	if (item.type === 'book' && resolvedServiceType === 'calibre') {
-		const { getRelatedBooks: fetchRelated, getCalibreBookFormats: fetchFormats } = await import('$lib/adapters/calibre');
 		try {
 			[bookRelated, bookFormats] = await Promise.all([
-				fetchRelated(config, params.id, userCred),
-				fetchFormats(config, params.id, userCred)
+				getRelatedBooks(config, params.id, userCred),
+				getCalibreBookFormats(config, params.id, userCred)
 			]);
-		} catch { /* silent */ }
+		} catch { /* silent — best-effort enrichment */ }
 
 		// Fetch user annotations from DB
 		if (userId) {
-			const { getDb } = await import('$lib/db');
-			const schema = await import('$lib/db/schema');
+			const { getDb, schema } = await import('$lib/db');
 			const { eq, and, desc } = await import('drizzle-orm');
 			const db = getDb();
 
@@ -303,6 +301,25 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	if (resolvedServiceType === 'invidious' && item.type === 'video') {
 		videoStreamUrl = `/api/video/stream/${params.id}`;
+
+		// Load saved progress for resume
+		if (userId) {
+			try {
+				const { getDb } = await import('$lib/db');
+				const { activity } = await import('$lib/db/schema');
+				const { eq, and } = await import('drizzle-orm');
+				const db = getDb();
+				const record = db.select().from(activity)
+					.where(and(eq(activity.userId, userId), eq(activity.mediaId, params.id), eq(activity.serviceId, serviceId)))
+					.get();
+				if (record && !record.completed && record.progress > 0 && record.progress < 0.9) {
+					item.progress = record.progress;
+					if (record.positionTicks) {
+						item.duration = record.positionTicks / 10_000_000 / (record.progress || 1);
+					}
+				}
+			} catch { /* silent */ }
+		}
 
 		// Map Invidious captions to proxied URLs
 		const rawCaptions = (item.metadata?.captions as any[]) ?? [];

@@ -5,7 +5,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Tab state ──────────────────────────────────────────────
-	let activeTab = $state<'services' | 'users' | 'accounts' | 'notifications'>('services');
+	let activeTab = $state<'services' | 'accounts' | 'notifications'>('services');
 
 	// ── Services tab state ─────────────────────────────────────
 	let showAddForm = $state(false);
@@ -29,30 +29,7 @@
 
 	let idManuallyEdited = $state(false);
 
-	// ── Users tab state ────────────────────────────────────────
-	let inviteMaxUses = $state(1);
-	let inviteExpiry = $state(0); // 0 = never
-	let creatingInvite = $state(false);
-	let newInviteCode = $state<string | null>(null);
-	let deleteUserConfirm = $state<string | null>(null);
-	let deleteInviteConfirm = $state<string | null>(null);
-	let migrateLoading = $state(false);
-	let migratePreview = $state<Array<{ serviceId: string; serviceName: string; externalId: string; username: string; isAdmin: boolean }> | null>(null);
-	let migrateResult = $state<{ imported: number; results: Array<{ username: string; status: string }> } | null>(null);
-
-	// ── Provision state ──────────────────────────────────────
-	let provisionUserId = $state<string | null>(null);
-	let provisioning = $state(false);
-	let provisionResult = $state<Array<{ serviceId: string; serviceName: string; serviceType: string; status: string; externalUsername?: string; error?: string }> | null>(null);
-	let provisionError = $state<string | null>(null);
-
-	// ── Registration & password reset state ────────────────────
-	let savingSettings = $state(false);
-	let resetPasswordUserId = $state<string | null>(null);
-	let resetPasswordValue = $state('');
-	let resetPasswordLoading = $state(false);
-	let resetPasswordError = $state<string | null>(null);
-	let approveLoading = $state<string | null>(null);
+	// (Users tab moved to Admin → Users)
 
 	// ── Notification preferences state ─────────────────────────
 	let notifPrefs = $state<Record<string, boolean>>({});
@@ -190,125 +167,7 @@
 		await invalidateAll(); deleteConfirm = null;
 	}
 
-	// ── Invite functions ───────────────────────────────────────
-	async function createInvite() {
-		creatingInvite = true; newInviteCode = null;
-		try {
-			const res = await fetch('/api/admin/invites', {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ maxUses: inviteMaxUses, expiresInHours: inviteExpiry || null })
-			});
-			const data = await res.json();
-			newInviteCode = data.code;
-			await invalidateAll();
-		} catch (e) { console.error(e); }
-		finally { creatingInvite = false; }
-	}
-
-	async function deleteInvite(code: string) {
-		await fetch(`/api/admin/invites?code=${encodeURIComponent(code)}`, { method: 'DELETE' });
-		await invalidateAll(); deleteInviteConfirm = null;
-	}
-
-	async function deleteUser(id: string) {
-		await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-		await invalidateAll(); deleteUserConfirm = null;
-	}
-
-	// ── Migration functions ────────────────────────────────────
-	async function previewMigration() {
-		migrateLoading = true; migratePreview = null; migrateResult = null;
-		try {
-			const res = await fetch('/api/admin/migrate/jellyfin');
-			migratePreview = await res.json();
-		} catch (e) { console.error(e); }
-		finally { migrateLoading = false; }
-	}
-
-	async function executeMigration() {
-		migrateLoading = true; migrateResult = null;
-		try {
-			const res = await fetch('/api/admin/migrate/jellyfin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-			migrateResult = await res.json();
-			migratePreview = null;
-			await invalidateAll();
-		} catch (e) { console.error(e); }
-		finally { migrateLoading = false; }
-	}
-
-	// ── Settings & admin functions ─────────────────────────────
-	async function toggleSetting(key: string, value: boolean) {
-		savingSettings = true;
-		try {
-			await fetch('/api/admin/settings', {
-				method: 'PUT', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ [key]: value ? 'true' : 'false' })
-			});
-			await invalidateAll();
-		} catch (e) { console.error(e); }
-		finally { savingSettings = false; }
-	}
-
-	async function adminResetPassword(userId: string) {
-		if (!resetPasswordValue || resetPasswordValue.length < 6) {
-			resetPasswordError = 'Password must be at least 6 characters';
-			return;
-		}
-		resetPasswordLoading = true; resetPasswordError = null;
-		try {
-			const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
-				method: 'PUT', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ newPassword: resetPasswordValue })
-			});
-			if (!res.ok) { const b = await res.json().catch(() => ({})); resetPasswordError = b.error ?? 'Failed'; return; }
-			resetPasswordUserId = null; resetPasswordValue = '';
-			await invalidateAll();
-		} catch (e) { resetPasswordError = String(e); }
-		finally { resetPasswordLoading = false; }
-	}
-
-	async function toggleForceReset(userId: string, force: boolean) {
-		await fetch(`/api/admin/users/${userId}/force-reset`, {
-			method: 'PUT', headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ force })
-		});
-		await invalidateAll();
-	}
-
-	async function approveUser(userId: string) {
-		approveLoading = userId;
-		try {
-			await fetch(`/api/admin/users/${userId}/approve`, { method: 'PUT' });
-			await invalidateAll();
-		} catch (e) { console.error(e); }
-		finally { approveLoading = null; }
-	}
-
-	async function denyUser(userId: string) {
-		approveLoading = userId;
-		try {
-			await fetch(`/api/admin/users/${userId}/deny`, { method: 'DELETE' });
-			await invalidateAll();
-		} catch (e) { console.error(e); }
-		finally { approveLoading = null; }
-	}
-
-	// ── Provision functions ───────────────────────────────────
-	async function provisionUser(userId: string) {
-		provisioning = true; provisionError = null; provisionResult = null;
-		provisionUserId = userId;
-		try {
-			const res = await fetch('/api/admin/provision', {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ userId })
-			});
-			const body = await res.json();
-			if (!res.ok) { provisionError = body.error ?? 'Provisioning failed'; return; }
-			provisionResult = body.results;
-			await invalidateAll();
-		} catch (e) { provisionError = String(e); }
-		finally { provisioning = false; }
-	}
+	// (User management functions moved to Admin → Users tab)
 
 	// ── Account linking functions ──────────────────────────────
 	async function linkAccount() {
@@ -430,7 +289,14 @@
 		serviceTestResults[id] = null;
 		try {
 			const res = await fetch(`/api/services/ping?id=${encodeURIComponent(id)}`);
-			serviceTestResults[id] = await res.json();
+			const result = await res.json();
+			serviceTestResults[id] = result;
+			// Update the main health status so the dot reflects the fresh result
+			const idx = localHealth.findIndex((h) => h.serviceId === id);
+			if (idx >= 0) {
+				localHealth[idx] = { ...localHealth[idx], online: result.online, latency: result.latency, error: result.error };
+				localHealth = localHealth;
+			}
 		} catch (e) {
 			serviceTestResults[id] = { online: false, error: String(e) };
 		} finally {
@@ -448,15 +314,19 @@
 	// Sync localHealth when page data refreshes (after add/delete/invalidateAll)
 	$effect(() => { localHealth = [...data.health]; });
 
-	// Poll health every 30s — detects services going down or coming back up
+	// Poll health — faster (10s) when any service is offline, slower (30s) when all healthy
 	$effect(() => {
-		const poll = setInterval(async () => {
+		let timer: ReturnType<typeof setTimeout>;
+		async function poll() {
 			try {
 				const res = await fetch('/api/services?health=true');
 				if (res.ok) { const body = await res.json(); if (Array.isArray(body.health)) localHealth = body.health; }
 			} catch {}
-		}, 30_000);
-		return () => clearInterval(poll);
+			const hasOffline = localHealth.some((h) => !h.online);
+			timer = setTimeout(poll, hasOffline ? 10_000 : 30_000);
+		}
+		timer = setTimeout(poll, localHealth.some((h) => !h.online) ? 10_000 : 30_000);
+		return () => clearTimeout(timer);
 	});
 </script>
 
@@ -476,12 +346,7 @@
 			Services
 			{#if data.isAdmin}<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>{/if}
 		</button>
-		{#if data.isAdmin}
-			<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'users' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'users')}>
-				Users & Invites
-				<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>
-			</button>
-		{/if}
+		<!-- Users tab moved to Admin dashboard -->
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'accounts' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'accounts')}>My Accounts</button>
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'notifications' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'notifications')}>Notifications</button>
 	</div>

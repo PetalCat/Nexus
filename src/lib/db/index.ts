@@ -545,6 +545,20 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		UNIQUE(user_id, rom_id, service_id)
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_game_notes_user_rom ON game_notes(user_id, rom_id, service_id)`);
+
+	// ── Save metadata (labels, pins for cloud saves/states) ────────
+	db.run(`CREATE TABLE IF NOT EXISTS save_metadata (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		entry_id INTEGER NOT NULL,
+		entry_type TEXT NOT NULL,
+		label TEXT,
+		pinned INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, service_id, entry_id, entry_type)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_save_metadata_lookup ON save_metadata(user_id, service_id, entry_type)`);
 }
 
 export { schema };

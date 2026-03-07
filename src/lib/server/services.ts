@@ -5,7 +5,7 @@ import { getStreamyStatsRecommendations } from '../adapters/streamystats';
 import { importJellyfinUser } from '../adapters/overseerr';
 import { getDb, schema } from '../db';
 import { getUserCredentialForService, upsertUserCredential } from './auth';
-import { withCache } from './cache';
+import { withCache, invalidate } from './cache';
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -515,7 +515,12 @@ export async function autoLinkJellyfinServices(userId: string): Promise<void> {
 const PING_TIMEOUT_MS = 5000;
 
 export async function checkAllServices(): Promise<ServiceHealth[]> {
-	return withCache('health', 30_000, () => checkAllServicesUncached());
+	const result = await withCache('health', 30_000, () => checkAllServicesUncached());
+	// If any service is offline, use a shorter cache so recovery is detected quickly
+	if (result.some((h) => !h.online)) {
+		invalidate('health');
+	}
+	return result;
 }
 
 async function checkAllServicesUncached(): Promise<ServiceHealth[]> {

@@ -6,7 +6,8 @@
 	import type { BookBookmark, BookHighlight } from '$lib/db/schema';
 	import {
 		ArrowLeft, List, Bookmark, BookmarkCheck, Settings, Search, X,
-		ChevronLeft, ChevronRight, Maximize, Minimize, Type, Sun, Moon, Sunset
+		ChevronLeft, ChevronRight, Maximize, Minimize, Type, Sun, Moon, Sunset,
+		ChevronDown
 	} from 'lucide-svelte';
 
 	interface Props {
@@ -17,6 +18,7 @@
 		initialProgress?: number;
 		bookmarks?: BookBookmark[];
 		highlights?: BookHighlight[];
+		availableFormats?: string[];
 	}
 
 	let {
@@ -26,14 +28,26 @@
 		savedPosition,
 		initialProgress = 0,
 		bookmarks: initialBookmarks = [],
-		highlights: initialHighlights = []
+		highlights: initialHighlights = [],
+		availableFormats = []
 	}: Props = $props();
 
-	// ── State ──
+	// Format switching
+	let showFormatMenu = $state(false);
+	const currentFormatLabel = 'EPUB';
+	const otherFormats = $derived(availableFormats.filter(f => f !== 'epub'));
+
+	function switchFormat(fmt: string) {
+		showFormatMenu = false;
+		goto(`/books/read/${book.sourceId}?service=${serviceId}&format=${fmt}`, { replaceState: true });
+	}
+
+	// ── Core state ──
 	let container: HTMLElement | undefined = $state();
 	let epubBook: any = $state(null);
 	let rendition: any = $state(null);
 	let ready = $state(false);
+	let locationsReady = $state(false);
 	let currentCfi = $state('');
 	let currentProgress = $state(initialProgress);
 	let currentChapter = $state('');
@@ -41,7 +55,7 @@
 	let bookmarkList = $state<BookBookmark[]>([...initialBookmarks]);
 	let highlightList = $state<BookHighlight[]>([...initialHighlights]);
 
-	// UI state
+	// UI panels
 	let showToolbar = $state(true);
 	let showToc = $state(false);
 	let showSettings = $state(false);
@@ -50,8 +64,6 @@
 	let isFullscreen = $state(false);
 	let searchQuery = $state('');
 	let searchResults = $state<Array<{ cfi: string; excerpt: string }>>([]);
-
-	// Highlight popup
 	let highlightPopup = $state<{ x: number; y: number; cfi: string; text: string } | null>(null);
 
 	// Reader settings (persisted in localStorage)
@@ -61,11 +73,11 @@
 	let lineHeight = $state(1.6);
 	let flow = $state<'paginated' | 'scrolled-doc'>('paginated');
 
-	// Toolbar auto-hide
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
-
-	// Save progress debounce
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Check if any panel is open
+	const anyPanelOpen = $derived(showToc || showSettings || showBookmarks || showSearch || showFormatMenu);
 
 	const themes = {
 		dark: { bg: '#181514', text: '#f0ebe3', link: '#d4a253' },
@@ -104,11 +116,7 @@
 	function persistSettings() {
 		if (!browser) return;
 		localStorage.setItem('nexus-reader-settings', JSON.stringify({
-			theme: readerTheme,
-			fontFamily,
-			fontSize,
-			lineHeight,
-			flow
+			theme: readerTheme, fontFamily, fontSize, lineHeight, flow
 		}));
 	}
 
@@ -121,13 +129,39 @@
 				color: `${t.text} !important`,
 				'font-family': fonts[fontFamily],
 				'font-size': `${fontSize}px !important`,
-				'line-height': `${lineHeight} !important`
+				'line-height': `${lineHeight} !important`,
+				'padding': '0 !important',
+				'margin': '0 !important',
+				'word-wrap': 'break-word !important',
+				'overflow-wrap': 'break-word !important'
 			},
-			'p, div, span, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, figcaption': {
-				color: `${t.text} !important`
+			'p, div, span, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, figcaption, section, article': {
+				color: `${t.text} !important`,
+				'max-width': '100% !important'
+			},
+			'p': {
+				'orphans': '2',
+				'widows': '2'
 			},
 			'a': { color: `${t.link} !important` },
-			'img': { 'max-width': '100% !important', height: 'auto !important' }
+			'img': {
+				'max-width': '100% !important',
+				'max-height': '85vh !important',
+				'height': 'auto !important',
+				'width': 'auto !important',
+				'object-fit': 'contain !important',
+				'display': 'block !important',
+				'margin': '0 auto !important'
+			},
+			'svg': {
+				'max-width': '100% !important',
+				'height': 'auto !important'
+			},
+			'[class*="cover"] img, [id*="cover"] img, .sgc-toc-level img': {
+				'max-height': '80vh !important',
+				'width': 'auto !important',
+				'margin': '1rem auto !important'
+			}
 		});
 		persistSettings();
 	}
@@ -148,15 +182,28 @@
 		return '';
 	}
 
-	function resetHideTimer() {
-		showToolbar = true;
+	// ── Toolbar auto-hide ──
+	function startHideTimer() {
 		if (hideTimer) clearTimeout(hideTimer);
-		hideTimer = setTimeout(() => { showToolbar = false; }, 4000);
+		hideTimer = setTimeout(() => {
+			if (!anyPanelOpen) showToolbar = false;
+		}, 3000);
+	}
+
+	function handleReaderMouseMove() {
+		if (!ready) return;
+		showToolbar = true;
+		startHideTimer();
 	}
 
 	function toggleToolbar() {
-		showToolbar = !showToolbar;
-		if (showToolbar) resetHideTimer();
+		if (showToolbar) {
+			if (hideTimer) clearTimeout(hideTimer);
+			showToolbar = false;
+		} else {
+			showToolbar = true;
+			startHideTimer();
+		}
 	}
 
 	// ── Navigation ──
@@ -168,7 +215,7 @@
 		showToc = false;
 	}
 
-	// ── Progress Saving ──
+	// ── Progress ──
 	async function saveProgress() {
 		if (saveTimer) clearTimeout(saveTimer);
 		saveTimer = setTimeout(async () => {
@@ -180,6 +227,14 @@
 				});
 			} catch { /* ignore */ }
 		}, 2000);
+	}
+
+	function jumpToProgress(e: MouseEvent) {
+		if (!epubBook || !locationsReady) return;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const pct = (e.clientX - rect.left) / rect.width;
+		const cfi = epubBook.locations?.cfiFromPercentage(pct);
+		if (cfi) rendition?.display(cfi);
 	}
 
 	// ── Bookmarks ──
@@ -207,20 +262,15 @@
 
 	// ── Highlights ──
 	function showHighlightMenu(cfi: string, text: string) {
-		// Position near center-top of viewport
 		highlightPopup = { x: window.innerWidth / 2, y: 80, cfi, text };
 	}
 
 	async function addHighlight(color: string) {
 		if (!highlightPopup) return;
 		const { cfi, text } = highlightPopup;
-
 		rendition.annotations.highlight(cfi, {}, () => {}, '', {
-			fill: highlightColors[color],
-			'fill-opacity': '1',
-			'mix-blend-mode': 'multiply'
+			fill: highlightColors[color], 'fill-opacity': '1', 'mix-blend-mode': 'multiply'
 		});
-
 		const res = await fetch(`/api/books/${book.sourceId}/highlights`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -239,16 +289,13 @@
 		searchResults = [];
 		const spine = epubBook.spine;
 		const results: Array<{ cfi: string; excerpt: string }> = [];
-
 		for (let i = 0; i < spine.items.length && results.length < 50; i++) {
 			const item = spine.items[i];
 			if (!item) continue;
 			try {
-				const doc = await item.load(epubBook.load.bind(epubBook));
+				await item.load(epubBook.load.bind(epubBook));
 				const found = await item.find(searchQuery);
-				for (const f of found) {
-					results.push({ cfi: f.cfi, excerpt: f.excerpt });
-				}
+				for (const f of found) results.push({ cfi: f.cfi, excerpt: f.excerpt });
 				item.unload();
 			} catch { /* skip */ }
 		}
@@ -263,63 +310,45 @@
 	// ── Fullscreen ──
 	function toggleFullscreen() {
 		if (!browser) return;
-		if (document.fullscreenElement) {
-			document.exitFullscreen();
-		} else {
-			document.documentElement.requestFullscreen();
-		}
+		if (document.fullscreenElement) document.exitFullscreen();
+		else document.documentElement.requestFullscreen();
 	}
 
 	function closeReader() {
 		goto(`/media/book/${book.sourceId}?service=${serviceId}`);
 	}
 
+	function closeAllPanels() {
+		showToc = false;
+		showSettings = false;
+		showBookmarks = false;
+		showSearch = false;
+		showFormatMenu = false;
+		highlightPopup = null;
+	}
+
 	// ── Keyboard ──
 	function handleKeydown(e: KeyboardEvent) {
 		if (showSearch && e.key !== 'Escape') return;
-
 		switch (e.key) {
-			case 'ArrowLeft':
-				e.preventDefault();
-				prevPage();
-				break;
-			case 'ArrowRight':
-				e.preventDefault();
-				nextPage();
-				break;
+			case 'ArrowLeft': e.preventDefault(); prevPage(); break;
+			case 'ArrowRight': e.preventDefault(); nextPage(); break;
 			case 'Escape':
 				e.preventDefault();
-				if (showToc || showSettings || showBookmarks || showSearch || highlightPopup) {
-					showToc = false;
-					showSettings = false;
-					showBookmarks = false;
-					showSearch = false;
-					highlightPopup = null;
-				} else {
-					closeReader();
-				}
+				if (anyPanelOpen || highlightPopup) closeAllPanels();
+				else closeReader();
 				break;
-			case 'f':
-				if (!e.ctrlKey && !e.metaKey) toggleFullscreen();
-				break;
-			case 't':
-				if (!e.ctrlKey && !e.metaKey) showToc = !showToc;
-				break;
-			case 's':
-				if (!e.ctrlKey && !e.metaKey) { showSettings = !showSettings; }
-				break;
-			case 'b':
-				if (!e.ctrlKey && !e.metaKey) toggleBookmark();
-				break;
+			case 'f': if (!e.ctrlKey && !e.metaKey) toggleFullscreen(); break;
+			case 't': if (!e.ctrlKey && !e.metaKey) { showToc = !showToc; if (showToc) { showSettings = false; showBookmarks = false; showSearch = false; } } break;
+			case 's': if (!e.ctrlKey && !e.metaKey) { showSettings = !showSettings; if (showSettings) { showToc = false; showBookmarks = false; showSearch = false; } } break;
+			case 'b': if (!e.ctrlKey && !e.metaKey) toggleBookmark(); break;
 		}
 	}
 
 	onMount(() => {
 		loadSettings();
-
 		const handleFs = () => { isFullscreen = !!document.fullscreenElement; };
 		document.addEventListener('fullscreenchange', handleFs);
-
 		return () => {
 			document.removeEventListener('fullscreenchange', handleFs);
 			if (hideTimer) clearTimeout(hideTimer);
@@ -327,10 +356,9 @@
 		};
 	});
 
-	// epub.js is client-only, so we dynamically import it
+	// ── epub.js init ──
 	$effect(() => {
 		if (!browser || !container) return;
-
 		let destroyed = false;
 		let bookInstance: any = null;
 
@@ -338,7 +366,12 @@
 			const ePub = (await import('epubjs')).default;
 			if (destroyed) return;
 
-			bookInstance = ePub(epubUrl);
+			const res = await fetch(epubUrl);
+			if (!res.ok) throw new Error(`Failed to load EPUB: ${res.status}`);
+			const arrayBuffer = await res.arrayBuffer();
+			if (destroyed) return;
+
+			bookInstance = ePub(arrayBuffer);
 			epubBook = bookInstance;
 
 			const rend = bookInstance.renderTo(container!, {
@@ -346,49 +379,68 @@
 				height: '100%',
 				spread: 'none',
 				flow: flow,
-				allowScriptedContent: false
+				allowScriptedContent: false,
+				manager: 'default'
 			});
 			rendition = rend;
 
-			// Apply theme
+			// Inject CSS into each epub iframe for things the themes API can't handle
+			rend.hooks.content.register((contents: any) => {
+				const doc = contents.document;
+				if (!doc) return;
+				const style = doc.createElement('style');
+				style.textContent = `
+					/* Fix cover SVGs that use preserveAspectRatio="none" */
+					svg[preserveAspectRatio="none"] {
+						max-width: 100% !important;
+						max-height: 90vh !important;
+					}
+					/* Ensure images don't overflow columns */
+					img {
+						max-width: 100% !important;
+						box-sizing: border-box !important;
+						page-break-inside: avoid !important;
+						break-inside: avoid !important;
+					}
+				`;
+				doc.head.appendChild(style);
+
+				// Fix SVG preserveAspectRatio="none" to "xMidYMid meet"
+				const svgs = doc.querySelectorAll('svg[preserveAspectRatio="none"]');
+				svgs.forEach((svg: Element) => {
+					svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+					svg.setAttribute('width', '100%');
+					svg.removeAttribute('height');
+				});
+
+				// Listen for mousemove inside iframe to show toolbar
+				doc.addEventListener('mousemove', () => {
+					handleReaderMouseMove();
+				});
+			});
+
 			applyTheme();
 
-			// Navigate to saved position or start
-			if (savedPosition) {
-				rend.display(savedPosition);
-			} else {
-				rend.display();
-			}
+			if (savedPosition) rend.display(savedPosition);
+			else rend.display();
 
-			// Load TOC
 			bookInstance.loaded.navigation.then((nav: any) => {
 				toc = nav.toc ?? [];
 			});
 
-			// Track location changes
-			rend.on('relocated', (location: any) => {
-				if (destroyed) return;
-				currentCfi = location.start.cfi;
-				currentProgress = location.start.percentage ?? 0;
-				currentChapter = getCurrentChapter(location.start.href);
-				saveProgress();
-			});
-
-			// Handle text selection for highlights
-			rend.on('selected', (cfiRange: string) => {
-				try {
-					const range = rend.getRange(cfiRange);
-					const text = range?.toString() ?? '';
-					if (text.length > 2) {
-						showHighlightMenu(cfiRange, text);
-					}
-				} catch { /* ignore */ }
-			});
-
-			// Load existing highlights
+			// Generate locations for progress bar scrubbing
 			bookInstance.ready.then(() => {
 				if (destroyed) return;
 				ready = true;
+				// Start toolbar auto-hide now that content is visible
+				startHideTimer();
+
+				// Generate locations (async, ~1-2s for large books)
+				bookInstance.locations.generate(1024).then(() => {
+					if (!destroyed) locationsReady = true;
+				});
+
+				// Apply existing highlights
 				for (const h of initialHighlights) {
 					try {
 						rend.annotations.highlight(h.cfi, {}, () => {}, '', {
@@ -400,7 +452,27 @@
 				}
 			});
 
-			// Touch handling for page turns
+			rend.on('relocated', (location: any) => {
+				if (destroyed) return;
+				currentCfi = location.start.cfi;
+				if (locationsReady && bookInstance.locations) {
+					currentProgress = bookInstance.locations.percentageFromCfi(location.start.cfi) ?? 0;
+				} else {
+					currentProgress = location.start.percentage ?? 0;
+				}
+				currentChapter = getCurrentChapter(location.start.href);
+				saveProgress();
+			});
+
+			rend.on('selected', (cfiRange: string) => {
+				try {
+					const range = rend.getRange(cfiRange);
+					const text = range?.toString() ?? '';
+					if (text.length > 2) showHighlightMenu(cfiRange, text);
+				} catch { /* ignore */ }
+			});
+
+			// Touch handling
 			let touchStartX = 0;
 			let touchStartY = 0;
 			rend.on('touchstart', (e: TouchEvent) => {
@@ -411,12 +483,17 @@
 				const dx = e.changedTouches[0].clientX - touchStartX;
 				const dy = e.changedTouches[0].clientY - touchStartY;
 				if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
-					if (dx > 0) prevPage();
-					else nextPage();
+					if (dx > 0) prevPage(); else nextPage();
 				} else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
 					toggleToolbar();
 				}
 			});
+
+			// Mouse click inside epub iframe for toolbar toggle
+			rend.on('click', () => {
+				if (!anyPanelOpen) toggleToolbar();
+			});
+
 		})();
 
 		return () => {
@@ -424,20 +501,18 @@
 			bookInstance?.destroy();
 			epubBook = null;
 			rendition = null;
+			ready = false;
+			locationsReady = false;
 		};
 	});
 
-	// Re-apply theme when settings change
+	// Re-apply theme on settings change
 	$effect(() => {
-		// Touch all reactive values to create dependencies
-		void readerTheme;
-		void fontFamily;
-		void fontSize;
-		void lineHeight;
+		void readerTheme; void fontFamily; void fontSize; void lineHeight;
 		if (rendition && ready) applyTheme();
 	});
 
-	// Handle flow change (requires re-render)
+	// Handle flow change
 	$effect(() => {
 		if (!rendition || !ready) return;
 		void flow;
@@ -452,41 +527,81 @@
 
 <!-- Top Toolbar -->
 <div
-	class="fixed inset-x-0 top-0 z-[60] flex items-center gap-3 px-4 py-3 transition-all duration-300"
+	class="fixed inset-x-0 top-0 z-[60] flex items-center gap-3 px-4 py-2.5 transition-all duration-300"
 	class:opacity-0={!showToolbar}
 	class:pointer-events-none={!showToolbar}
 	class:-translate-y-full={!showToolbar}
-	style="background: rgba(13, 11, 10, 0.85); backdrop-filter: blur(20px) saturate(1.3);"
+	style="background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);"
 >
-	<button onclick={closeReader} class="rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream" title="Back (Esc)">
+	<button onclick={closeReader} class="rounded-lg p-2 text-white/70 transition-colors hover:text-white" title="Back (Esc)">
 		<ArrowLeft size={20} strokeWidth={1.5} />
 	</button>
 
 	<div class="min-w-0 flex-1">
-		<div class="truncate text-sm font-medium text-cream">{book.title}</div>
+		<div class="truncate text-sm font-medium text-white/90">{book.title}</div>
 		{#if currentChapter}
-			<div class="truncate text-xs text-faint">{currentChapter}</div>
+			<div class="truncate text-xs text-white/50">{currentChapter}</div>
 		{/if}
 	</div>
 
-	<div class="flex items-center gap-1">
-		<button onclick={() => { showSearch = !showSearch; showToc = false; showSettings = false; showBookmarks = false; }} class="rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream" class:text-accent={showSearch} title="Search">
+	<div class="flex items-center gap-0.5">
+		<button onclick={() => { showSearch = !showSearch; showToc = false; showSettings = false; showBookmarks = false; }} class="rounded-lg p-2 text-white/60 transition-colors hover:text-white" class:text-white={showSearch} title="Search">
 			<Search size={18} strokeWidth={1.5} />
 		</button>
-		<button onclick={() => { showToc = !showToc; showSettings = false; showBookmarks = false; showSearch = false; }} class="rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream" class:text-accent={showToc} title="Table of Contents (T)">
+		<button onclick={() => { showToc = !showToc; showSettings = false; showBookmarks = false; showSearch = false; }} class="rounded-lg p-2 text-white/60 transition-colors hover:text-white" class:text-white={showToc} title="Contents (T)">
 			<List size={18} strokeWidth={1.5} />
 		</button>
-		<button onclick={() => { showBookmarks = !showBookmarks; showToc = false; showSettings = false; showSearch = false; }} class="rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream" class:text-accent={showBookmarks} title="Bookmarks">
+		<button onclick={() => { showBookmarks = !showBookmarks; showToc = false; showSettings = false; showSearch = false; }} class="rounded-lg p-2 text-white/60 transition-colors hover:text-white" class:text-white={showBookmarks} title="Bookmarks (B)">
 			{#if isBookmarked}
 				<BookmarkCheck size={18} strokeWidth={1.5} />
 			{:else}
 				<Bookmark size={18} strokeWidth={1.5} />
 			{/if}
 		</button>
-		<button onclick={() => { showSettings = !showSettings; showToc = false; showBookmarks = false; showSearch = false; }} class="rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream" class:text-accent={showSettings} title="Settings (S)">
+		<button onclick={() => { showSettings = !showSettings; showToc = false; showBookmarks = false; showSearch = false; }} class="rounded-lg p-2 text-white/60 transition-colors hover:text-white" class:text-white={showSettings} title="Settings (S)">
 			<Settings size={18} strokeWidth={1.5} />
 		</button>
-		<button onclick={toggleFullscreen} class="hidden rounded-lg p-2 text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream sm:block" title="Fullscreen (F)">
+
+		<!-- Format switcher (always visible if other formats exist) -->
+		{#if otherFormats.length > 0}
+			<div class="relative ml-1">
+				<button
+					onclick={() => { showFormatMenu = !showFormatMenu; }}
+					class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+					title="Switch format"
+				>
+					{currentFormatLabel}
+					<ChevronDown size={12} />
+				</button>
+				{#if showFormatMenu}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="absolute right-0 top-full mt-1.5 min-w-[140px] overflow-hidden rounded-xl border border-white/10 py-1 shadow-2xl"
+						style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
+					>
+						{#each availableFormats as fmt}
+							<button
+								class="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs transition-colors {fmt === 'epub' ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/[0.08]' : 'text-white/60 hover:bg-white/[0.04] hover:text-white'}"
+								onclick={() => switchFormat(fmt)}
+							>
+								{#if fmt === 'epub'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+								{:else if fmt === 'pdf'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+								{:else}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+								{/if}
+								<span>{fmt.toUpperCase()}</span>
+								{#if fmt === 'epub'}<span class="text-white/30">(reader)</span>{/if}
+								{#if fmt === 'pdf'}<span class="text-white/30">(viewer)</span>{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		<button onclick={toggleFullscreen} class="hidden rounded-lg p-2 text-white/60 transition-colors hover:text-white sm:block" title="Fullscreen (F)">
 			{#if isFullscreen}
 				<Minimize size={18} strokeWidth={1.5} />
 			{:else}
@@ -497,92 +612,84 @@
 </div>
 
 <!-- Main Reader Area -->
-<div class="relative h-full w-full" style="background-color: {themes[readerTheme].bg};">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="relative h-full w-full"
+	style="background-color: {themes[readerTheme].bg};"
+	onmousemove={handleReaderMouseMove}
+>
 	<!-- epub.js container -->
 	<div
 		bind:this={container}
-		class="absolute inset-0"
-		style="top: 0; bottom: 40px;"
+		class="absolute overflow-hidden"
+		style="top: 48px; bottom: 52px; left: 4%; right: 4%;"
 	></div>
 
-	<!-- Page turn click zones -->
+	<!-- Page turn click zones (don't overlap toolbar areas) -->
 	<button
-		class="absolute left-0 top-0 z-10 h-full w-[15%] cursor-w-resize opacity-0 sm:w-[20%]"
-		style="bottom: 40px;"
+		class="absolute left-0 top-12 z-10 w-[12%] cursor-w-resize opacity-0 sm:w-[18%]"
+		style="bottom: 48px;"
 		onclick={prevPage}
 		aria-label="Previous page"
 	></button>
 	<button
-		class="absolute right-0 top-0 z-10 h-full w-[15%] cursor-e-resize opacity-0 sm:w-[20%]"
-		style="bottom: 40px;"
+		class="absolute right-0 top-12 z-10 w-[12%] cursor-e-resize opacity-0 sm:w-[18%]"
+		style="bottom: 48px;"
 		onclick={nextPage}
 		aria-label="Next page"
-	></button>
-
-	<!-- Center tap zone for toolbar toggle (mobile) -->
-	<button
-		class="absolute left-[15%] right-[15%] top-0 z-[5] h-full opacity-0 sm:left-[20%] sm:right-[20%] lg:hidden"
-		style="bottom: 40px;"
-		onclick={toggleToolbar}
-		aria-label="Toggle controls"
 	></button>
 </div>
 
 <!-- Bottom Progress Bar -->
 <div
-	class="fixed inset-x-0 bottom-0 z-[60] flex items-center gap-3 px-4 py-2 transition-all duration-300"
+	class="fixed inset-x-0 bottom-0 z-[60] flex items-center gap-3 px-4 py-2.5 transition-all duration-300"
 	class:opacity-0={!showToolbar}
 	class:pointer-events-none={!showToolbar}
 	class:translate-y-full={!showToolbar}
-	style="background: rgba(13, 11, 10, 0.85); backdrop-filter: blur(20px) saturate(1.3);"
+	style="background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);"
 >
-	<button onclick={prevPage} class="rounded p-1 text-muted transition-colors hover:text-cream">
+	<button onclick={prevPage} class="rounded p-1 text-white/50 transition-colors hover:text-white">
 		<ChevronLeft size={16} strokeWidth={1.5} />
 	</button>
 
 	<!-- Progress track -->
 	<button
-		class="relative h-1.5 flex-1 cursor-pointer overflow-hidden rounded-full bg-cream/[0.08]"
-		onclick={(e) => {
-			const rect = e.currentTarget.getBoundingClientRect();
-			const pct = (e.clientX - rect.left) / rect.width;
-			if (epubBook) {
-				const cfi = epubBook.locations?.cfiFromPercentage(pct);
-				if (cfi) rendition?.display(cfi);
-			}
-		}}
+		class="relative h-1 flex-1 cursor-pointer overflow-hidden rounded-full bg-white/10"
+		onclick={jumpToProgress}
 	>
 		<div
-			class="absolute inset-y-0 left-0 rounded-full bg-accent/80 transition-all duration-300"
-			style="width: {progressPercent}%;"
+			class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+			style="width: {progressPercent}%; background: var(--color-accent, #d4a253);"
 		></div>
 	</button>
 
-	<span class="min-w-[3rem] text-right text-xs tabular-nums text-muted">{progressPercent}%</span>
+	<span class="min-w-[3rem] text-right text-xs tabular-nums text-white/50">{progressPercent}%</span>
 
-	<button onclick={nextPage} class="rounded p-1 text-muted transition-colors hover:text-cream">
+	<button onclick={nextPage} class="rounded p-1 text-white/50 transition-colors hover:text-white">
 		<ChevronRight size={16} strokeWidth={1.5} />
 	</button>
 </div>
 
-<!-- TOC Sidebar (left) -->
+<!-- TOC Sidebar -->
 {#if showToc}
-	<div class="fixed inset-0 z-[70]" onclick={() => showToc = false}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showToc = false}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute bottom-0 left-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-r border-cream/[0.06] p-4"
-			style="background: rgba(13, 11, 10, 0.95); backdrop-filter: blur(20px);"
+			class="absolute bottom-0 left-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-r border-white/[0.06] p-4"
+			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
 			onclick={(e) => e.stopPropagation()}
 		>
 			<div class="mb-4 flex items-center justify-between">
-				<h2 class="text-sm font-semibold tracking-wide text-cream">Contents</h2>
-				<button onclick={() => showToc = false} class="rounded-lg p-1.5 text-muted hover:bg-cream/[0.06] hover:text-cream">
+				<h2 class="text-sm font-semibold tracking-wide text-white/90">Contents</h2>
+				<button onclick={() => showToc = false} class="rounded-lg p-1.5 text-white/50 hover:bg-white/[0.06] hover:text-white">
 					<X size={16} strokeWidth={1.5} />
 				</button>
 			</div>
 			<nav class="space-y-0.5">
 				{#each toc as chapter}
 					<button
-						class="block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors {currentChapter === chapter.label ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-cream/[0.04] hover:text-cream'}"
+						class="block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors {currentChapter === chapter.label ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-white/60 hover:bg-white/[0.04] hover:text-white'}"
 						onclick={() => goToChapter(chapter.href)}
 					>
 						{chapter.label}
@@ -590,10 +697,7 @@
 					{#if chapter.subitems}
 						{#each chapter.subitems as sub}
 							<button
-								class="block w-full rounded-lg px-3 py-1.5 pl-6 text-left text-xs transition-colors"
-								class:text-accent={currentChapter === sub.label}
-								class:text-faint={currentChapter !== sub.label}
-								class:hover:text-muted={currentChapter !== sub.label}
+								class="block w-full rounded-lg px-3 py-1.5 pl-6 text-left text-xs transition-colors {currentChapter === sub.label ? 'text-[var(--color-accent)]' : 'text-white/40 hover:text-white/60'}"
 								onclick={() => goToChapter(sub.href)}
 							>
 								{sub.label}
@@ -606,28 +710,30 @@
 	</div>
 {/if}
 
-<!-- Settings Panel (right) -->
+<!-- Settings Panel -->
 {#if showSettings}
-	<div class="fixed inset-0 z-[70]" onclick={() => showSettings = false}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showSettings = false}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-cream/[0.06] p-5"
-			style="background: rgba(13, 11, 10, 0.95); backdrop-filter: blur(20px);"
+			class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-white/[0.06] p-5"
+			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
 			onclick={(e) => e.stopPropagation()}
 		>
 			<div class="mb-5 flex items-center justify-between">
-				<h2 class="text-sm font-semibold tracking-wide text-cream">Reading Settings</h2>
-				<button onclick={() => showSettings = false} class="rounded-lg p-1.5 text-muted hover:bg-cream/[0.06] hover:text-cream">
+				<h2 class="text-sm font-semibold tracking-wide text-white/90">Reading Settings</h2>
+				<button onclick={() => showSettings = false} class="rounded-lg p-1.5 text-white/50 hover:bg-white/[0.06] hover:text-white">
 					<X size={16} strokeWidth={1.5} />
 				</button>
 			</div>
 
 			<!-- Theme -->
 			<div class="mb-5">
-				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-faint">Theme</label>
+				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-white/40">Theme</label>
 				<div class="flex gap-2">
 					{#each [{ key: 'dark', label: 'Dark', Icon: Moon }, { key: 'light', label: 'Light', Icon: Sun }, { key: 'sepia', label: 'Sepia', Icon: Sunset }] as { key, label, Icon }}
 						<button
-							class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors {readerTheme === key ? 'border-accent bg-accent/10 text-accent' : 'border-cream/[0.08] text-muted'}"
+							class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-white/[0.08] text-white/50'}"
 							onclick={() => readerTheme = key as 'dark' | 'light' | 'sepia'}
 						>
 							<Icon size={14} /> {label}
@@ -638,11 +744,11 @@
 
 			<!-- Font Family -->
 			<div class="mb-5">
-				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-faint">Font</label>
+				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-white/40">Font</label>
 				<div class="flex gap-2">
 					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: "'DM Sans', sans-serif" }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }] as { key, label, font }}
 						<button
-							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {fontFamily === key ? 'border-accent bg-accent/10 text-accent' : 'border-cream/[0.08] text-muted'}"
+							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-white/[0.08] text-white/50'}"
 							style="font-family: {font};"
 							onclick={() => fontFamily = key as 'serif' | 'sans' | 'mono'}
 						>{label}</button>
@@ -652,50 +758,36 @@
 
 			<!-- Font Size -->
 			<div class="mb-5">
-				<label class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-faint">
+				<label class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-white/40">
 					<span>Font Size</span>
-					<span class="normal-case text-muted">{fontSize}px</span>
+					<span class="normal-case text-white/60">{fontSize}px</span>
 				</label>
 				<div class="flex items-center gap-3">
-					<Type size={12} class="text-faint" />
-					<input
-						type="range"
-						min="14"
-						max="28"
-						step="1"
-						bind:value={fontSize}
-						class="flex-1 accent-accent"
-					/>
-					<Type size={20} class="text-faint" />
+					<Type size={12} class="text-white/30" />
+					<input type="range" min="14" max="28" step="1" bind:value={fontSize} class="flex-1 accent-[var(--color-accent)]" />
+					<Type size={20} class="text-white/30" />
 				</div>
 			</div>
 
 			<!-- Line Height -->
 			<div class="mb-5">
-				<label class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-faint">
+				<label class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-white/40">
 					<span>Line Height</span>
-					<span class="normal-case text-muted">{lineHeight.toFixed(1)}</span>
+					<span class="normal-case text-white/60">{lineHeight.toFixed(1)}</span>
 				</label>
-				<input
-					type="range"
-					min="1.2"
-					max="2.0"
-					step="0.1"
-					bind:value={lineHeight}
-					class="w-full accent-accent"
-				/>
+				<input type="range" min="1.2" max="2.0" step="0.1" bind:value={lineHeight} class="w-full accent-[var(--color-accent)]" />
 			</div>
 
 			<!-- Layout -->
 			<div>
-				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-faint">Layout</label>
+				<label class="mb-2 block text-xs font-medium uppercase tracking-wider text-white/40">Layout</label>
 				<div class="flex gap-2">
 					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'paginated' ? 'border-accent bg-accent/10 text-accent' : 'border-cream/[0.08] text-muted'}"
+						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-white/[0.08] text-white/50'}"
 						onclick={() => flow = 'paginated'}
 					>Paginated</button>
 					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'scrolled-doc' ? 'border-accent bg-accent/10 text-accent' : 'border-cream/[0.08] text-muted'}"
+						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'scrolled-doc' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-white/[0.08] text-white/50'}"
 						onclick={() => flow = 'scrolled-doc'}
 					>Scrolling</button>
 				</div>
@@ -704,64 +796,60 @@
 	</div>
 {/if}
 
-<!-- Bookmarks Panel (right) -->
+<!-- Bookmarks Panel -->
 {#if showBookmarks}
-	<div class="fixed inset-0 z-[70]" onclick={() => showBookmarks = false}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showBookmarks = false}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-cream/[0.06] p-5"
-			style="background: rgba(13, 11, 10, 0.95); backdrop-filter: blur(20px);"
+			class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-white/[0.06] p-5"
+			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
 			onclick={(e) => e.stopPropagation()}
 		>
 			<div class="mb-4 flex items-center justify-between">
-				<h2 class="text-sm font-semibold tracking-wide text-cream">Bookmarks</h2>
+				<h2 class="text-sm font-semibold tracking-wide text-white/90">Bookmarks</h2>
 				<div class="flex items-center gap-2">
 					<button
 						onclick={toggleBookmark}
-						class="rounded-lg px-2.5 py-1.5 text-xs transition-colors"
-						class:bg-accent/10={isBookmarked}
-						class:text-accent={isBookmarked}
-						class:bg-cream/[0.04]={!isBookmarked}
-						class:text-muted={!isBookmarked}
-						class:hover:text-cream={!isBookmarked}
+						class="rounded-lg px-2.5 py-1.5 text-xs transition-colors {isBookmarked ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'bg-white/[0.04] text-white/50 hover:text-white'}"
 					>
 						{isBookmarked ? 'Remove' : '+ Add here'}
 					</button>
-					<button onclick={() => showBookmarks = false} class="rounded-lg p-1.5 text-muted hover:bg-cream/[0.06] hover:text-cream">
+					<button onclick={() => showBookmarks = false} class="rounded-lg p-1.5 text-white/50 hover:bg-white/[0.06] hover:text-white">
 						<X size={16} strokeWidth={1.5} />
 					</button>
 				</div>
 			</div>
 			{#if bookmarkList.length === 0}
-				<p class="text-sm text-faint">No bookmarks yet. Press B to bookmark the current page.</p>
+				<p class="text-sm text-white/30">No bookmarks yet. Press <kbd class="rounded bg-white/10 px-1.5 py-0.5 text-xs">B</kbd> to bookmark.</p>
 			{:else}
 				<div class="space-y-1">
 					{#each bookmarkList as bm}
 						<button
-							class="w-full rounded-lg px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-cream/[0.04] hover:text-cream"
+							class="w-full rounded-lg px-3 py-2 text-left text-sm text-white/60 transition-colors hover:bg-white/[0.04] hover:text-white"
 							onclick={() => { rendition?.display(bm.cfi); showBookmarks = false; }}
 						>
 							<div class="font-medium">{bm.label || 'Bookmark'}</div>
-							<div class="text-xs text-faint">{new Date(bm.createdAt).toLocaleDateString()}</div>
+							<div class="text-xs text-white/30">{new Date(bm.createdAt).toLocaleDateString()}</div>
 						</button>
 					{/each}
 				</div>
 			{/if}
 
-			<!-- Highlights section -->
 			{#if highlightList.length > 0}
-				<div class="mt-6 border-t border-cream/[0.06] pt-4">
-					<h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-faint">Highlights</h3>
+				<div class="mt-6 border-t border-white/[0.06] pt-4">
+					<h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-white/30">Highlights</h3>
 					<div class="space-y-2">
 						{#each highlightList as hl}
 							<button
-								class="w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-cream/[0.04]"
+								class="w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
 								onclick={() => { rendition?.display(hl.cfi); showBookmarks = false; }}
 							>
 								<div class="mb-1 flex items-center gap-2">
 									<span class="h-2 w-2 rounded-full" style="background: {highlightColors[hl.color ?? 'yellow']};"></span>
-									<span class="text-xs text-faint">{hl.chapter || 'Unknown chapter'}</span>
+									<span class="text-xs text-white/30">{hl.chapter || 'Unknown chapter'}</span>
 								</div>
-								<div class="line-clamp-2 text-xs text-muted">"{hl.text}"</div>
+								<div class="line-clamp-2 text-xs text-white/50">"{hl.text}"</div>
 							</button>
 						{/each}
 					</div>
@@ -771,26 +859,28 @@
 	</div>
 {/if}
 
-<!-- Search Panel (top overlay) -->
+<!-- Search Panel -->
 {#if showSearch}
-	<div class="fixed inset-0 z-[70]" onclick={() => showSearch = false}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showSearch = false}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute inset-x-0 top-0 max-h-[70vh] overflow-y-auto border-b border-cream/[0.06] p-4 pt-16"
-			style="background: rgba(13, 11, 10, 0.95); backdrop-filter: blur(20px);"
+			class="absolute inset-x-0 top-0 max-h-[70vh] overflow-y-auto border-b border-white/[0.06] p-4 pt-16"
+			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
 			onclick={(e) => e.stopPropagation()}
 		>
 			<div class="mx-auto max-w-xl">
 				<div class="mb-4 flex items-center gap-2">
-					<Search size={16} class="text-faint" />
+					<Search size={16} class="text-white/30" />
 					<input
 						type="text"
 						bind:value={searchQuery}
 						placeholder="Search in book..."
-						class="flex-1 bg-transparent text-sm text-cream outline-none placeholder:text-faint"
+						class="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
 						onkeydown={(e) => { if (e.key === 'Enter') doSearch(); }}
 						autofocus
 					/>
-					<button onclick={() => showSearch = false} class="rounded-lg p-1.5 text-muted hover:text-cream">
+					<button onclick={() => showSearch = false} class="rounded-lg p-1.5 text-white/50 hover:text-white">
 						<X size={16} strokeWidth={1.5} />
 					</button>
 				</div>
@@ -798,7 +888,7 @@
 					<div class="space-y-1">
 						{#each searchResults as result}
 							<button
-								class="w-full rounded-lg px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-cream/[0.04] hover:text-cream"
+								class="w-full rounded-lg px-3 py-2 text-left text-sm text-white/60 transition-colors hover:bg-white/[0.04] hover:text-white"
 								onclick={() => goToSearchResult(result.cfi)}
 							>
 								<span class="line-clamp-2">{@html result.excerpt}</span>
@@ -806,7 +896,7 @@
 						{/each}
 					</div>
 				{:else if searchQuery}
-					<p class="text-center text-sm text-faint">Press Enter to search</p>
+					<p class="text-center text-sm text-white/30">Press Enter to search</p>
 				{/if}
 			</div>
 		</div>
@@ -815,22 +905,24 @@
 
 <!-- Highlight Popup -->
 {#if highlightPopup}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-[80]" onclick={() => highlightPopup = null}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="absolute left-1/2 top-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-cream/[0.08] px-3 py-2 shadow-float"
-			style="background: rgba(13, 11, 10, 0.95); backdrop-filter: blur(20px);"
+			class="absolute left-1/2 top-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-white/10 px-3 py-2 shadow-2xl"
+			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
 			onclick={(e) => e.stopPropagation()}
 		>
 			{#each Object.entries(highlightColors) as [color, fill]}
 				<button
-					class="h-6 w-6 rounded-full border-2 border-transparent transition-transform hover:scale-110"
+					class="h-7 w-7 rounded-full border-2 border-transparent transition-transform hover:scale-110"
 					style="background: {fill};"
 					title="Highlight {color}"
 					onclick={() => addHighlight(color)}
 				></button>
 			{/each}
 			<button
-				class="ml-1 rounded-lg px-2 py-1 text-xs text-muted transition-colors hover:bg-cream/[0.06] hover:text-cream"
+				class="ml-1 rounded-lg px-2 py-1 text-xs text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
 				onclick={() => highlightPopup = null}
 			>
 				<X size={14} />
@@ -839,12 +931,18 @@
 	</div>
 {/if}
 
+<!-- Format menu backdrop -->
+{#if showFormatMenu}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-[59]" onclick={() => showFormatMenu = false}></div>
+{/if}
+
 <!-- Loading state -->
 {#if !ready}
 	<div class="fixed inset-0 z-[55] flex items-center justify-center" style="background-color: {themes[readerTheme].bg};">
 		<div class="text-center">
-			<div class="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-accent/20 border-t-accent mx-auto"></div>
-			<p class="text-sm text-muted">Loading book...</p>
+			<div class="mb-3 mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-[var(--color-accent)]"></div>
+			<p class="text-sm text-white/50">Loading book...</p>
 		</div>
 	</div>
 {/if}
