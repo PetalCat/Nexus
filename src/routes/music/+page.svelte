@@ -27,7 +27,7 @@
 <div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-8">
 	<div class="mb-4 sm:mb-6">
 		<h1 class="text-display text-2xl font-bold">Music</h1>
-		<p class="mt-1 text-sm text-[var(--color-subtle)]">{data.total} items in your collection</p>
+		<p class="mt-1 text-sm text-[var(--color-muted)]">{data.total} items in your collection</p>
 	</div>
 
 	<!-- Filters bar -->
@@ -40,8 +40,8 @@
 					<a
 						href="/music?sort={s.id}"
 						class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {data.sortBy === s.id
-							? 'bg-[var(--color-raised)] text-[var(--color-text)]'
-							: 'text-[var(--color-subtle)] hover:text-[var(--color-text)]'}"
+							? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
+							: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
 					>
 						{s.label}
 					</a>
@@ -65,7 +65,7 @@
 				</svg>
 			</div>
 			<p class="font-medium">No music found</p>
-			<p class="mt-1 text-sm text-[var(--color-subtle)]">
+			<p class="mt-1 text-sm text-[var(--color-muted)]">
 				{data.items.length === 0 ? 'Connect Jellyfin with a music library to see your collection here.' : 'Try adjusting your search.'}
 			</p>
 			{#if data.items.length === 0}

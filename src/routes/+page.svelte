@@ -31,14 +31,14 @@
 					style="transform: scale(1.02)"
 				/>
 			{:else}
-				<div class="absolute inset-0" style="background: linear-gradient(135deg, #1a1a2e 0%, #0d0d18 50%, #12122a 100%)">
-					<div class="absolute inset-0 opacity-20" style="background: radial-gradient(ellipse at 30% 50%, #7c6cf8 0%, transparent 60%)"></div>
+				<div class="absolute inset-0" style="background: linear-gradient(135deg, var(--color-raised) 0%, var(--color-deep) 50%, var(--color-base) 100%)">
+					<div class="absolute inset-0 opacity-20" style="background: radial-gradient(ellipse at 30% 50%, var(--color-accent) 0%, transparent 60%)"></div>
 				</div>
 			{/if}
 
 			<!-- Gradient overlays -->
-			<div class="absolute inset-0" style="background: linear-gradient(to top, #05050a 0%, rgba(5,5,10,0.7) 35%, rgba(5,5,10,0.2) 60%, transparent 100%)"></div>
-			<div class="absolute inset-0" style="background: linear-gradient(to right, rgba(5,5,10,0.85) 0%, rgba(5,5,10,0.4) 40%, transparent 70%)"></div>
+			<div class="absolute inset-0" style="background: linear-gradient(to top, var(--color-void) 0%, rgba(13,11,10,0.7) 35%, rgba(13,11,10,0.2) 60%, transparent 100%)"></div>
+			<div class="absolute inset-0" style="background: linear-gradient(to right, rgba(13,11,10,0.85) 0%, rgba(13,11,10,0.4) 40%, transparent 70%)"></div>
 
 			<!-- Content -->
 			<div class="absolute bottom-0 left-0 right-0 flex items-end p-4 pb-5 sm:p-6 sm:pb-8 md:p-8 md:pb-10">
@@ -54,7 +54,7 @@
 						{/if}
 						{#if hero.rating}
 							<span class="text-xs text-white/30">·</span>
-							<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-star)]">
+							<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-accent)]">
 								★ {hero.rating.toFixed(1)}
 							</span>
 						{/if}
@@ -85,7 +85,7 @@
 					{#if hero.progress != null && hero.progress > 0 && hero.progress < 1}
 						<div class="mt-3 flex items-center gap-2">
 							<div class="h-1 w-32 overflow-hidden rounded-full bg-white/15">
-								<div class="h-full rounded-full bg-[var(--color-nebula)]" style="width: {hero.progress * 100}%"></div>
+								<div class="h-full rounded-full bg-[var(--color-accent)]" style="width: {hero.progress * 100}%"></div>
 							</div>
 							<span class="text-xs font-medium text-white/40">{Math.round(hero.progress * 100)}% watched</span>
 						</div>
@@ -119,20 +119,28 @@
 	<!-- ═══ Media Rows ═══ -->
 	{#if data.rows.length === 0}
 		<div class="flex flex-col items-center justify-center py-24 text-center">
-			<div class="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--color-surface)] text-[var(--color-nebula)] shadow-[0_0_40px_var(--color-nebula-dim)]">
+			<div class="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--color-surface)] text-[var(--color-accent)] shadow-[0_0_40px_rgba(212,162,83,0.12)]">
 				<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
 					<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
 				</svg>
 			</div>
 			<h2 class="text-display text-xl font-semibold">No services connected</h2>
-			<p class="mt-2 text-sm text-[var(--color-subtle)]">Add your media services to populate your dashboard.</p>
+			<p class="mt-2 text-sm text-[var(--color-muted)]">Add your media services to populate your dashboard.</p>
 			<a href="/settings" class="btn btn-primary mt-6">Configure Services</a>
 		</div>
 	{:else}
 		<div class="mt-6 flex flex-col gap-10 pb-8">
+			<!-- Fast rows: Continue Watching + New in Library -->
 			{#each data.rows as row (row.id)}
 				<MediaRow {row} />
 			{/each}
+
+			<!-- Streamed: personalized "For You" rows (StreamyStats) -->
+			{#await data.personalizedRows then personalizedRows}
+				{#each personalizedRows as row (row.id)}
+					<MediaRow {row} />
+				{/each}
+			{/await}
 		</div>
 	{/if}
 </div>

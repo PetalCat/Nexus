@@ -20,7 +20,7 @@
 	<div class="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-end sm:justify-between">
 		<div>
 			<h1 class="text-display text-2xl font-bold">Live TV</h1>
-			<p class="mt-1 text-sm text-[var(--color-subtle)]">
+			<p class="mt-1 text-sm text-[var(--color-muted)]">
 				{#if data.channels.length > 0}
 					{data.channels.length} channels available
 				{:else}
@@ -44,12 +44,12 @@
 					</svg>
 				</div>
 				<span class="absolute -top-1 -right-1 flex h-3 w-3">
-					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-nova)] opacity-75"></span>
-					<span class="relative inline-flex h-3 w-3 rounded-full bg-[var(--color-nova)]"></span>
+					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-warm)] opacity-75"></span>
+					<span class="relative inline-flex h-3 w-3 rounded-full bg-[var(--color-warm)]"></span>
 				</span>
 			</div>
 			<p class="font-medium">No live channels found</p>
-			<p class="mt-1 max-w-xs text-sm text-[var(--color-subtle)]">
+			<p class="mt-1 max-w-xs text-sm text-[var(--color-muted)]">
 				Connect a Jellyfin server with Live TV configured to watch live channels here.
 			</p>
 			<a href="/settings" class="btn btn-primary mt-4 text-sm">Manage Services</a>
@@ -61,27 +61,27 @@
 					href={channel.actionUrl}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="card-raised group flex flex-col gap-3 p-3 transition-all hover:border-[var(--color-nebula)]/30"
+					class="card-raised group flex flex-col gap-3 p-3 transition-all hover:border-[var(--color-accent)]/30"
 				>
 					<!-- Channel logo / number -->
 					<div class="flex items-center gap-2">
 						{#if channel.poster}
 							<img src={channel.poster} alt={channel.title} class="h-8 w-8 rounded object-contain bg-[var(--color-raised)]" />
 						{:else}
-							<div class="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-raised)] text-xs font-bold text-[var(--color-nebula)]">
+							<div class="flex h-8 w-8 items-center justify-center rounded bg-[var(--color-raised)] text-xs font-bold text-[var(--color-accent)]">
 								{channel.metadata?.channelNumber ?? '?'}
 							</div>
 						{/if}
 						<!-- Live dot -->
-						<span class="ml-auto flex items-center gap-1 text-[10px] font-medium text-[var(--color-nova)]">
-							<span class="h-1.5 w-1.5 rounded-full bg-[var(--color-nova)] animate-pulse"></span>
+						<span class="ml-auto flex items-center gap-1 text-[10px] font-medium text-[var(--color-warm)]">
+							<span class="h-1.5 w-1.5 rounded-full bg-[var(--color-warm)] animate-pulse"></span>
 							LIVE
 						</span>
 					</div>
 					<div>
 						<p class="font-medium text-sm leading-tight truncate">{channel.title}</p>
 						{#if channel.metadata?.currentProgram}
-							<p class="mt-0.5 text-xs text-[var(--color-subtle)] truncate">{channel.metadata.currentProgram}</p>
+							<p class="mt-0.5 text-xs text-[var(--color-muted)] truncate">{channel.metadata.currentProgram}</p>
 						{/if}
 					</div>
 				</a>

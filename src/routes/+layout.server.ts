@@ -1,14 +1,25 @@
 import { registry } from '$lib/adapters/registry';
 import { getEnabledConfigs, needsAutoLink, autoLinkJellyfinServices } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
+import { getUnreadCount } from '$lib/server/notifications';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
-	let pendingRequests = 0;
+	// Silently wire up Overseerr (and future Jellyfin-auth services) in the background.
+	// The guard is a fast synchronous DB check — only fires async work when needed.
+	if (locals.user && needsAutoLink(locals.user.id)) {
+		autoLinkJellyfinServices(locals.user.id).catch(() => {});
+	}
 
-	if (locals.user?.isAdmin) {
-		// Use the fast /request/count endpoint — no TMDB enrichment, no pagination
-		// Cache for 30s so rapid navigation doesn't hammer Overseerr
+	// Notifications count is a fast sync DB query — safe to await
+	let unreadNotifications = 0;
+	if (locals.user) {
+		unreadNotifications = getUnreadCount(locals.user.id);
+	}
+
+	// Pending request count — streamed, NEVER blocks navigation
+	async function fetchPendingRequests(): Promise<number> {
+		if (!locals.user?.isAdmin) return 0;
 		const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 		const counts = await Promise.allSettled(
 			overseerrConfigs.map((config) =>
@@ -18,17 +29,16 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 				})
 			)
 		);
-		pendingRequests = counts.reduce(
+		return counts.reduce(
 			(sum, r) => sum + (r.status === 'fulfilled' ? r.value : 0),
 			0
 		);
 	}
 
-	// Silently wire up Overseerr (and future Jellyfin-auth services) in the background.
-	// The guard is a fast synchronous DB check — only fires async work when needed.
-	if (locals.user && needsAutoLink(locals.user.id)) {
-		autoLinkJellyfinServices(locals.user.id).catch(() => {});
-	}
-
-	return { user: locals.user ?? null, pendingRequests };
+	return {
+		user: locals.user ?? null,
+		unreadNotifications,
+		// Streamed — never blocks page navigation
+		pendingRequests: fetchPendingRequests()
+	};
 };

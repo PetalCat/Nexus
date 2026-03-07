@@ -102,9 +102,17 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 		.map((g: { name?: string } | string) => typeof g === 'string' ? g : g.name)
 		.filter(Boolean) as string[];
 
-	const poster = item.url_cover
-		?? (item.path_cover_large ? `${config.url}${item.path_cover_large}` : undefined)
-		?? item.cover_url;
+	const rawPoster = (item.url_cover || undefined)
+		?? (item.path_cover_large || undefined)
+		?? (item.path_cover_small || undefined)
+		?? (item.cover_url || undefined);
+
+	// Cover URLs from RomM require auth — proxy through Nexus
+	const poster = rawPoster
+		? (rawPoster.startsWith('http')
+			? rawPoster
+			: `/api/media/image?service=${encodeURIComponent(config.id)}&path=${encodeURIComponent(rawPoster)}`)
+		: undefined;
 
 	const screenshots = item.merged_screenshots ?? item.screenshots ?? [];
 	const backdrop = screenshots[0]?.url ?? screenshots[0]?.full_url ?? undefined;
@@ -189,6 +197,65 @@ export async function getCollections(config: ServiceConfig, userCred?: UserCrede
 		} catch {
 			return [];
 		}
+	});
+}
+
+export async function getCollection(config: ServiceConfig, collectionId: number, userCred?: UserCredential): Promise<RommCollection | null> {
+	try {
+		return await rommFetch(config, `/collections/${collectionId}`, userCred);
+	} catch {
+		return null;
+	}
+}
+
+export async function createCollection(
+	config: ServiceConfig,
+	name: string,
+	description: string | undefined,
+	userCred?: UserCredential
+): Promise<RommCollection> {
+	return rommFetch(config, '/collections', userCred, {
+		method: 'POST',
+		body: JSON.stringify({ name, description: description ?? '' })
+	});
+}
+
+export async function updateCollection(
+	config: ServiceConfig,
+	collectionId: number,
+	data: { name?: string; description?: string },
+	userCred?: UserCredential
+): Promise<RommCollection> {
+	return rommFetch(config, `/collections/${collectionId}`, userCred, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	});
+}
+
+export async function deleteCollection(
+	config: ServiceConfig,
+	collectionId: number,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		await rommFetch(config, `/collections/${collectionId}`, userCred, {
+			method: 'DELETE'
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function updateCollectionRoms(
+	config: ServiceConfig,
+	collectionId: number,
+	romIds: number[],
+	userCred?: UserCredential
+): Promise<RommCollection> {
+	return rommFetch(config, `/collections/${collectionId}`, userCred, {
+		method: 'PUT',
+		body: JSON.stringify({ roms: romIds })
 	});
 }
 
@@ -297,6 +364,121 @@ export async function toggleRomFavorite(
 
 export function getRomDownloadUrl(config: ServiceConfig, romId: string | number): string {
 	return `${config.url}/api/roms/${romId}/content`;
+}
+
+// ---------------------------------------------------------------------------
+// Binary content helpers (ROM download, save/state CRUD)
+// ---------------------------------------------------------------------------
+
+function rommAuthHeaders(config: ServiceConfig, userCred?: UserCredential): Record<string, string> {
+	const headers: Record<string, string> = {};
+	if (userCred?.externalUsername && userCred?.accessToken) {
+		headers['Authorization'] = 'Basic ' + btoa(`${userCred.externalUsername}:${userCred.accessToken}`);
+	} else if (config.apiKey) {
+		headers['Authorization'] = `Bearer ${config.apiKey}`;
+	} else if (config.username && config.password) {
+		headers['Authorization'] = 'Basic ' + btoa(`${config.username}:${config.password}`);
+	}
+	return headers;
+}
+
+export async function downloadRomContent(
+	config: ServiceConfig,
+	romId: string | number,
+	userCred?: UserCredential,
+	range?: string
+): Promise<Response> {
+	const headers: Record<string, string> = rommAuthHeaders(config, userCred);
+	if (range) headers['Range'] = range;
+
+	return fetch(`${config.url}/api/roms/${romId}/content`, {
+		headers,
+		signal: AbortSignal.timeout(120_000)
+	});
+}
+
+export async function uploadRomState(
+	config: ServiceConfig,
+	romId: string | number,
+	stateBlob: Blob,
+	fileName: string,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		const form = new FormData();
+		form.append('file', stateBlob, fileName);
+		const headers = rommAuthHeaders(config, userCred);
+
+		const res = await fetch(`${config.url}/api/roms/${romId}/states`, {
+			method: 'POST',
+			headers,
+			body: form,
+			signal: AbortSignal.timeout(30_000)
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+export async function downloadRomState(
+	config: ServiceConfig,
+	romId: string | number,
+	stateId: string | number,
+	userCred?: UserCredential
+): Promise<Response> {
+	return fetch(`${config.url}/api/states/${stateId}/content`, {
+		headers: rommAuthHeaders(config, userCred),
+		signal: AbortSignal.timeout(30_000)
+	});
+}
+
+export async function deleteRomState(
+	config: ServiceConfig,
+	_romId: string | number,
+	stateId: string | number,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		const res = await fetch(`${config.url}/api/states/${stateId}`, {
+			method: 'DELETE',
+			headers: rommAuthHeaders(config, userCred),
+			signal: AbortSignal.timeout(8000)
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+export async function downloadRomSave(
+	config: ServiceConfig,
+	_romId: string | number,
+	saveId: string | number,
+	userCred?: UserCredential
+): Promise<Response> {
+	return fetch(`${config.url}/api/saves/${saveId}/content`, {
+		headers: rommAuthHeaders(config, userCred),
+		signal: AbortSignal.timeout(30_000)
+	});
+}
+
+export async function deleteRomSave(
+	config: ServiceConfig,
+	_romId: string | number,
+	saveId: string | number,
+	userCred?: UserCredential
+): Promise<boolean> {
+	try {
+		const res = await fetch(`${config.url}/api/saves/${saveId}`, {
+			method: 'DELETE',
+			headers: rommAuthHeaders(config, userCred),
+			signal: AbortSignal.timeout(8000)
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
 }
 
 // ---------------------------------------------------------------------------

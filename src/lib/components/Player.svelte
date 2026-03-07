@@ -2,6 +2,20 @@
 	import { onMount, onDestroy } from 'svelte';
 	import type { MediaType } from '$lib/adapters/types';
 
+	interface VideoFormat {
+		itag: number | string;
+		quality: string;
+		type: string;
+		muxed?: boolean;
+		isAudio?: boolean;
+	}
+
+	interface CaptionTrack {
+		label: string;
+		lang: string;
+		url: string;
+	}
+
 	interface Props {
 		streamUrl: string;
 		type: MediaType;
@@ -13,6 +27,10 @@
 		autoplay?: boolean;
 		serviceId?: string;
 		itemId?: string;
+		mode?: 'hls' | 'direct';
+		formats?: VideoFormat[];
+		captions?: CaptionTrack[];
+		inline?: boolean;
 		onclose?: () => void;
 	}
 
@@ -27,12 +45,17 @@
 		autoplay = false,
 		serviceId = '',
 		itemId = '',
+		mode = 'hls',
+		formats = [],
+		captions = [],
+		inline = false,
 		onclose
 	}: Props = $props();
 
 	/* ── Refs ── */
 	let videoEl: HTMLVideoElement | undefined = $state();
 	let audioEl: HTMLAudioElement | undefined = $state();
+	let syncAudioEl: HTMLAudioElement | null = null; // For adaptive video+audio sync (not reactive)
 	let theaterEl: HTMLDivElement | undefined = $state();
 	let scrubEl: HTMLDivElement | undefined = $state();
 	let volSliderEl: HTMLDivElement | undefined = $state();
@@ -87,18 +110,40 @@
 	/* ── Derived ── */
 	const isAudio = $derived(type === 'music' || type === 'album');
 	const isVideo = $derived(!isAudio);
-	const theaterActive = $derived(isVideo && hasStarted);
+	const isDirectMode = $derived(mode === 'direct');
+	const theaterActive = $derived(isVideo && hasStarted && !inline);
 	const hlsUrl = $derived(streamUrl + '/master.m3u8');
-	const directUrl = $derived(streamUrl + '/stream');
+	const directUrl = $derived(isDirectMode ? streamUrl : streamUrl + '/stream');
 	const audioUrl = $derived(streamUrl.replace(/\/([^/]+)$/, '/audio/$1') + '/universal');
+
+	/* ── Direct mode quality ── */
+	let directFormats = $state<VideoFormat[]>(formats);
+	let currentDirectQuality = $state('');
+
+	// Sync directFormats when formats prop updates (fetched async)
+	$effect(() => {
+		if (formats.length > 0) {
+			directFormats = formats;
+			const videoFmts = formats.filter((f) => !f.isAudio);
+			qualityLevels = videoFmts.map((f, i) => ({
+				index: i,
+				height: parseInt(f.quality) || 0,
+				bitrate: 0
+			}));
+		}
+	});
 
 	const progressPct = $derived(totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0);
 	const bufferedPct = $derived(totalDuration > 0 ? (buffered / totalDuration) * 100 : 0);
 	const scrubPct = $derived(isScrubbing ? scrubPreview * 100 : progressPct);
 	const currentQualityLabel = $derived(
-		currentQuality === -1
-			? 'Auto'
-			: (qualityLevels.find((q) => q.index === currentQuality)?.height ?? 0) + 'p'
+		isDirectMode
+			? (currentDirectQuality
+				? (directFormats.find((f) => String(f.itag) === currentDirectQuality)?.quality ?? 'Auto')
+				: 'Auto')
+			: currentQuality === -1
+				? 'Auto'
+				: (qualityLevels.find((q) => q.index === currentQuality)?.height ?? 0) + 'p'
 	);
 
 	/* ═══════════════════════════════════════════════
@@ -220,6 +265,37 @@
 
 	/* ── Track selection ── */
 	function setQuality(index: number) {
+		if (isDirectMode) {
+			// Direct mode: index maps to video formats (excluding audio)
+			const videoFmts = directFormats.filter(f => !f.isAudio);
+			const fmt = videoFmts[index];
+			if (fmt && videoEl) {
+				const wasPlaying = !videoEl.paused;
+				const savedTime = videoEl.currentTime;
+				currentDirectQuality = String(fmt.itag);
+				isLoading = true;
+
+				// Clean up existing sync audio
+				if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); syncAudioEl = null; }
+
+				videoEl.src = `${streamUrl}?itag=${fmt.itag}`;
+				videoEl.load();
+
+				// If adaptive (video-only), set up synced audio
+				if (!fmt.muxed) {
+					const audioItag = getBestAudioItag();
+					if (audioItag) setupSyncAudio(audioItag);
+				}
+
+				videoEl.addEventListener('canplay', () => {
+					videoEl!.currentTime = savedTime;
+					if (wasPlaying) videoEl!.play().catch(() => {});
+					isLoading = false;
+				}, { once: true });
+			}
+			activePanel = 'none';
+			return;
+		}
 		if (hls) { hls.currentLevel = index; currentQuality = index; }
 		activePanel = 'none';
 	}
@@ -486,6 +562,16 @@
 
 	async function initVideo() {
 		if (!videoEl) return;
+
+		// Direct MP4 mode — skip HLS entirely
+		if (isDirectMode) {
+			initDirectVideo();
+			return;
+		}
+
+		// HLS mode needs crossorigin for subtitle tracks
+		videoEl.crossOrigin = 'anonymous';
+
 		try {
 			const Hls = (await import('hls.js')).default;
 			if (Hls.isSupported()) {
@@ -566,6 +652,102 @@
 		}
 	}
 
+	/** Find the best audio itag for adaptive streams */
+	function getBestAudioItag(): string | null {
+		// Prefer opus, then mp4a — pick highest bitrate
+		const audioFmts = directFormats.filter(f => f.isAudio);
+		if (audioFmts.length === 0) return null;
+		// Prefer mp4a for broader compatibility
+		const mp4a = audioFmts.find(f => f.type?.includes('mp4a'));
+		if (mp4a) return String(mp4a.itag);
+		return String(audioFmts[0].itag);
+	}
+
+	/** Set up synced audio element for adaptive (video-only) streams */
+	function setupSyncAudio(audioItag: string) {
+		if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); }
+		const el = document.createElement('audio');
+		el.src = `${streamUrl}?itag=${audioItag}`;
+		el.preload = 'auto';
+		syncAudioEl = el;
+
+		// Sync audio with video
+		videoEl!.addEventListener('play', () => { el.currentTime = videoEl!.currentTime; el.play().catch(() => {}); });
+		videoEl!.addEventListener('pause', () => el.pause());
+		videoEl!.addEventListener('seeked', () => { el.currentTime = videoEl!.currentTime; });
+		videoEl!.addEventListener('ratechange', () => { el.playbackRate = videoEl!.playbackRate; });
+		videoEl!.addEventListener('volumechange', () => { el.volume = videoEl!.volume; el.muted = videoEl!.muted; });
+
+		// Periodic sync to prevent drift
+		const syncInterval = setInterval(() => {
+			if (videoEl && syncAudioEl && Math.abs(videoEl.currentTime - syncAudioEl.currentTime) > 0.3) {
+				syncAudioEl.currentTime = videoEl.currentTime;
+			}
+		}, 2000);
+		el.addEventListener('ended', () => clearInterval(syncInterval), { once: true });
+	}
+
+	function initDirectVideo() {
+		if (!videoEl) return;
+
+		// Determine which format to use
+		const isAdaptive = currentDirectQuality && directFormats.find(f => String(f.itag) === currentDirectQuality && f.muxed === false);
+		const src = currentDirectQuality
+			? `${streamUrl}?itag=${currentDirectQuality}`
+			: streamUrl;
+		videoEl.src = src;
+		videoEl.load();
+
+		// If playing an adaptive (video-only) format, set up synced audio
+		if (isAdaptive) {
+			const audioItag = getBestAudioItag();
+			if (audioItag) setupSyncAudio(audioItag);
+		}
+
+		videoEl.addEventListener('canplay', () => {
+			if (progress > 0 && totalDuration > 0) videoEl!.currentTime = progress * totalDuration;
+			else if (progress > 0 && duration > 0) videoEl!.currentTime = progress * duration;
+			videoEl!.play().catch(() => {});
+			isLoading = false;
+		}, { once: true });
+		videoEl.addEventListener('error', (e) => {
+			isLoading = false;
+			const mediaErr = (e.target as HTMLVideoElement)?.error;
+			console.error('[Player] Direct video error:', mediaErr?.code, mediaErr?.message, 'src:', src);
+			errorMsg = 'Unable to play this video. The format may be unsupported.';
+		}, { once: true });
+
+		// Set up quality levels from ALL video formats (muxed + adaptive video)
+		const videoFmts = directFormats.filter((f) => !f.isAudio);
+		if (videoFmts.length > 0) {
+			qualityLevels = videoFmts.map((f, i) => ({
+				index: i,
+				height: parseInt(f.quality) || 0,
+				bitrate: 0
+			}));
+		}
+
+		// Set up captions from captions prop
+		if (captions.length > 0) {
+			subtitleTracks = captions.map((c, i) => ({
+				id: 1000 + i,
+				name: c.label,
+				lang: c.lang,
+				source: 'external' as const,
+				vttUrl: c.url
+			}));
+			// Inject <track> elements
+			captions.forEach((c) => {
+				const el = document.createElement('track');
+				el.kind = 'subtitles';
+				el.label = c.label;
+				el.srclang = c.lang;
+				el.src = c.url;
+				videoEl!.appendChild(el);
+			});
+		}
+	}
+
 	function tryDirectStream() {
 		if (!videoEl) return;
 		videoEl.src = directUrl;
@@ -641,6 +823,7 @@
 
 	$effect(() => {
 		if (!theaterEl || !isVideo) return;
+		if (inline) return; // Inline mode — no portal, no body takeover
 		if (hasStarted) {
 			portalParent = theaterEl.parentNode;
 			portalSibling = theaterEl.nextSibling;
@@ -673,6 +856,7 @@
 
 	onDestroy(() => {
 		reportStop();
+		if (syncAudioEl) { syncAudioEl.pause(); syncAudioEl.remove(); syncAudioEl = null; }
 		if (hls) { hls.destroy(); hls = null; }
 		if (controlsTimeout) clearTimeout(controlsTimeout);
 		if (progressInterval) clearInterval(progressInterval);
@@ -698,25 +882,28 @@
 		bind:this={theaterEl}
 		class="theater"
 		class:theater--active={theaterActive}
+		class:theater--inline={inline}
 		class:cursor-none={!showControls && playing}
 		onmousemove={resetControlsTimer}
 		onclick={(e) => { if ((e.target as HTMLElement).closest('.ctrl-panel, .ctrl-bar')) return; }}
 		role="region"
 		aria-label="Video player"
 	>
+		<!-- svelte-ignore a11y_media_has_caption -->
 		<video
 			bind:this={videoEl}
 			class="theater__video"
-			crossorigin="anonymous"
 			playsinline
 			preload="none"
 			poster={poster}
 		></video>
 
 		{#if !hasStarted}
-			<button class="preplay__back" onclick={closeTheater} aria-label="Go back">
-				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-			</button>
+			{#if !inline}
+				<button class="preplay__back" onclick={closeTheater} aria-label="Go back">
+					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+				</button>
+			{/if}
 			<button class="preplay" onclick={togglePlay} aria-label="Play {title}">
 				{#if poster}
 					<img src={poster} alt="" class="preplay__bg" />
@@ -744,7 +931,7 @@
 
 		{#if errorMsg}
 			<div class="overlay overlay--solid">
-				<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--color-nova)" stroke-width="1.5"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" stroke-linecap="round" /></svg>
+				<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--color-warm)" stroke-width="1.5"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" stroke-linecap="round" /></svg>
 				<p class="overlay__msg">{errorMsg}</p>
 				<button class="overlay__btn" onclick={closeTheater}>Close</button>
 			</div>
@@ -758,14 +945,16 @@
 			<div class="ctrl" class:ctrl--hidden={!showControls}>
 				<!-- Top bar: back + media info -->
 				<div class="ctrl__top">
-					<button class="cb ctrl__back" onclick={closeTheater} aria-label="Go back">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-					</button>
+					{#if !inline || isFullscreen}
+						<button class="cb ctrl__back" onclick={() => { if (inline && isFullscreen) document.exitFullscreen(); else closeTheater(); }} aria-label="Go back">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+						</button>
+					{/if}
 					<div class="ctrl__meta">
 						{#if title}<span class="ctrl__title">{title}</span>{/if}
 						{#if subtitle}<span class="ctrl__sub">{subtitle}</span>{/if}
 					</div>
-					{#if qualityLevels.length > 0}
+					{#if qualityLevels.length > 0 || (isDirectMode && directFormats.length > 0)}
 						<span class="qual-pill">{currentQualityLabel}</span>
 					{/if}
 				</div>
@@ -885,7 +1074,24 @@
 						{/if}
 
 						<!-- Quality -->
-						{#if qualityLevels.length >= 1}
+						{#if isDirectMode && directFormats.filter(f => !f.isAudio).length > 0}
+							<div class="ctrl-panel-wrap">
+								<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+								</button>
+								{#if activePanel === 'quality'}
+									<div class="panel">
+										<div class="panel__head">Quality</div>
+										{#each directFormats.filter(f => !f.isAudio) as fmt, i}
+											<button class="panel__item" class:panel__item--on={currentDirectQuality === String(fmt.itag)} onclick={() => setQuality(i)}>
+												{fmt.quality}
+												{#if currentDirectQuality === String(fmt.itag)}<span class="panel__ck">&#10003;</span>{/if}
+											</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{:else if qualityLevels.length >= 1}
 							<div class="ctrl-panel-wrap">
 								<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
 									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -958,9 +1164,9 @@
 					{/if}
 				</div>
 			{:else if playing}
-				<svg width="22" height="22" viewBox="0 0 24 24" fill="var(--color-nebula)"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="var(--color-accent)"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
 			{:else}
-				<svg width="22" height="22" viewBox="0 0 24 24" fill="var(--color-nebula)"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="var(--color-accent)"><path d="M8 5.14v14l11-7-11-7z" /></svg>
 			{/if}
 		</button>
 
@@ -988,6 +1194,13 @@
 	.theater--active {
 		position: fixed; inset: 0; z-index: 99999;
 		border-radius: 0; aspect-ratio: unset; max-height: unset;
+	}
+	.theater--inline {
+		max-height: unset;
+	}
+	.theater--inline.theater--active {
+		position: fixed; inset: 0; z-index: 99999;
+		border-radius: 0;
 	}
 	.theater__video {
 		width: 100%; height: 100%; object-fit: contain;
@@ -1043,7 +1256,7 @@
 		font-size: 0.7rem; font-weight: 500; color: rgba(255,255,255,0.65);
 	}
 	.preplay__resume-track { width: 4rem; height: 3px; border-radius: 99px; background: rgba(255,255,255,0.15); overflow: hidden; }
-	.preplay__resume-fill { height: 100%; background: var(--color-nebula); border-radius: 99px; }
+	.preplay__resume-fill { height: 100%; background: var(--color-accent); border-radius: 99px; }
 
 	.overlay {
 		position: absolute; inset: 0; z-index: 20;
@@ -1122,7 +1335,7 @@
 	.cb:hover { background: rgba(255,255,255,0.12); color: white; }
 	.cb--sm { width: 2.1rem; height: 2.1rem; }
 	.cb--play { width: 2.75rem; height: 2.75rem; }
-	.cb--lit { color: var(--color-nebula); }
+	.cb--lit { color: var(--color-accent); }
 
 	.ctrl-bar {
 		display: flex; align-items: center; gap: 0.15rem;
@@ -1168,7 +1381,7 @@
 		color: white; font-family: var(--font-mono); font-size: 0.68rem;
 		padding: 0.2rem 0.5rem; border-radius: 5px; white-space: nowrap;
 	}
-	.scrub__tip--active { background: var(--color-nebula); border-color: transparent; font-weight: 600; }
+	.scrub__tip--active { background: var(--color-accent); border-color: transparent; font-weight: 600; }
 
 	.vol-wrap { display: flex; align-items: center; gap: 0.1rem; }
 	.vol-slider {
@@ -1221,14 +1434,14 @@
 		transition: background 0.12s;
 	}
 	.panel__item:hover { background: rgba(255,255,255,0.06); }
-	.panel__item--on { color: var(--color-nebula); }
-	.panel__ck { color: var(--color-nebula); font-weight: 700; margin-left: 0.5rem; }
+	.panel__item--on { color: var(--color-accent); }
+	.panel__ck { color: var(--color-accent); font-weight: 700; margin-left: 0.5rem; }
 	.panel__meta { font-size: 0.62rem; color: rgba(255,255,255,0.3); margin-left: 0.5rem; }
 
 	.ap {
 		display: flex; align-items: center; gap: 0.875rem;
 		padding: 0.875rem 1rem; border-radius: 10px;
-		border: 1px solid var(--color-border); background: var(--color-surface);
+		border: 1px solid rgba(240,235,227,0.06); background: var(--color-surface);
 	}
 	.ap__art {
 		position: relative; width: 3.25rem; height: 3.25rem;
@@ -1246,7 +1459,7 @@
 	}
 	.ap__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 	.ap__title {
-		font-size: 0.82rem; font-weight: 500; color: var(--color-text);
+		font-size: 0.82rem; font-weight: 500; color: var(--color-cream);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.ap__bar {
@@ -1255,15 +1468,15 @@
 		touch-action: none;
 	}
 	.ap__bar:hover { height: 6px; }
-	.ap__bar-fill { height: 100%; border-radius: 99px; background: var(--color-nebula); transition: width 0.1s; }
+	.ap__bar-fill { height: 100%; border-radius: 99px; background: var(--color-accent); transition: width 0.1s; }
 	.ap__time {
 		display: flex; justify-content: space-between;
 		font-size: 0.6rem; font-family: var(--font-mono); color: var(--color-muted);
 	}
 	.ap__spin {
 		width: 1.15rem; height: 1.15rem; border-radius: 50%;
-		border: 2px solid color-mix(in srgb, var(--color-nebula) 20%, transparent);
-		border-top-color: var(--color-nebula);
+		border: 2px solid color-mix(in srgb, var(--color-accent) 20%, transparent);
+		border-top-color: var(--color-accent);
 		animation: spin 0.75s linear infinite;
 	}
 

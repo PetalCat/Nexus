@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getSharedItems, shareItem, markSharedSeen, areFriends } from '$lib/server/social';
 import { broadcastToUser } from '$lib/server/ws';
+import { createNotification } from '$lib/server/notifications';
 import type { RequestHandler } from './$types';
 
 // GET /api/shared?limit=50&offset=0&unseenOnly=false
@@ -38,7 +39,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const ids = shareItem(locals.user.id, toUserIds, { mediaId, serviceId, mediaType, mediaTitle, mediaPoster, message });
 
-	// Notify recipients via WS
+	// Notify recipients via WS + persist notifications
 	for (const toId of toUserIds) {
 		broadcastToUser(toId, {
 			type: 'presence:notification',
@@ -50,6 +51,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				mediaTitle,
 				mediaType
 			}
+		});
+
+		createNotification({
+			userId: toId,
+			type: 'share_received',
+			title: `${locals.user.displayName} shared ${mediaTitle} with you`,
+			icon: 'share-2',
+			href: `/media/${mediaType}/${mediaId}`,
+			actorId: locals.user.id,
+			metadata: { mediaId, serviceId, mediaType, mediaTitle }
 		});
 	}
 

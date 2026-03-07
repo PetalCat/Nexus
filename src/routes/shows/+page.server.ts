@@ -29,37 +29,43 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		});
 	}
 
-	let popularTV: UnifiedMedia[] = [];
-	let trendingTV: UnifiedMedia[] = [];
-
-	if (adapter?.discover) {
-		[popularTV, trendingTV] = await Promise.all([
-			withCache('shows:popular', 120_000, async () => {
-				const items: UnifiedMedia[] = [];
-				await Promise.allSettled(
-					overseerrConfigs.map(async (c) => {
-						const cred = userId ? getUserCredentialForService(userId, c.id) ?? undefined : undefined;
-						const result = await adapter.discover!(c, { page: 1, category: 'tv' }, cred);
-						items.push(...result.items);
-					})
-				);
-				return dedup(items).slice(0, 20);
-			}),
-			withCache('shows:trending', 120_000, async () => {
-				const items: UnifiedMedia[] = [];
-				await Promise.allSettled(
-					overseerrConfigs.map(async (c) => {
-						const cred = userId ? getUserCredentialForService(userId, c.id) ?? undefined : undefined;
-						const result = await adapter.discover!(c, { page: 1, category: 'trending' }, cred);
-						items.push(...result.items);
-					})
-				);
-				return dedup(items)
-					.filter((i) => i.type === 'show')
-					.slice(0, 20);
-			})
-		]);
+	async function fetchPopularTV(): Promise<UnifiedMedia[]> {
+		if (!adapter?.discover) return [];
+		return withCache('shows:popular', 120_000, async () => {
+			const items: UnifiedMedia[] = [];
+			await Promise.allSettled(
+				overseerrConfigs.map(async (c) => {
+					const cred = userId ? getUserCredentialForService(userId, c.id) ?? undefined : undefined;
+					const result = await adapter.discover!(c, { page: 1, category: 'tv' }, cred);
+					items.push(...result.items);
+				})
+			);
+			return dedup(items).slice(0, 20);
+		});
 	}
 
-	return { libraryItems, total, sortBy, popularTV, trendingTV, hasOverseerr };
+	async function fetchTrendingTV(): Promise<UnifiedMedia[]> {
+		if (!adapter?.discover) return [];
+		return withCache('shows:trending', 120_000, async () => {
+			const items: UnifiedMedia[] = [];
+			await Promise.allSettled(
+				overseerrConfigs.map(async (c) => {
+					const cred = userId ? getUserCredentialForService(userId, c.id) ?? undefined : undefined;
+					const result = await adapter.discover!(c, { page: 1, category: 'trending' }, cred);
+					items.push(...result.items);
+				})
+			);
+			return dedup(items).filter((i) => i.type === 'show').slice(0, 20);
+		});
+	}
+
+	return {
+		libraryItems,
+		total,
+		sortBy,
+		hasOverseerr,
+		// Streamed — page renders immediately with library, these fill in
+		popularTV: fetchPopularTV(),
+		trendingTV: fetchTrendingTV()
+	};
 };

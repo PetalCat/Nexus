@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { acceptFriendRequest, declineFriendRequest } from '$lib/server/social';
 import { broadcastToUser } from '$lib/server/ws';
+import { createNotification } from '$lib/server/notifications';
 import type { RequestHandler } from './$types';
 
 // PUT /api/friends/requests/:id — accept or decline
@@ -32,6 +33,16 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 					username: locals.user.username,
 					displayName: locals.user.displayName
 				}
+			});
+
+			// Persist notification
+			createNotification({
+				userId: row.userId,
+				type: 'friend_accept',
+				title: `${locals.user.displayName} accepted your friend request`,
+				icon: 'user-check',
+				href: '/friends',
+				actorId: locals.user.id
 			});
 		}
 

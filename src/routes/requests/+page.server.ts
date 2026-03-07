@@ -25,8 +25,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 	}
 
-	const [myRequests, adminPending, initialDiscover] = await Promise.all([
-		// User's own requests (30s cache per user)
+	// Fast: user's own requests + admin pending (small API calls, cached)
+	const [myRequests, adminPending] = await Promise.all([
 		hasLinkedOverseerr
 			? withCache(`requests:user:${userId}`, 30_000, async () => {
 					const reqs: NexusRequest[] = [];
@@ -45,7 +45,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 				})
 			: Promise.resolve([] as NexusRequest[]),
 
-		// Admin pending queue (30s cache, shared across admins)
 		isAdmin
 			? withCache('requests:admin-pending', 30_000, async () => {
 					const pending: NexusRequest[] = [];
@@ -59,10 +58,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 					);
 					return pending;
 				})
-			: Promise.resolve([] as NexusRequest[]),
+			: Promise.resolve([] as NexusRequest[])
+	]);
 
-		// Initial discover page (2min cache, shared)
-		withCache('requests-page:discover', 120_000, async () => {
+	// Slow: discover page — streamed, doesn't block navigation
+	async function fetchDiscover() {
+		return withCache('requests-page:discover', 120_000, async () => {
 			const items: UnifiedMedia[] = [];
 			let hasMore = false;
 			await Promise.allSettled(
@@ -84,8 +85,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				}),
 				hasMore
 			};
-		})
-	]);
+		});
+	}
 
 	const byDate = (a: NexusRequest, b: NexusRequest) =>
 		new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime();
@@ -93,8 +94,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		myRequests: myRequests.sort(byDate),
 		adminPending: adminPending.sort(byDate),
-		initialDiscoverItems: initialDiscover.items,
-		discoverHasMore: initialDiscover.hasMore,
+		// Streamed — page renders immediately, discover fills in
+		initialDiscover: fetchDiscover(),
 		hasLinkedOverseerr,
 		isAdmin,
 		hasOverseerr

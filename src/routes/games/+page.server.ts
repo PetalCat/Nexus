@@ -23,13 +23,15 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const platforms = platformResults.flat();
 
-	let collections: { name: string; romIds: number[] }[] = [];
+	let collections: { id: number; name: string; description?: string; romIds: number[] }[] = [];
 	try {
 		const allCollections = await Promise.all(
 			rommConfigs.map((c, i) => getCollections(c, rommCreds[i]))
 		);
 		collections = allCollections.flat().map((c) => ({
+			id: c.id,
 			name: c.name,
+			description: c.description,
 			romIds: c.roms ?? []
 		}));
 	} catch { /* ignore */ }

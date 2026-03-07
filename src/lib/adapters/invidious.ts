@@ -59,6 +59,7 @@ interface InvidiousVideo {
 	captions?: any[];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	recommendedVideos?: any[];
+	authorThumbnails?: InvidiousThumbnail[];
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,7 @@ export function normalizeVideo(config: ServiceConfig, item: InvidiousVideo, deta
 		metadata.likeCount = item.likeCount;
 		metadata.keywords = item.keywords;
 		metadata.subCountText = item.subCountText;
+		metadata.authorThumbnails = item.authorThumbnails;
 		metadata.adaptiveFormats = item.adaptiveFormats;
 		metadata.formatStreams = item.formatStreams;
 		metadata.captions = item.captions;

@@ -358,6 +358,23 @@ export type MusicPlaylist = typeof musicPlaylists.$inferSelect;
 export type MusicPlaylistTrack = typeof musicPlaylistTracks.$inferSelect;
 export type PlaylistCollaborator = typeof playlistCollaborators.$inferSelect;
 
+// ── Notifications ────────────────────────────────────────────────────
+export const notifications = sqliteTable('notifications', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	type: text('type').notNull(), // 'friend_request' | 'friend_accept' | 'share_received' | 'session_invite' | 'request_approved' | 'request_available' | 'system'
+	title: text('title').notNull(),
+	message: text('message'),
+	icon: text('icon'), // lucide icon name hint
+	href: text('href'), // link to navigate to on click
+	actorId: text('actor_id'), // user who triggered this notification
+	metadata: text('metadata'), // JSON blob for extra data
+	read: integer('read', { mode: 'boolean' }).notNull().default(false),
+	createdAt: integer('created_at').notNull() // unix ms
+});
+
+export type NotificationRow = typeof notifications.$inferSelect;
+
 // ── App Settings ─────────────────────────────────────────────────────
 
 export const appSettings = sqliteTable('app_settings', {
@@ -366,3 +383,153 @@ export const appSettings = sqliteTable('app_settings', {
 });
 
 export type AppSetting = typeof appSettings.$inferSelect;
+
+// ── Notification Preferences ─────────────────────────────────────
+export const notificationPreferences = sqliteTable('notification_preferences', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	notificationType: text('notification_type').notNull(), // matches notification.type values
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+
+// ── Video Subscription Notifications ────────────────────────────
+export const videoSubNotifications = sqliteTable('video_sub_notifications', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	channelId: text('channel_id').notNull(), // Invidious authorId
+	channelName: text('channel_name').notNull(),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+	lastCheckedVideoId: text('last_checked_video_id'), // most recent video ID we've seen
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type VideoSubNotification = typeof videoSubNotifications.$inferSelect;
+
+// ── Recommendation Engine ────────────────────────────────────────────
+
+export const userGenreAffinity = sqliteTable('user_genre_affinity', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	genre: text('genre').notNull(),
+	score: real('score').notNull().default(0),
+	playTimeMs: integer('play_time_ms'),
+	completions: integer('completions'),
+	interactions: integer('interactions'),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const userRecProfiles = sqliteTable('user_rec_profiles', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	name: text('name').notNull(),
+	isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+	config: text('config').notNull(), // JSON: RecProfileConfig
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const userHiddenItems = sqliteTable('user_hidden_items', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id'),
+	reason: text('reason'),
+	createdAt: integer('created_at').notNull()
+});
+
+export const recommendationCache = sqliteTable('recommendation_cache', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	profileId: text('profile_id').notNull(),
+	provider: text('provider').notNull(),
+	mediaType: text('media_type').notNull(),
+	results: text('results').notNull(), // JSON
+	computedAt: integer('computed_at').notNull()
+});
+
+// ── Books ────────────────────────────────────────────────────────────
+
+export const bookNotes = sqliteTable('book_notes', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	bookId: text('book_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	content: text('content').notNull(),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const bookHighlights = sqliteTable('book_highlights', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	bookId: text('book_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	cfi: text('cfi').notNull(),
+	text: text('text').notNull(),
+	note: text('note'),
+	color: text('color').default('yellow'),
+	chapter: text('chapter'),
+	createdAt: integer('created_at').notNull()
+});
+
+export const bookReadingSessions = sqliteTable('book_reading_sessions', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	bookId: text('book_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	startedAt: integer('started_at').notNull(),
+	endedAt: integer('ended_at'),
+	startCfi: text('start_cfi'),
+	endCfi: text('end_cfi'),
+	pagesRead: integer('pages_read'),
+	durationSeconds: integer('duration_seconds')
+});
+
+export const bookBookmarks = sqliteTable('book_bookmarks', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	bookId: text('book_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	cfi: text('cfi').notNull(),
+	label: text('label'),
+	createdAt: integer('created_at').notNull()
+});
+
+export const readingGoals = sqliteTable('reading_goals', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	targetBooks: integer('target_books'),
+	targetPages: integer('target_pages'),
+	period: text('period').notNull(), // 'yearly' | 'monthly'
+	year: integer('year').notNull(),
+	month: integer('month')
+});
+
+export type BookNote = typeof bookNotes.$inferSelect;
+export type BookHighlight = typeof bookHighlights.$inferSelect;
+export type BookReadingSession = typeof bookReadingSessions.$inferSelect;
+export type BookBookmark = typeof bookBookmarks.$inferSelect;
+export type ReadingGoal = typeof readingGoals.$inferSelect;
+
+export type UserGenreAffinity = typeof userGenreAffinity.$inferSelect;
+export type UserRecProfile = typeof userRecProfiles.$inferSelect;
+export type UserHiddenItem = typeof userHiddenItems.$inferSelect;
+export type RecommendationCacheEntry = typeof recommendationCache.$inferSelect;
+
+// ── Game Notes ──────────────────────────────────────────────────────
+
+export const gameNotes = sqliteTable('game_notes', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	romId: text('rom_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	content: text('content').notNull().default(''),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type GameNote = typeof gameNotes.$inferSelect;

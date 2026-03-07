@@ -66,8 +66,8 @@ export interface ServiceAdapter {
 	/** Live TV channels */
 	getLiveChannels?(config: ServiceConfig, userCred?: UserCredential): Promise<UnifiedMedia[]>;
 
-	/** Submit a request for new media */
-	requestMedia?(config: ServiceConfig, tmdbId: string, type: 'movie' | 'tv', userCred?: UserCredential): Promise<boolean>;
+	/** Submit a request for new media. For TV, pass `seasons` as array of season numbers. */
+	requestMedia?(config: ServiceConfig, tmdbId: string, type: 'movie' | 'tv', userCred?: UserCredential, seasons?: number[]): Promise<boolean>;
 
 	/** Browse/discover content — paginated, for infinite scroll */
 	discover?(

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getPendingRequests, sendFriendRequest } from '$lib/server/social';
 import { broadcastToUser } from '$lib/server/ws';
+import { createNotification } from '$lib/server/notifications';
 import type { RequestHandler } from './$types';
 
 // GET /api/friends/requests — list pending friend requests
@@ -31,6 +32,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			fromDisplayName: locals.user.displayName,
 			requestId: result.id
 		}
+	});
+
+	// Persist notification
+	createNotification({
+		userId,
+		type: 'friend_request',
+		title: `${locals.user.displayName} sent you a friend request`,
+		icon: 'user-plus',
+		href: '/friends',
+		actorId: locals.user.id,
+		metadata: { requestId: result.id }
 	});
 
 	return json({ id: result.id });
