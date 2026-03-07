@@ -572,6 +572,18 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		UNIQUE(user_id, scope, scope_value)
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_speed_rules_user ON playback_speed_rules(user_id, scope)`);
+
+	// ── SponsorBlock Preferences ─────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS sponsorblock_preferences (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL UNIQUE,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		category_settings TEXT NOT NULL DEFAULT '{"sponsor":"skip","selfpromo":"skip","interaction":"skip","intro":"off","outro":"off","preview":"off","music_offtopic":"off","filler":"off","poi_highlight":"show","chapter":"off"}',
+		show_on_timeline INTEGER NOT NULL DEFAULT 1,
+		show_skip_notice INTEGER NOT NULL DEFAULT 1,
+		skip_notice_duration INTEGER NOT NULL DEFAULT 3000,
+		updated_at INTEGER NOT NULL
+	)`);
 }
 
 export { schema };

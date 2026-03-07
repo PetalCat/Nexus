@@ -562,3 +562,37 @@ export const playbackSpeedRules = sqliteTable('playback_speed_rules', {
 });
 
 export type PlaybackSpeedRule = typeof playbackSpeedRules.$inferSelect;
+
+// ── SponsorBlock Preferences ─────────────────────────────────────
+export const sponsorblockPreferences = sqliteTable('sponsorblock_preferences', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull().unique(),
+	/** Master toggle */
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+	/**
+	 * JSON object mapping category → action.
+	 * Categories: sponsor, selfpromo, interaction, intro, outro, preview, music_offtopic, filler, poi_highlight, chapter
+	 * Actions: 'skip' | 'mute' | 'ask' | 'show' | 'off'
+	 */
+	categorySettings: text('category_settings').notNull().default(JSON.stringify({
+		sponsor: 'skip',
+		selfpromo: 'skip',
+		interaction: 'skip',
+		intro: 'off',
+		outro: 'off',
+		preview: 'off',
+		music_offtopic: 'off',
+		filler: 'off',
+		poi_highlight: 'show',
+		chapter: 'off'
+	})),
+	/** Show coloured segments on the player timeline */
+	showOnTimeline: integer('show_on_timeline', { mode: 'boolean' }).notNull().default(true),
+	/** Show a toast/snackbar when a segment is skipped */
+	showSkipNotice: integer('show_skip_notice', { mode: 'boolean' }).notNull().default(true),
+	/** Skip notice duration in ms (0 = permanent until dismissed) */
+	skipNoticeDuration: integer('skip_notice_duration').notNull().default(3000),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type SponsorBlockPreference = typeof sponsorblockPreferences.$inferSelect;
