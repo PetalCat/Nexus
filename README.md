@@ -6,36 +6,42 @@ Nexus aggregates content from your self-hosted services — Jellyfin, Calibre-We
 
 ## Features
 
-**Media**
+### Media
+
 - Unified dashboard with continue watching, recently added, and personalized recommendations
 - Browse and search across movies, shows, music, books, games, and videos
 - Rich detail pages with metadata, ratings, and related content
 - Media requesting via Overseerr integration
 - Live TV from Jellyfin
 
-**Books**
+### Books
+
 - In-browser EPUB reader (epub.js) with highlights, bookmarks, and notes
 - Skeuomorphic bookshelf view, series browsing, author pages
 - Reading statistics, goals, and session tracking
 - Notes & highlights hub with Markdown/JSON export
 
-**Games**
+### Games
+
 - In-browser retro game emulation via EmulatorJS
 - Save state management (upload, download, sync to RomM)
 - RetroAchievements + HowLongToBeat metadata display
 - Collections, advanced filtering, platform pages
 
-**Video**
+### Video
+
 - YouTube alternative frontend via Invidious
 - Subscriptions, playlists, watch history
 - Video streaming with HLS support
 
-**Social**
+### Social
+
 - Friend system with presence (online/away/DND)
 - Watch parties, listen parties, co-op gaming sessions
 - Activity feed and shared items
 
-**Other**
+### Other
+
 - Invite-based registration with admin approval
 - Command palette (Cmd/Ctrl+K) for quick navigation
 - Real-time WebSocket notifications
@@ -60,7 +66,7 @@ Nexus aggregates content from your self-hosted services — Jellyfin, Calibre-We
 
 ## Quick Start
 
-```bash
+```sh
 # Install dependencies
 pnpm install
 
@@ -101,3 +107,4 @@ All service connections (URLs, API keys, credentials) are configured through the
 - **epub.js** — Book reader
 - **hls.js** — Video streaming
 - **EmulatorJS** (CDN) — Game emulation
+
