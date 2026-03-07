@@ -53,7 +53,7 @@ export function connectWs(): void {
 	if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
 
 	const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-	const url = `${protocol}//${window.location.host}/ws`;
+	const url = `${protocol}//${window.location.host}/api/ws`;
 
 	ws = new WebSocket(url);
 

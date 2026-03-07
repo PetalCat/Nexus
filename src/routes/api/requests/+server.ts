@@ -105,7 +105,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	const body = await request.json();
-	const { serviceId, tmdbId, type }: { serviceId: string; tmdbId: string; type: 'movie' | 'tv' } = body;
+	const { serviceId, tmdbId, type, seasons }: { serviceId: string; tmdbId: string; type: 'movie' | 'tv'; seasons?: number[] } = body;
 
 	if (!serviceId || !tmdbId || !type) {
 		return json({ error: 'Missing serviceId, tmdbId, or type' }, { status: 400 });
@@ -119,7 +119,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!adapter?.requestMedia) return json({ error: 'Not supported' }, { status: 400 });
 
 	const cred = getUserCredentialForService(locals.user.id, serviceId) ?? undefined;
-	const ok = await adapter.requestMedia(config, tmdbId, type, cred);
+	const ok = await adapter.requestMedia(config, tmdbId, type, cred, seasons);
 
 	// Invalidate request caches after creating a new request
 	if (ok) {

@@ -36,7 +36,9 @@
 	"dependencies": {
 		"better-sqlite3": "^11.10.0",
 		"drizzle-orm": "^0.44.0",
+		"epubjs": "^0.3.93",
 		"hls.js": "^1.6.15",
+		"lucide-svelte": "0.469.0",
 		"ws": "^8.19.0"
 	}
 }

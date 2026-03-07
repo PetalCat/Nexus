@@ -11,9 +11,10 @@ async function radarrFetch(config: ServiceConfig, path: string) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalize(config: ServiceConfig, item: any): UnifiedMedia {
+	const itemId = item.id ?? item.tmdbId ?? item.imdbId ?? crypto.randomUUID();
 	return {
-		id: `${item.id}:${config.id}`,
-		sourceId: String(item.id),
+		id: `${itemId}:${config.id}`,
+		sourceId: String(itemId),
 		serviceId: config.id,
 		serviceType: 'radarr',
 		type: 'movie',

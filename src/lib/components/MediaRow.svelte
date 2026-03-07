@@ -30,7 +30,7 @@
 		<div class="flex flex-col gap-0.5">
 			<h2 class="text-display text-base font-semibold tracking-tight">{row.title}</h2>
 			{#if row.subtitle}
-				<p class="text-xs text-[var(--color-subtle)]">{row.subtitle}</p>
+				<p class="text-xs text-[var(--color-muted)]">{row.subtitle}</p>
 			{/if}
 		</div>
 		<div class="flex gap-0.5">

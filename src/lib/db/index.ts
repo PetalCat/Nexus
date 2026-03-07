@@ -5,16 +5,23 @@ import * as schema from './schema';
 const DB_PATH = process.env.DATABASE_URL || './nexus.db';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _sqlite: InstanceType<typeof Database> | null = null;
 
 export function getDb() {
 	if (!_db) {
-		const sqlite = new Database(DB_PATH);
-		sqlite.pragma('journal_mode = WAL');
-		sqlite.pragma('foreign_keys = ON');
-		_db = drizzle(sqlite, { schema });
+		_sqlite = new Database(DB_PATH);
+		_sqlite.pragma('journal_mode = WAL');
+		_sqlite.pragma('foreign_keys = ON');
+		_db = drizzle(_sqlite, { schema });
 		initDb(_db);
 	}
 	return _db;
+}
+
+/** Raw better-sqlite3 instance for parameterized queries outside Drizzle ORM */
+export function getRawDb(): InstanceType<typeof Database> {
+	if (!_sqlite) getDb(); // ensure initialized
+	return _sqlite!;
 }
 
 function initDb(db: ReturnType<typeof drizzle>) {
@@ -365,11 +372,179 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// Add is_collaborative column to existing playlists (migration-safe)
 	try { db.run(`ALTER TABLE music_playlists ADD COLUMN is_collaborative INTEGER NOT NULL DEFAULT 0`); } catch { /* column exists */ }
 
+	// ── Notifications ───────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS notifications (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		type TEXT NOT NULL,
+		title TEXT NOT NULL,
+		message TEXT,
+		icon TEXT,
+		href TEXT,
+		actor_id TEXT,
+		metadata TEXT,
+		read INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read, created_at)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at)`);
+
 	// ── App settings ────────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	)`);
+
+	// ── Notification preferences ────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS notification_preferences (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		notification_type TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, notification_type)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notification_preferences(user_id)`);
+
+	// ── Video subscription notifications ────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS video_sub_notifications (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		channel_id TEXT NOT NULL,
+		channel_name TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		last_checked_video_id TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, channel_id)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_video_sub_notif_user ON video_sub_notifications(user_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_video_sub_notif_enabled ON video_sub_notifications(enabled)`);
+
+	// ── Recommendation engine tables ────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS user_genre_affinity (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		genre TEXT NOT NULL,
+		score REAL NOT NULL DEFAULT 0,
+		play_time_ms INTEGER,
+		completions INTEGER,
+		interactions INTEGER,
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, media_type, genre)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_genre_affinity_user ON user_genre_affinity(user_id, media_type)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_rec_profiles (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		is_default INTEGER NOT NULL DEFAULT 0,
+		config TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_rec_profiles_user ON user_rec_profiles(user_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_hidden_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT,
+		reason TEXT,
+		created_at INTEGER NOT NULL,
+		UNIQUE(user_id, media_id)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_hidden_items_user ON user_hidden_items(user_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS recommendation_cache (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		profile_id TEXT NOT NULL,
+		provider TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		results TEXT NOT NULL,
+		computed_at INTEGER NOT NULL,
+		UNIQUE(user_id, profile_id, provider, media_type)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_rec_cache_user ON recommendation_cache(user_id, profile_id, media_type)`);
+
+	// ── Books tables ────────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS book_notes (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		book_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		content TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_book_notes_user_book ON book_notes(user_id, book_id, service_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS book_highlights (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		book_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		cfi TEXT NOT NULL,
+		text TEXT NOT NULL,
+		note TEXT,
+		color TEXT DEFAULT 'yellow',
+		chapter TEXT,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_book_highlights_user_book ON book_highlights(user_id, book_id, service_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS book_reading_sessions (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		book_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		started_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		start_cfi TEXT,
+		end_cfi TEXT,
+		pages_read INTEGER,
+		duration_seconds INTEGER
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_user ON book_reading_sessions(user_id, book_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_started ON book_reading_sessions(user_id, started_at)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS book_bookmarks (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		book_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		cfi TEXT NOT NULL,
+		label TEXT,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_book_bookmarks_user_book ON book_bookmarks(user_id, book_id, service_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS reading_goals (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		target_books INTEGER,
+		target_pages INTEGER,
+		period TEXT NOT NULL,
+		year INTEGER NOT NULL,
+		month INTEGER,
+		UNIQUE(user_id, period, year, month)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_reading_goals_user ON reading_goals(user_id, year)`);
+
+	// ── Game notes ──────────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS game_notes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		rom_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		content TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, rom_id, service_id)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_game_notes_user_rom ON game_notes(user_id, rom_id, service_id)`);
 }
 
 export { schema };

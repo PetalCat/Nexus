@@ -57,7 +57,7 @@
 
 	function queueStatusColor(status: string | undefined) {
 		switch (status) {
-			case 'downloading': return '#7c6cf8';
+			case 'downloading': return 'var(--color-accent)';
 			case 'available': return '#34d399';
 			case 'missing': return '#f87171';
 			case 'requested': return '#f59e0b';
@@ -112,7 +112,7 @@
 	<!-- ── Page header ─────────────────────────────────────────────────────── -->
 	<div class="mb-8 flex items-center gap-3">
 		<div class="flex h-9 w-9 items-center justify-center rounded-xl" style="background: rgba(124,108,248,0.15); border: 1px solid rgba(124,108,248,0.25)">
-			<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--color-nebula)" stroke-width="1.5">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--color-accent)" stroke-width="1.5">
 				<rect x="1" y="1" width="6" height="6" rx="1.5" />
 				<rect x="9" y="1" width="6" height="6" rx="1.5" />
 				<rect x="1" y="9" width="6" height="6" rx="1.5" />
@@ -121,10 +121,10 @@
 		</div>
 		<div>
 			<h1 class="text-display text-lg font-bold tracking-tight">Admin Dashboard</h1>
-			<p class="text-xs text-[var(--color-subtle)]">Server intelligence &amp; activity</p>
+			<p class="text-xs text-[var(--color-muted)]">Server intelligence &amp; activity</p>
 		</div>
 		<!-- Refresh hint -->
-		<a href="/admin" class="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--color-subtle)] transition-colors hover:text-[var(--color-text)]" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06)">
+		<a href="/admin" class="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--color-muted)] transition-colors hover:text-[var(--color-cream)]" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06)">
 			<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
 				<path d="M10.5 2A5 5 0 1 0 11 6.5" />
 				<path d="M10.5 2V5H7.5" />
@@ -138,7 +138,7 @@
 		<!-- Active streams -->
 		<div class="relative overflow-hidden rounded-2xl p-4 sm:p-5" style="background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15)">
 			<div class="mb-2 text-2xl font-bold tabular-nums sm:text-3xl" style="color: #34d399">{activeSessions}</div>
-			<div class="text-xs font-medium text-[var(--color-subtle)]">Active Streams</div>
+			<div class="text-xs font-medium text-[var(--color-muted)]">Active Streams</div>
 			{#if activeSessions > 0}
 				<div class="absolute right-3 top-3 h-2 w-2 animate-pulse rounded-full bg-[#34d399]"></div>
 			{/if}
@@ -147,13 +147,13 @@
 		<!-- Pending requests -->
 		<div class="relative overflow-hidden rounded-2xl p-4 sm:p-5" style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15)">
 			<div class="mb-2 text-2xl font-bold tabular-nums sm:text-3xl" style="color: #f59e0b">{pendingCount}</div>
-			<div class="text-xs font-medium text-[var(--color-subtle)]">Pending Requests</div>
+			<div class="text-xs font-medium text-[var(--color-muted)]">Pending Requests</div>
 		</div>
 
 		<!-- Services online -->
 		<div class="relative overflow-hidden rounded-2xl p-4 sm:p-5" style="background: rgba(96,165,250,0.06); border: 1px solid rgba(96,165,250,0.15)">
 			<div class="mb-2 text-2xl font-bold tabular-nums sm:text-3xl" style="color: #60a5fa">{onlineCount}<span class="text-base font-medium opacity-50">/{totalServices}</span></div>
-			<div class="text-xs font-medium text-[var(--color-subtle)]">Services Online</div>
+			<div class="text-xs font-medium text-[var(--color-muted)]">Services Online</div>
 		</div>
 	</div>
 
@@ -163,7 +163,7 @@
 		<!-- ─── Live Streams ─────────────────────────────────────────────── -->
 		<section>
 			<div class="mb-4 flex items-center gap-2">
-				<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-subtle)]">Live Now</h2>
+				<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Live Now</h2>
 				{#if activeSessions > 0}
 					<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-[#34d399]"></span>
 				{/if}
@@ -176,7 +176,7 @@
 						<path d="M8 20h8M12 18v2" stroke-linecap="round" />
 						<circle cx="12" cy="11" r="2" />
 					</svg>
-					<p class="text-sm text-[var(--color-subtle)]">No active streams</p>
+					<p class="text-sm text-[var(--color-muted)]">No active streams</p>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-3">
@@ -188,7 +188,7 @@
 							{#if img}
 								<div class="absolute inset-0 opacity-10 transition-opacity group-hover:opacity-[0.15]">
 									<img src={img} alt="" class="h-full w-full object-cover" />
-									<div class="absolute inset-0" style="background: linear-gradient(to right, rgba(5,5,10,0.9) 0%, rgba(5,5,10,0.5) 60%, transparent 100%)"></div>
+									<div class="absolute inset-0" style="background: linear-gradient(to right, rgba(13,11,10,0.9) 0%, rgba(13,11,10,0.5) 60%, transparent 100%)"></div>
 								</div>
 							{/if}
 
@@ -205,7 +205,7 @@
 										<div class="min-w-0">
 											<p class="truncate text-sm font-semibold">{itemTitle(session)}</p>
 											{#if session.NowPlayingItem?.Type === 'Episode' && session.NowPlayingItem?.Name}
-												<p class="mt-0.5 truncate text-xs text-[var(--color-subtle)]">{session.NowPlayingItem.Name}</p>
+												<p class="mt-0.5 truncate text-xs text-[var(--color-muted)]">{session.NowPlayingItem.Name}</p>
 											{/if}
 										</div>
 										<!-- Play method badge -->
@@ -216,7 +216,7 @@
 									</div>
 
 									<!-- Who / where -->
-									<div class="mt-1.5 flex items-center gap-3 text-xs text-[var(--color-subtle)]">
+									<div class="mt-1.5 flex items-center gap-3 text-xs text-[var(--color-muted)]">
 										<span class="flex items-center gap-1">
 											<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="5" cy="3.5" r="2"/><path d="M1.5 9c0-1.93 1.57-3.5 3.5-3.5S8.5 7.07 8.5 9"/></svg>
 											{session.UserName ?? 'Unknown'}
@@ -238,9 +238,9 @@
 											<div class="h-0.5 flex-1 overflow-hidden rounded-full" style="background: rgba(255,255,255,0.08)">
 												<div class="h-full rounded-full transition-all" style="width: {pct * 100}%; background: {session.PlayState?.IsPaused ? '#f59e0b' : '#34d399'}"></div>
 											</div>
-											<span class="text-[10px] tabular-nums text-[var(--color-subtle)]">{Math.round(pct * 100)}%</span>
+											<span class="text-[10px] tabular-nums text-[var(--color-muted)]">{Math.round(pct * 100)}%</span>
 											{#if session.NowPlayingItem?.RunTimeTicks}
-												<span class="text-[10px] tabular-nums text-[var(--color-subtle)]">{formatRuntime(session.NowPlayingItem.RunTimeTicks)}</span>
+												<span class="text-[10px] tabular-nums text-[var(--color-muted)]">{formatRuntime(session.NowPlayingItem.RunTimeTicks)}</span>
 											{/if}
 										</div>
 									{/if}
@@ -258,17 +258,17 @@
 			<!-- Download Queue -->
 			<section>
 				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-subtle)]">
+					<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
 						Download Queue
 						{#if data.queue.length > 0}
-							<span class="ml-1 normal-case font-normal text-[var(--color-subtle)]">· {data.queue.length}</span>
+							<span class="ml-1 normal-case font-normal text-[var(--color-muted)]">· {data.queue.length}</span>
 						{/if}
 					</h2>
 				</div>
 
 				{#if data.queue.length === 0}
 					<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
-						<p class="text-sm text-[var(--color-subtle)]">Nothing downloading</p>
+						<p class="text-sm text-[var(--color-muted)]">Nothing downloading</p>
 					</div>
 				{:else}
 					<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
@@ -286,7 +286,7 @@
 
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-xs font-medium">{item.title}</p>
-									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-subtle)]">
+									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-muted)]">
 										<span>{item.serviceType}</span>
 									</div>
 								</div>
@@ -304,13 +304,13 @@
 			<!-- Request Queue -->
 			<section>
 				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-subtle)]">Request Queue</h2>
-					<a href="/requests" class="text-xs text-[var(--color-nebula)] hover:underline">View all →</a>
+					<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Request Queue</h2>
+					<a href="/requests" class="text-xs text-[var(--color-accent)] hover:underline">View all →</a>
 				</div>
 
 				{#if data.requests.length === 0}
 					<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
-						<p class="text-sm text-[var(--color-subtle)]">No recent requests</p>
+						<p class="text-sm text-[var(--color-muted)]">No recent requests</p>
 					</div>
 				{:else}
 					<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
@@ -329,7 +329,7 @@
 
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-xs font-medium">{req.title}</p>
-									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-subtle)]">
+									<div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-muted)]">
 										<span>{req.requestedByName}</span>
 										<span>·</span>
 										<span>{timeAgo(req.requestedAt)}</span>
@@ -349,11 +349,11 @@
 
 			<!-- Service Health -->
 			<section>
-				<h2 class="mb-4 text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-subtle)]">Service Health</h2>
+				<h2 class="mb-4 text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Service Health</h2>
 
 				{#if data.health.length === 0}
 					<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
-						<p class="text-sm text-[var(--color-subtle)]">No services configured</p>
+						<p class="text-sm text-[var(--color-muted)]">No services configured</p>
 					</div>
 				{:else}
 					<div class="flex flex-col gap-2">
@@ -366,11 +366,11 @@
 
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-xs font-medium">{svc.name}</p>
-									<p class="text-[10px] capitalize text-[var(--color-subtle)]">{svc.type}</p>
+									<p class="text-[10px] capitalize text-[var(--color-muted)]">{svc.type}</p>
 								</div>
 
 								{#if svc.online && svc.latency != null}
-									<span class="text-[10px] tabular-nums text-[var(--color-subtle)]">{svc.latency}ms</span>
+									<span class="text-[10px] tabular-nums text-[var(--color-muted)]">{svc.latency}ms</span>
 								{:else if !svc.online && svc.error}
 									<span class="max-w-[100px] truncate text-[10px] text-[#f87171]">{svc.error}</span>
 								{/if}

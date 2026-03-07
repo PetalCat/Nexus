@@ -14,7 +14,7 @@ interface CalibreSession {
 
 const sessionCache = new Map<string, CalibreSession>();
 
-async function getSession(config: ServiceConfig, userCred?: UserCredential): Promise<string> {
+export async function getSession(config: ServiceConfig, userCred?: UserCredential): Promise<string> {
 	const user = userCred?.externalUsername ?? config.username ?? '';
 	const pass = userCred?.accessToken ?? config.password ?? '';
 	const cacheKey = `${config.id}:${user}`;
@@ -158,13 +158,18 @@ function normalize(config: ServiceConfig, book: CalibreBook): UnifiedMedia {
 	const year = book.pubdate ? new Date(book.pubdate).getFullYear() : undefined;
 
 	// Cover
-	const poster = book.has_cover ? `${config.url}/cover/${book.id}` : undefined;
+	// Calibre-Web cover URLs require auth — proxy through Nexus
+	const poster = book.has_cover
+		? `/api/media/image?service=${encodeURIComponent(config.id)}&path=${encodeURIComponent(`/cover/${book.id}`)}`
+		: undefined;
 
-	// Formats from data field (comma-separated "Title - Author" pairs, one per format)
+	// Formats from data field — Calibre-Web returns comma-separated format names
 	const formats: string[] = [];
 	if (book.data) {
-		// data field contains format info but not in a structured way
-		// We'll extract from the path or just note it exists
+		book.data.split(',').forEach(f => {
+			const trimmed = f.trim().toUpperCase();
+			if (trimmed && /^[A-Z0-9]+$/.test(trimmed)) formats.push(trimmed);
+		});
 	}
 
 	return {
@@ -183,12 +188,14 @@ function normalize(config: ServiceConfig, book: CalibreBook): UnifiedMedia {
 		metadata: {
 			calibreId: bookId,
 			author: book.authors,
+			authorSort: book.author_sort || undefined,
 			publisher: book.publishers || undefined,
 			language: book.languages !== 'Unknown' ? book.languages : undefined,
 			seriesName: book.series || undefined,
 			seriesIndex: book.series_index || undefined,
 			readStatus: book.read_status,
-			uuid: book.uuid
+			uuid: book.uuid,
+			formats
 		},
 		actionLabel: 'Read',
 		actionUrl: `${config.url}/book/${book.id}`
@@ -408,6 +415,31 @@ export async function getCalibreSeries(config: ServiceConfig, userCred?: UserCre
 	});
 }
 
+export interface CalibreAuthor {
+	name: string;
+	bookCount: number;
+}
+
+export async function getCalibreAuthors(config: ServiceConfig, userCred?: UserCredential): Promise<CalibreAuthor[]> {
+	return withCache(`calibre-authors:${config.id}`, 300_000, async () => {
+		try {
+			const data = await fetchBooks(config, { limit: 5000 }, userCred);
+			const authorMap = new Map<string, number>();
+			for (const book of data.rows) {
+				if (book.authors) {
+					const name = book.authors.trim();
+					authorMap.set(name, (authorMap.get(name) ?? 0) + 1);
+				}
+			}
+			return Array.from(authorMap.entries())
+				.map(([name, bookCount]) => ({ name, bookCount }))
+				.sort((a, b) => b.bookCount - a.bookCount);
+		} catch {
+			return [];
+		}
+	});
+}
+
 export async function getCalibreCategories(config: ServiceConfig, userCred?: UserCredential): Promise<string[]> {
 	return withCache(`calibre-categories:${config.id}`, 300_000, async () => {
 		try {
@@ -419,6 +451,130 @@ export async function getCalibreCategories(config: ServiceConfig, userCred?: Use
 				}
 			}
 			return Array.from(tags).sort();
+		} catch {
+			return [];
+		}
+	});
+}
+
+export interface CalibreBookFormats {
+	formats: { name: string; downloadUrl: string }[];
+}
+
+export async function getCalibreBookFormats(
+	config: ServiceConfig,
+	bookId: string,
+	userCred?: UserCredential
+): Promise<CalibreBookFormats> {
+	try {
+		const res = await calibreFetch(config, `/ajax/book/${bookId}`, userCred);
+		const data = await res.json() as any;
+		const formats: { name: string; downloadUrl: string }[] = [];
+		if (data.main_format) {
+			for (const [fmt, info] of Object.entries(data.main_format as Record<string, any>)) {
+				formats.push({
+					name: fmt.toUpperCase(),
+					downloadUrl: `/api/books/${bookId}/download/${fmt.toLowerCase()}`
+				});
+			}
+		}
+		// Fallback: use data_files or format_metadata
+		if (formats.length === 0 && data.format_metadata) {
+			for (const fmt of Object.keys(data.format_metadata)) {
+				formats.push({
+					name: fmt.toUpperCase(),
+					downloadUrl: `/api/books/${bookId}/download/${fmt.toLowerCase()}`
+				});
+			}
+		}
+		return { formats };
+	} catch {
+		return { formats: [] };
+	}
+}
+
+export interface RelatedBooks {
+	sameAuthor: UnifiedMedia[];
+	sameSeries: UnifiedMedia[];
+	nextInSeries?: UnifiedMedia;
+	prevInSeries?: UnifiedMedia;
+}
+
+export async function getRelatedBooks(
+	config: ServiceConfig,
+	bookId: string,
+	userCred?: UserCredential
+): Promise<RelatedBooks> {
+	try {
+		const data = await fetchBooks(config, { limit: 5000, sort: 'sort', order: 'asc' }, userCred);
+		const currentBook = data.rows.find(b => String(b.id) === bookId);
+		if (!currentBook) return { sameAuthor: [], sameSeries: [] };
+
+		const sameAuthor: UnifiedMedia[] = [];
+		const sameSeries: UnifiedMedia[] = [];
+		let nextInSeries: UnifiedMedia | undefined;
+		let prevInSeries: UnifiedMedia | undefined;
+
+		for (const book of data.rows) {
+			if (String(book.id) === bookId) continue;
+			const item = normalize(config, book);
+
+			if (book.authors === currentBook.authors) {
+				sameAuthor.push(item);
+			}
+			if (currentBook.series && book.series === currentBook.series) {
+				sameSeries.push(item);
+				if (book.series_index === currentBook.series_index + 1) nextInSeries = item;
+				if (book.series_index === currentBook.series_index - 1) prevInSeries = item;
+			}
+		}
+
+		return { sameAuthor: sameAuthor.slice(0, 20), sameSeries, nextInSeries, prevInSeries };
+	} catch {
+		return { sameAuthor: [], sameSeries: [] };
+	}
+}
+
+export async function toggleReadStatus(
+	config: ServiceConfig,
+	bookId: string,
+	userCred?: UserCredential
+): Promise<boolean> {
+	const cookie = await getSession(config, userCred);
+	const res = await fetch(`${config.url}/ajax/toggleread/${bookId}`, {
+		method: 'POST',
+		headers: { Cookie: cookie },
+		signal: AbortSignal.timeout(8000)
+	});
+	return res.ok;
+}
+
+export async function downloadBook(
+	config: ServiceConfig,
+	bookId: string,
+	format: string,
+	userCred?: UserCredential
+): Promise<Response> {
+	const cookie = await getSession(config, userCred);
+	// Calibre-Web download URL pattern
+	const res = await fetch(`${config.url}/download/${bookId}/${format.toUpperCase()}`, {
+		headers: { Cookie: cookie },
+		signal: AbortSignal.timeout(30000),
+		redirect: 'follow'
+	});
+	if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+	return res;
+}
+
+/** Fetch all books (cached) for building enrichment data */
+export async function getAllBooks(
+	config: ServiceConfig,
+	userCred?: UserCredential
+): Promise<UnifiedMedia[]> {
+	return withCache(`calibre-allbooks:${config.id}`, 300_000, async () => {
+		try {
+			const data = await fetchBooks(config, { limit: 5000, sort: 'sort', order: 'asc' }, userCred);
+			return data.rows.map(b => normalize(config, b));
 		} catch {
 			return [];
 		}

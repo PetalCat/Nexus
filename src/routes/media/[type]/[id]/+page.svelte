@@ -2,6 +2,15 @@
 	import type { PageData } from './$types';
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
 	import Player from '$lib/components/Player.svelte';
+	import ChannelCard from '$lib/components/video/ChannelCard.svelte';
+	import VideoComments from '$lib/components/video/VideoComments.svelte';
+	import VideoCard from '$lib/components/video/VideoCard.svelte';
+	import { formatViews, formatCount, formatDuration as formatVideoDuration, toVideoCardMedia } from '$lib/utils/video-format';
+	import HltbDisplay from '$lib/components/games/HltbDisplay.svelte';
+	import AchievementProgress from '$lib/components/games/AchievementProgress.svelte';
+	import AchievementCard from '$lib/components/games/AchievementCard.svelte';
+	import GameNotes from '$lib/components/games/GameNotes.svelte';
+	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo } from 'lucide-svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -10,9 +19,19 @@
 
 	const item = $derived(data.item);
 	const similar = $derived((data as any).similar ?? []);
-	const episodes = $derived((data as any).episodes ?? []);
-	const seasons = $derived((data as any).seasons ?? []);
-	const selectedSeason = $derived((data as any).selectedSeason as number | null);
+	let episodes = $state((data as any).episodes ?? []);
+	let seasons = $state((data as any).seasons ?? []);
+	let selectedSeason: number | null = $state((data as any).selectedSeason as number | null);
+	let loadingEpisodes = $state(false);
+
+	// Reset when navigating to a different item (different sourceId)
+	$effect(() => {
+		void data.item.sourceId;
+		episodes = (data as any).episodes ?? [];
+		seasons = (data as any).seasons ?? [];
+		selectedSeason = (data as any).selectedSeason as number | null;
+	});
+
 	const autoplay = $derived($page.url.searchParams.get('play') === '1');
 	const inLibrary = $derived(data.serviceType === 'jellyfin' || data.serviceType === 'calibre' || data.serviceType === 'romm');
 
@@ -27,6 +46,127 @@
 		live: 'Live Channel'
 	};
 
+	const isVideo = $derived(item.type === 'video');
+	const recommendedVideos = $derived((item.metadata?.recommendedVideos as any[]) ?? []);
+	const videoLikeCount = $derived(item.metadata?.likeCount as number | undefined);
+	const videoViewCount = $derived(item.metadata?.viewCount as number | undefined);
+	const videoPublishedText = $derived((item.metadata?.publishedText as string) ?? '');
+	const videoAuthor = $derived((item.metadata?.author as string) ?? '');
+	const videoAuthorId = $derived((item.metadata?.authorId as string) ?? '');
+	const videoAuthorVerified = $derived(!!item.metadata?.authorVerified);
+	const videoSubCountText = $derived((item.metadata?.subCountText as string) ?? '');
+	const videoKeywords = $derived((item.metadata?.keywords as string[]) ?? []);
+	const videoIsSubscribed = $derived((data as any).isSubscribed ?? false);
+	const hasLinkedInvidious = $derived((data as any).hasLinkedInvidious ?? false);
+	const videoNotifyEnabled = $derived((data as any).videoNotifyEnabled ?? false);
+	const invidiousBaseUrl = $derived((data as any).invidiousBaseUrl as string | undefined);
+	let videoDescExpanded = $state(false);
+	let videoFormats = $state<Array<{ itag: number | string; quality: string; type: string; muxed?: boolean }>>([]);
+
+	// Fetch available formats for Invidious videos
+	$effect(() => {
+		if (!isVideo || !videoStreamUrl) return;
+		fetch(`/api/video/stream/${item.sourceId}/formats`)
+			.then((r) => r.ok ? r.json() : null)
+			.then((d) => { if (d?.formatStreams) videoFormats = d.formatStreams; })
+			.catch(() => {});
+	});
+
+	// Save / Share state
+	let showPlaylistMenu = $state(false);
+	let userPlaylists = $state<Array<{playlistId: string; title: string}>>([]);
+	let savingTo = $state<string | null>(null);
+	let saveSuccess = $state<string | null>(null);
+	let shareTooltip = $state(false);
+
+	async function loadPlaylists() {
+		try {
+			const res = await fetch('/api/video/playlists');
+			if (res.ok) {
+				const d = await res.json();
+				userPlaylists = d.playlists ?? [];
+			}
+		} catch {}
+	}
+
+	async function saveToPlaylist(playlistId: string) {
+		savingTo = playlistId;
+		try {
+			const res = await fetch(`/api/video/playlists/${playlistId}/videos`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ videoId: item.sourceId })
+			});
+			if (res.ok) {
+				saveSuccess = playlistId;
+				setTimeout(() => { saveSuccess = null; showPlaylistMenu = false; }, 1500);
+			}
+		} catch {}
+		savingTo = null;
+	}
+
+	function shareVideo() {
+		navigator.clipboard.writeText(window.location.href);
+		shareTooltip = true;
+		setTimeout(() => { shareTooltip = false; }, 2000);
+	}
+
+	// Infinite-loading recommendations
+	let extraRecs = $state<any[]>([]);
+	let loadingMoreRecs = $state(false);
+	let noMoreRecs = $state(false);
+	let seenRecIds = $state(new Set<string>());
+	let recSentinel: HTMLElement | undefined = $state();
+
+	const allRecommendedVideos = $derived([...recommendedVideos, ...extraRecs]);
+
+	// Reset extra recs when the main item changes
+	$effect(() => {
+		// Access item.id to track it
+		void item.id;
+		extraRecs = [];
+		noMoreRecs = false;
+		seenRecIds = new Set(recommendedVideos.map((r: any) => r.sourceId ?? r.id));
+	});
+
+	async function loadMoreRecs() {
+		if (loadingMoreRecs || noMoreRecs) return;
+		const lastRec = allRecommendedVideos[allRecommendedVideos.length - 1];
+		if (!lastRec) return;
+
+		loadingMoreRecs = true;
+		try {
+			const lastId = lastRec.sourceId ?? lastRec.id;
+			const res = await fetch(`/api/video/recommendations?videoId=${encodeURIComponent(lastId)}&service=${data.serviceId}`);
+			if (!res.ok) { noMoreRecs = true; return; }
+			const { recommendations } = await res.json();
+
+			const fresh = (recommendations ?? []).filter((r: any) => {
+				const rid = r.sourceId ?? r.id;
+				return !seenRecIds.has(rid);
+			});
+
+			if (fresh.length === 0) { noMoreRecs = true; return; }
+			for (const r of fresh) seenRecIds.add(r.sourceId ?? r.id);
+			extraRecs = [...extraRecs, ...fresh];
+		} catch {
+			noMoreRecs = true;
+		} finally {
+			loadingMoreRecs = false;
+		}
+	}
+
+	// IntersectionObserver for infinite scroll
+	$effect(() => {
+		if (!recSentinel || !isVideo) return;
+		const observer = new IntersectionObserver(
+			(entries) => { if (entries[0]?.isIntersecting) loadMoreRecs(); },
+			{ rootMargin: '300px' }
+		);
+		observer.observe(recSentinel);
+		return () => observer.disconnect();
+	});
+
 	const isGame = $derived(item.type === 'game');
 	const gamePlatform = $derived((item.metadata?.platform as string) ?? '');
 	const gameHltb = $derived(item.metadata?.hltb as { main?: number; extra?: number; completionist?: number } | undefined);
@@ -40,9 +180,54 @@
 	const gameSaves = $derived((data as any).gameSaves ?? []);
 	const gameStates = $derived((data as any).gameStates ?? []);
 	const gameScreenshots = $derived((data as any).gameScreenshots ?? []);
+	const gameNoteContent = $derived((data as any).gameNoteContent as string ?? '');
 	const hasGameExtras = $derived(isGame && (gameSaves.length > 0 || gameStates.length > 0 || gameScreenshots.length > 0));
+	const supportsEmulation = $derived(!!(data as any).supportsEmulation);
 
-	let gameTab = $state<'overview' | 'saves' | 'screenshots' | 'files'>('overview');
+	// Book-specific derived values
+	const isBook = $derived(item.type === 'book');
+	const bookAuthor = $derived((item.metadata?.author as string) ?? '');
+	const bookSeriesName = $derived((item.metadata?.seriesName as string) ?? '');
+	const bookSeriesIndex = $derived((item.metadata?.seriesIndex as number | undefined) ?? undefined);
+	const bookFormats = $derived((data as any).bookFormats?.formats ?? []);
+	const bookRelated = $derived((data as any).bookRelated ?? { sameAuthor: [], sameSeries: [] });
+	const bookNotes = $derived((data as any).bookNotes ?? []);
+	const bookHighlights = $derived((data as any).bookHighlights ?? []);
+	const bookBookmarks = $derived((data as any).bookBookmarks ?? []);
+	const hasEpub = $derived(bookFormats.some((f: any) => f.name === 'EPUB'));
+	const bookReadStatus = $derived(!!item.metadata?.readStatus);
+	const bookPublisher = $derived((item.metadata?.publisher as string) ?? '');
+	const bookLanguage = $derived((item.metadata?.language as string) ?? '');
+	const bookMetaFormats = $derived((item.metadata?.formats as string[]) ?? []);
+
+	let bookNoteContent = $state('');
+	let togglingRead = $state(false);
+	let currentReadStatus = $state(false);
+
+	$effect(() => { currentReadStatus = bookReadStatus; });
+
+	async function toggleBookRead() {
+		togglingRead = true;
+		try {
+			const res = await fetch(`/api/books/${item.sourceId}/toggle-read`, { method: 'POST' });
+			if (res.ok) currentReadStatus = !currentReadStatus;
+		} catch {}
+		togglingRead = false;
+	}
+
+	async function saveBookNote() {
+		if (!bookNoteContent.trim()) return;
+		try {
+			await fetch(`/api/books/${item.sourceId}/notes`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content: bookNoteContent, serviceId: data.serviceId })
+			});
+			bookNoteContent = '';
+		} catch {}
+	}
+
+	let gameTab = $state<'overview' | 'saves' | 'screenshots' | 'files' | 'notes'>('overview');
 	let currentGameStatus = $state('');
 	let isFavorited = $state(false);
 
@@ -110,8 +295,60 @@
 		return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}` : `${m}m`;
 	}
 
-	const playableTypes = ['movie', 'episode', 'music', 'album', 'live'];
-	const isPlayable = $derived(!!item.streamUrl && playableTypes.includes(item.type));
+	// Save management actions
+	let deletingSaveId = $state<number | null>(null);
+
+	function downloadSave(saveId: number) {
+		window.open(`/api/games/${item.sourceId}/saves/${saveId}?serviceId=${data.serviceId}`, '_blank');
+	}
+
+	function downloadState(stateId: number) {
+		window.open(`/api/games/${item.sourceId}/states/${stateId}?serviceId=${data.serviceId}`, '_blank');
+	}
+
+	async function deleteSave(saveId: number) {
+		if (!confirm('Delete this save file?')) return;
+		deletingSaveId = saveId;
+		try {
+			const res = await fetch(`/api/games/${item.sourceId}/saves/${saveId}?serviceId=${data.serviceId}`, { method: 'DELETE' });
+			if (res.ok) window.location.reload();
+		} catch {}
+		deletingSaveId = null;
+	}
+
+	async function deleteState(stateId: number) {
+		if (!confirm('Delete this save state?')) return;
+		deletingSaveId = stateId;
+		try {
+			const res = await fetch(`/api/games/${item.sourceId}/states/${stateId}?serviceId=${data.serviceId}`, { method: 'DELETE' });
+			if (res.ok) window.location.reload();
+		} catch {}
+		deletingSaveId = null;
+	}
+
+	async function uploadSave(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		const form = new FormData();
+		form.append('file', file);
+		try {
+			const res = await fetch(`/api/games/${item.sourceId}/saves?serviceId=${data.serviceId}`, {
+				method: 'POST',
+				body: form
+			});
+			if (res.ok) window.location.reload();
+		} catch {}
+		input.value = '';
+	}
+
+	const playableTypes = ['movie', 'episode', 'music', 'album', 'live', 'video'];
+	const videoStreamUrl = $derived((data as any).videoStreamUrl as string | undefined);
+	const videoCaptions = $derived((data as any).videoCaptions as { label: string; lang: string; url: string }[] ?? []);
+	const isPlayable = $derived(
+		(!!item.streamUrl && playableTypes.includes(item.type)) ||
+		(item.type === 'video' && !!videoStreamUrl)
+	);
 	const isAudioType = $derived(item.type === 'music' || item.type === 'album');
 
 	const jellyfinItemId = $derived(
@@ -194,11 +431,27 @@
 	});
 
 	/* ── Season switching ── */
-	function selectSeason(seasonNum: number) {
+	async function selectSeason(seasonNum: number) {
+		if (seasonNum === selectedSeason || loadingEpisodes) return;
 		const seriesId = item.type === 'show' ? item.sourceId : (item.metadata?.seriesId as string);
 		if (!seriesId) return;
-		const svc = data.serviceId;
-		goto(`/media/show/${seriesId}?service=${svc}&season=${seasonNum}`, { replaceState: true });
+
+		selectedSeason = seasonNum;
+		loadingEpisodes = true;
+
+		try {
+			const res = await fetch(`/api/media/episodes?service=${data.serviceId}&seriesId=${seriesId}&season=${seasonNum}`);
+			if (res.ok) {
+				episodes = await res.json();
+			}
+		} catch { /* silent */ }
+
+		loadingEpisodes = false;
+
+		// Update URL without navigation
+		const url = new URL(window.location.href);
+		url.searchParams.set('season', String(seasonNum));
+		history.replaceState(history.state, '', url.toString());
 	}
 
 	/* ── Request flow (Overseerr items) ── */
@@ -239,11 +492,40 @@
 	<title>{item.title} — Nexus</title>
 </svelte:head>
 
+{#if !isVideo}
 <div class="detail-page">
+	<!-- Breadcrumbs -->
+	<nav class="breadcrumbs mx-auto mb-2 flex max-w-[1400px] items-center gap-1 px-8 pt-4 text-sm text-muted">
+		<a href="/" class="hover:text-cream transition-colors">Home</a>
+		<ChevronRight size={14} class="opacity-40" />
+		{#if item.type === 'movie'}
+			<a href="/movies" class="hover:text-cream transition-colors">Movies</a>
+		{:else if item.type === 'show' || item.type === 'episode'}
+			<a href="/shows" class="hover:text-cream transition-colors">Shows</a>
+		{:else if item.type === 'game'}
+			<a href="/games" class="hover:text-cream transition-colors">Games</a>
+		{:else if item.type === 'book'}
+			<a href="/books" class="hover:text-cream transition-colors">Books</a>
+		{:else if item.type === 'music' || item.type === 'album'}
+			<a href="/music" class="hover:text-cream transition-colors">Music</a>
+		{:else if item.type === 'live'}
+			<a href="/live" class="hover:text-cream transition-colors">Live TV</a>
+		{:else}
+			<span>{typeLabel[item.type] ?? item.type}</span>
+		{/if}
+		{#if item.type === 'episode' && item.metadata?.seriesName && item.metadata?.seriesId}
+			<ChevronRight size={14} class="opacity-40" />
+			<a href="/media/show/{item.metadata.seriesId}?service={data.serviceId}" class="hover:text-cream transition-colors truncate max-w-[200px]">{item.metadata.seriesName}</a>
+		{/if}
+		<ChevronRight size={14} class="opacity-40" />
+		<span class="text-cream/70 truncate max-w-[300px]">{item.title}</span>
+	</nav>
+
 	<!-- ═══════════════════════════════════════════
 	     PLAYER (Theater Mode)
 	     ═══════════════════════════════════════════ -->
 	{#if isPlayable && !isAudioType && (showPlayer || autoplay)}
+		{#key item.id}
 		<Player
 			streamUrl={item.streamUrl ?? ''}
 			type={item.type}
@@ -257,6 +539,7 @@
 			itemId={jellyfinItemId}
 			onclose={closePlayer}
 		/>
+		{/key}
 	{/if}
 
 	<!-- ═══════════════════════════════════════════
@@ -418,6 +701,7 @@
 						<!-- Audio player -->
 						{#if isPlayable && isAudioType}
 							<div class="anim" style="--d:520ms; max-width: 28rem;">
+								{#key item.id}
 								<Player
 									streamUrl={item.streamUrl ?? ''}
 									type={item.type}
@@ -429,6 +713,7 @@
 									serviceId={data.serviceId}
 									itemId={jellyfinItemId}
 								/>
+								{/key}
 							</div>
 						{/if}
 
@@ -444,7 +729,7 @@
 
 						<!-- Season / Episode count (Overseerr TV) -->
 						{#if canRequest && item.type === 'show' && seasonCount}
-							<p class="anim text-xs" style="--d:540ms; color: var(--color-subtle)">
+							<p class="anim text-xs" style="--d:540ms; color: var(--color-muted)">
 								{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
 							</p>
 						{/if}
@@ -498,7 +783,7 @@
 						</div>
 
 						{#if requestError}
-							<p class="anim text-xs" style="--d:600ms; color: var(--color-nova)">{requestError}</p>
+							<p class="anim text-xs" style="--d:600ms; color: var(--color-warm)">{requestError}</p>
 						{/if}
 					</div>
 				</div>
@@ -688,30 +973,35 @@
 					<button class="game-fav-btn" class:game-fav-btn--active={isFavorited} onclick={toggleFavorite} title="Toggle favorite">
 						<svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorited ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
 					</button>
+					{#if supportsEmulation}
+						<a href="/play/{item.sourceId}?serviceId={data.serviceId}" class="game-play-btn">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+							Play in Browser
+						</a>
+					{/if}
 				</div>
 			</section>
 
 			<!-- Game tabs -->
-			{#if hasGameExtras}
-				<div class="game-tabs">
-					<button class="game-tab" class:game-tab--active={gameTab === 'overview'} onclick={() => (gameTab = 'overview')}>Overview</button>
-					{#if gameSaves.length > 0 || gameStates.length > 0}
-						<button class="game-tab" class:game-tab--active={gameTab === 'saves'} onclick={() => (gameTab = 'saves')}>
-							Saves
-							<span class="game-tab-count">{gameSaves.length + gameStates.length}</span>
-						</button>
-					{/if}
-					{#if gameScreenshots.length > 0}
-						<button class="game-tab" class:game-tab--active={gameTab === 'screenshots'} onclick={() => (gameTab = 'screenshots')}>
-							Screenshots
-							<span class="game-tab-count">{gameScreenshots.length}</span>
-						</button>
-					{/if}
-					<button class="game-tab" class:game-tab--active={gameTab === 'files'} onclick={() => (gameTab = 'files')}>Files</button>
-				</div>
-			{/if}
+			<div class="game-tabs">
+				<button class="game-tab" class:game-tab--active={gameTab === 'overview'} onclick={() => (gameTab = 'overview')}>Overview</button>
+				{#if gameSaves.length > 0 || gameStates.length > 0}
+					<button class="game-tab" class:game-tab--active={gameTab === 'saves'} onclick={() => (gameTab = 'saves')}>
+						Saves
+						<span class="game-tab-count">{gameSaves.length + gameStates.length}</span>
+					</button>
+				{/if}
+				{#if gameScreenshots.length > 0}
+					<button class="game-tab" class:game-tab--active={gameTab === 'screenshots'} onclick={() => (gameTab = 'screenshots')}>
+						Screenshots
+						<span class="game-tab-count">{gameScreenshots.length}</span>
+					</button>
+				{/if}
+				<button class="game-tab" class:game-tab--active={gameTab === 'notes'} onclick={() => (gameTab = 'notes')}>Notes</button>
+				<button class="game-tab" class:game-tab--active={gameTab === 'files'} onclick={() => (gameTab = 'files')}>Files</button>
+			</div>
 
-			{#if gameTab === 'overview' || !hasGameExtras}
+			{#if gameTab === 'overview'}
 				<!-- Game Info Bar -->
 				{#if gamePlatform || gameFileSize || gameRegions.length > 0}
 					<section class="sect">
@@ -755,26 +1045,7 @@
 				{#if gameHltb && (gameHltb.main || gameHltb.extra || gameHltb.completionist)}
 					<section class="sect">
 						<h2 class="sect__title" style="margin-bottom:0.75rem">How Long to Beat</h2>
-						<div class="hltb-grid">
-							{#if gameHltb.main}
-								<div class="hltb-card">
-									<span class="hltb-time">{formatHltbTime(gameHltb.main)}</span>
-									<span class="hltb-label">Main Story</span>
-								</div>
-							{/if}
-							{#if gameHltb.extra}
-								<div class="hltb-card">
-									<span class="hltb-time">{formatHltbTime(gameHltb.extra)}</span>
-									<span class="hltb-label">Main + Extra</span>
-								</div>
-							{/if}
-							{#if gameHltb.completionist}
-								<div class="hltb-card">
-									<span class="hltb-time">{formatHltbTime(gameHltb.completionist)}</span>
-									<span class="hltb-label">Completionist</span>
-								</div>
-							{/if}
-						</div>
+						<HltbDisplay hltb={gameHltb} />
 					</section>
 				{/if}
 
@@ -783,29 +1054,15 @@
 					<section class="sect">
 						<h2 class="sect__title" style="margin-bottom:0.75rem">
 							RetroAchievements
-							{#if gameRA.completion_percentage != null}
-								<span class="ra-completion">{gameRA.completion_percentage}%</span>
-							{/if}
 							<span class="sect__count">{gameRA.achievements.length} achievements</span>
 						</h2>
-						<div class="ra-scroll">
+						<AchievementProgress
+							achievements={gameRA.achievements}
+							completionPercentage={gameRA.completion_percentage}
+						/>
+						<div class="ra-grid">
 							{#each gameRA.achievements as ach}
-								<div class="ra-card">
-									{#if ach.badge_url}
-										<img src={ach.badge_url} alt="" class="ra-badge" />
-									{:else}
-										<div class="ra-badge ra-badge--empty">
-											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></svg>
-										</div>
-									{/if}
-									<span class="ra-title">{ach.title}</span>
-									{#if ach.points}
-										<span class="ra-points">{ach.points} pts</span>
-									{/if}
-									{#if ach.description}
-										<span class="ra-desc">{ach.description}</span>
-									{/if}
-								</div>
+								<AchievementCard achievement={ach} />
 							{/each}
 						</div>
 					</section>
@@ -815,6 +1072,15 @@
 			<!-- Saves tab -->
 			{#if gameTab === 'saves'}
 				<section class="sect">
+					<!-- Upload button -->
+					<div style="margin-bottom: 1rem;">
+						<label class="save-upload-btn">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+							Upload Save
+							<input type="file" hidden onchange={uploadSave} />
+						</label>
+					</div>
+
 					{#if gameStates.length > 0}
 						<h2 class="sect__title" style="margin-bottom:0.75rem">Save States</h2>
 						<div class="saves-grid">
@@ -838,6 +1104,14 @@
 												<span>{formatFileSize(state.file_size_bytes)}</span>
 											{/if}
 										</div>
+									</div>
+									<div class="save-actions">
+										<button class="save-action-btn" title="Download" onclick={() => downloadState(state.id)}>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+										</button>
+										<button class="save-action-btn save-action-btn--danger" title="Delete" disabled={deletingSaveId === state.id} onclick={() => deleteState(state.id)}>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+										</button>
 									</div>
 								</div>
 							{/each}
@@ -867,6 +1141,14 @@
 												<span>{formatFileSize(save.file_size_bytes)}</span>
 											{/if}
 										</div>
+									</div>
+									<div class="save-actions">
+										<button class="save-action-btn" title="Download" onclick={() => downloadSave(save.id)}>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+										</button>
+										<button class="save-action-btn save-action-btn--danger" title="Delete" disabled={deletingSaveId === save.id} onclick={() => deleteSave(save.id)}>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+										</button>
 									</div>
 								</div>
 							{/each}
@@ -939,7 +1221,7 @@
 									<code class="game-info-value" style="font-size: 0.65rem; font-family: monospace; opacity: 0.7">{(item.metadata.hash as string).slice(0, 32)}</code>
 									<button class="game-copy-btn" onclick={copyHash} title="Copy hash">
 										{#if hashCopied}
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-pulsar)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-steel)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
 										{:else}
 											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 										{/if}
@@ -951,8 +1233,425 @@
 				</section>
 			{/if}
 		{/if}
+
+		<!-- ─── BOOK-SPECIFIC SECTIONS ─── -->
+		{#if isBook}
+			<!-- Series position navigator -->
+			{#if bookSeriesName}
+				<section class="sect">
+					<div class="book-series-nav">
+						{#if bookRelated.prevInSeries}
+							<a href="/media/book/{bookRelated.prevInSeries.sourceId}?service={bookRelated.prevInSeries.serviceId}" class="book-series-link">
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+								Previous
+							</a>
+						{:else}
+							<span></span>
+						{/if}
+						<span class="book-series-label">
+							{#if bookSeriesIndex}Book {bookSeriesIndex} in{/if} {bookSeriesName}
+						</span>
+						{#if bookRelated.nextInSeries}
+							<a href="/media/book/{bookRelated.nextInSeries.sourceId}?service={bookRelated.nextInSeries.serviceId}" class="book-series-link">
+								Next
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+							</a>
+						{:else}
+							<span></span>
+						{/if}
+					</div>
+				</section>
+			{/if}
+
+			<!-- Book actions -->
+			<section class="sect">
+				<div class="book-actions">
+					{#if hasEpub}
+						<a href="/books/read/{item.sourceId}?service={data.serviceId}" class="book-action-btn book-action-btn--primary">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+							Read
+						</a>
+					{/if}
+					<button
+						class="book-action-btn"
+						class:book-action-btn--read={currentReadStatus}
+						onclick={toggleBookRead}
+						disabled={togglingRead}
+					>
+						{#if togglingRead}
+							<svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
+						{:else}
+							<svg width="14" height="14" viewBox="0 0 24 24" fill={currentReadStatus ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+						{/if}
+						{currentReadStatus ? 'Read' : 'Mark as Read'}
+					</button>
+					{#each bookFormats as fmt}
+						<a href={fmt.downloadUrl} class="book-action-btn" download>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+							{fmt.name}
+						</a>
+					{/each}
+				</div>
+			</section>
+
+			<!-- Book metadata panel -->
+			<section class="sect">
+				<h2 class="sect__title" style="margin-bottom:0.75rem">Book Details</h2>
+				<div class="book-meta-grid">
+					{#if bookAuthor}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Author</span>
+							<span class="book-meta-value">{bookAuthor}</span>
+						</div>
+					{/if}
+					{#if bookPublisher}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Publisher</span>
+							<span class="book-meta-value">{bookPublisher}</span>
+						</div>
+					{/if}
+					{#if bookLanguage}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Language</span>
+							<span class="book-meta-value">{bookLanguage}</span>
+						</div>
+					{/if}
+					{#if item.year}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Year</span>
+							<span class="book-meta-value">{item.year}</span>
+						</div>
+					{/if}
+					{#if bookMetaFormats.length > 0}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Formats</span>
+							<span class="book-meta-value">{bookMetaFormats.join(', ')}</span>
+						</div>
+					{/if}
+					{#if item.rating}
+						<div class="book-meta-card">
+							<span class="book-meta-label">Rating</span>
+							<span class="book-meta-value">{'★'.repeat(Math.round(item.rating / 2))}{'☆'.repeat(5 - Math.round(item.rating / 2))}</span>
+						</div>
+					{/if}
+				</div>
+			</section>
+
+			<!-- User notes -->
+			<section class="sect">
+				<h2 class="sect__title" style="margin-bottom:0.75rem">Notes</h2>
+				<div class="book-note-form">
+					<textarea
+						class="book-note-input"
+						placeholder="Write a note about this book..."
+						bind:value={bookNoteContent}
+						rows="3"
+					></textarea>
+					<button class="book-action-btn book-action-btn--primary" onclick={saveBookNote} disabled={!bookNoteContent.trim()}>
+						Save Note
+					</button>
+				</div>
+				{#if bookNotes.length > 0}
+					<div class="book-notes-list">
+						{#each bookNotes as note}
+							<div class="book-note-card">
+								<p class="book-note-text">{note.content}</p>
+								<span class="book-note-date">{new Date(note.updatedAt).toLocaleDateString()}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</section>
+
+			<!-- Highlights -->
+			{#if bookHighlights.length > 0}
+				<section class="sect">
+					<h2 class="sect__title" style="margin-bottom:0.75rem">
+						Highlights
+						<span class="sect__count">{bookHighlights.length}</span>
+					</h2>
+					<div class="book-highlights-list">
+						{#each bookHighlights as hl}
+							<div class="book-highlight-card" style="border-left-color: {hl.color ?? 'var(--color-accent)'}">
+								<p class="book-highlight-text">"{hl.text}"</p>
+								{#if hl.chapter}
+									<span class="book-highlight-chapter">{hl.chapter}</span>
+								{/if}
+								{#if hl.note}
+									<p class="book-highlight-note">{hl.note}</p>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</section>
+			{/if}
+
+			<!-- In This Series -->
+			{#if bookRelated.sameSeries && bookRelated.sameSeries.length > 0}
+				<section class="sect">
+					<h2 class="sect__title" style="margin-bottom:0.75rem">
+						In This Series
+						<span class="sect__count">{bookRelated.sameSeries.length + 1} books</span>
+					</h2>
+					<div class="sim-scroll">
+						{#each bookRelated.sameSeries as book}
+							{@const isCurrent = book.sourceId === item.sourceId}
+							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="sim" class:sim--current={isCurrent}>
+								<div class="sim__poster">
+									{#if book.poster}
+										<img src={book.poster} alt={book.title} loading="lazy" />
+									{:else}
+										<div class="sim__empty">
+											<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+										</div>
+									{/if}
+								</div>
+								<p class="sim__name">{book.title}</p>
+								{#if book.metadata?.seriesIndex}
+									<p class="sim__year">Book {book.metadata.seriesIndex}</p>
+								{/if}
+							</a>
+						{/each}
+					</div>
+				</section>
+			{/if}
+
+			<!-- More by Author -->
+			{#if bookRelated.sameAuthor && bookRelated.sameAuthor.length > 0}
+				<section class="sect">
+					<h2 class="sect__title" style="margin-bottom:0.75rem">
+						More by {bookAuthor}
+						<span class="sect__count">{bookRelated.sameAuthor.length} books</span>
+					</h2>
+					<div class="sim-scroll">
+						{#each bookRelated.sameAuthor as book}
+							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="sim">
+								<div class="sim__poster">
+									{#if book.poster}
+										<img src={book.poster} alt={book.title} loading="lazy" />
+									{:else}
+										<div class="sim__empty">
+											<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+										</div>
+									{/if}
+								</div>
+								<p class="sim__name">{book.title}</p>
+								{#if book.year}<p class="sim__year">{book.year}</p>{/if}
+							</a>
+						{/each}
+					</div>
+				</section>
+			{/if}
+		{/if}
 	</div>
 </div>
+{:else}
+<!-- ═══════════════════════════════════════════
+     VIDEO DETAIL LAYOUT (Invidious)
+     ═══════════════════════════════════════════ -->
+<div class="video-detail">
+	<!-- Breadcrumbs -->
+	<nav class="mb-3 flex items-center gap-1 text-sm text-muted">
+		<a href="/" class="hover:text-cream transition-colors">Home</a>
+		<ChevronRight size={14} class="opacity-40" />
+		<a href="/videos" class="hover:text-cream transition-colors">Videos</a>
+		{#if videoAuthorId}
+			<ChevronRight size={14} class="opacity-40" />
+			<a href="/videos/channel/{videoAuthorId}" class="hover:text-cream transition-colors truncate max-w-[200px]">{videoAuthor}</a>
+		{/if}
+		<ChevronRight size={14} class="opacity-40" />
+		<span class="text-cream/70 truncate max-w-[300px]">{item.title}</span>
+	</nav>
+
+	<div class="video-grid">
+		<!-- Left column -->
+		<div class="video-main">
+			<!-- Inline Player -->
+			{#if videoStreamUrl}
+				{#key videoStreamUrl}
+				<Player
+					streamUrl={videoStreamUrl}
+					type={item.type}
+					title={item.title}
+					poster={item.backdrop ?? item.poster}
+					autoplay={autoplay}
+					mode="direct"
+					formats={videoFormats}
+					captions={videoCaptions}
+					inline={true}
+				/>
+				{/key}
+			{:else}
+				<div class="video-player-placeholder">
+					{#if item.backdrop}
+						<img src={item.backdrop} alt="" class="h-full w-full object-cover" />
+					{:else if item.poster}
+						<img src={item.poster} alt="" class="h-full w-full object-cover" />
+					{/if}
+					<div class="player-overlay">
+						<Play size={48} class="text-cream/60" />
+						<p class="mt-2 text-sm text-cream/40">No stream available</p>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Title + meta -->
+			<div class="mt-4">
+				<h1 class="text-xl font-bold text-cream">{item.title}</h1>
+				<div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+					{#if videoViewCount}
+						<span>{formatViews(videoViewCount)} views</span>
+					{/if}
+					{#if videoPublishedText}
+						<span>· {videoPublishedText}</span>
+					{/if}
+					{#if videoLikeCount}
+						<span class="flex items-center gap-1">· <ThumbsUp size={14} /> {formatCount(videoLikeCount)}</span>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Action buttons -->
+			<div class="mt-3 flex items-center gap-2">
+				<div class="relative">
+					<button
+						class="flex items-center gap-1.5 rounded-lg bg-cream/[0.06] px-3 py-2 text-sm text-cream/80 transition-colors hover:bg-cream/[0.1]"
+						onclick={() => { if (userPlaylists.length === 0) loadPlaylists(); showPlaylistMenu = !showPlaylistMenu; }}
+					>
+						<Bookmark size={16} />
+						Save
+					</button>
+					{#if showPlaylistMenu}
+						<div class="absolute left-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-white/[0.08] bg-surface p-1 shadow-2xl">
+							{#if userPlaylists.length === 0}
+								<p class="px-3 py-2 text-xs text-muted">No playlists found</p>
+							{:else}
+								{#each userPlaylists as pl (pl.playlistId)}
+									<button
+										class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-cream/80 transition-colors hover:bg-raised"
+										onclick={() => saveToPlaylist(pl.playlistId)}
+										disabled={savingTo === pl.playlistId}
+									>
+										{#if saveSuccess === pl.playlistId}
+											<Check size={14} class="text-green-400" />
+										{:else if savingTo === pl.playlistId}
+											<Loader2 size={14} class="animate-spin" />
+										{:else}
+											<ListVideo size={14} class="text-muted" />
+										{/if}
+										<span class="truncate">{pl.title}</span>
+									</button>
+								{/each}
+							{/if}
+						</div>
+					{/if}
+				</div>
+				<div class="relative">
+					<button
+						class="flex items-center gap-1.5 rounded-lg bg-cream/[0.06] px-3 py-2 text-sm text-cream/80 transition-colors hover:bg-cream/[0.1]"
+						onclick={shareVideo}
+					>
+						<Share2 size={16} />
+						Share
+					</button>
+					{#if shareTooltip}
+						<span class="absolute -top-8 left-1/2 -translate-x-1/2 rounded bg-void px-2 py-1 text-xs text-cream whitespace-nowrap">Copied!</span>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Channel card -->
+			<ChannelCard
+				authorId={videoAuthorId}
+				author={videoAuthor}
+				authorVerified={videoAuthorVerified}
+				subCountText={videoSubCountText}
+				thumbnail={(() => {
+					const thumbs = item.metadata?.authorThumbnails as any[] | undefined;
+					if (!thumbs?.length) return '';
+					const t = thumbs.find((t: any) => t.width >= 48) ?? thumbs[thumbs.length - 1];
+					const url = t?.url ?? '';
+					return url.startsWith('//') ? `https:${url}` : url;
+				})()}
+				isSubscribed={videoIsSubscribed}
+				hasLinkedAccount={hasLinkedInvidious}
+				serviceId={data.serviceId}
+				notifyEnabled={videoNotifyEnabled}
+			/>
+
+			<!-- Description (expandable) -->
+			{#if item.description}
+				<div class="rounded-xl border border-white/[0.04] bg-cream/[0.02] p-4">
+					<p
+						class="whitespace-pre-line text-sm leading-relaxed text-cream/80"
+						class:line-clamp-4={!videoDescExpanded}
+					>
+						{item.description}
+					</p>
+					{#if item.description.length > 300}
+						<button
+							class="mt-2 text-xs font-medium text-accent hover:underline"
+							onclick={() => (videoDescExpanded = !videoDescExpanded)}
+						>
+							{videoDescExpanded ? 'Show less' : 'Show more'}
+						</button>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Genres as chips -->
+			{#if item.genres && item.genres.length > 0}
+				<div class="mt-3 flex flex-wrap gap-2">
+					{#each item.genres as genre}
+						<span class="rounded-full bg-cream/[0.06] px-3 py-1 text-xs text-cream/70">{genre}</span>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Keywords as tags -->
+			{#if videoKeywords.length > 0}
+				<div class="mt-4 flex flex-wrap gap-2">
+					{#each videoKeywords.slice(0, 15) as keyword}
+						<span class="rounded bg-cream/[0.04] px-2 py-0.5 text-[11px] text-muted">{keyword}</span>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Comments (lazy) -->
+			<VideoComments videoId={item.sourceId} />
+		</div>
+
+		<!-- Right sidebar -->
+		<aside class="video-sidebar">
+			{#if allRecommendedVideos.length > 0}
+				<h3 class="mb-3 text-sm font-medium text-muted lg:hidden">Recommendations</h3>
+				<h3 class="mb-3 text-sm font-medium text-muted hidden lg:block">Up Next</h3>
+				<div class="flex flex-col gap-2">
+					{#each allRecommendedVideos as rec}
+						<VideoCard
+							video={toVideoCardMedia(rec)}
+							layout="list"
+							onclick={() => goto(`/media/video/${rec.sourceId ?? rec.id}?service=${data.serviceId}`)}
+							onchannelclick={() => {
+								const chId = rec.metadata?.authorId ?? rec.authorId;
+								if (chId) goto(`/videos/channel/${chId}`);
+							}}
+						/>
+					{/each}
+					{#if loadingMoreRecs}
+						<div class="flex items-center justify-center py-4">
+							<div class="h-5 w-5 animate-spin rounded-full border-2 border-cream/20 border-t-accent"></div>
+						</div>
+					{/if}
+					{#if !noMoreRecs}
+						<div bind:this={recSentinel} class="h-1"></div>
+					{/if}
+				</div>
+			{/if}
+		</aside>
+	</div>
+</div>
+{/if}
 
 <style>
 	/* ═══════════════════════════════════════
@@ -976,11 +1675,11 @@
 	}
 	@keyframes activeGlow {
 		0%, 100% {
-			border-color: var(--color-nebula);
+			border-color: var(--color-accent);
 			box-shadow: 0 0 14px rgba(124,108,248,0.15), inset 0 0 14px rgba(124,108,248,0.06);
 		}
 		50% {
-			border-color: color-mix(in oklch, var(--color-nebula) 75%, white);
+			border-color: color-mix(in oklch, var(--color-accent) 75%, white);
 			box-shadow: 0 0 22px rgba(124,108,248,0.25), inset 0 0 22px rgba(124,108,248,0.1);
 		}
 	}
@@ -1075,7 +1774,7 @@
 		overflow: hidden;
 	}
 	.hero__resume-fill {
-		height: 100%; background: var(--color-nebula); border-radius: 2px;
+		height: 100%; background: var(--color-accent); border-radius: 2px;
 	}
 
 	/* Hero content overlay */
@@ -1112,48 +1811,48 @@
 	.type-label {
 		font-size: 0.68rem; font-weight: 500;
 		text-transform: uppercase; letter-spacing: 0.08em;
-		color: var(--color-subtle);
+		color: var(--color-muted);
 	}
 	.official-rating {
 		font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em;
-		color: var(--color-subtle);
+		color: var(--color-muted);
 		padding: 0.175rem 0.45rem;
-		border: 1px solid var(--color-border); border-radius: 4px;
+		border: 1px solid rgba(240,235,227,0.06); border-radius: 4px;
 	}
 
 	/* Series line */
 	.series-line {
 		font-family: var(--font-display); font-size: 0.9rem; font-weight: 600;
-		color: var(--color-subtle); letter-spacing: -0.01em;
+		color: var(--color-muted); letter-spacing: -0.01em;
 	}
 	.series-code {
 		margin-left: 0.35rem;
 		font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500;
-		color: var(--color-nebula); opacity: 0.8;
+		color: var(--color-accent); opacity: 0.8;
 	}
 
 	/* Title */
 	.hero-title {
 		font-family: var(--font-display);
 		font-weight: 800; line-height: 1.08; letter-spacing: -0.035em;
-		color: var(--color-bright);
+		color: var(--color-cream);
 		font-size: clamp(1.6rem, 5vw, 3.2rem);
 	}
 
-	.ep-sub { font-size: 0.95rem; color: var(--color-subtle); }
+	.ep-sub { font-size: 0.95rem; color: var(--color-muted); }
 
 	/* Meta */
 	.meta-strip {
 		display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
-		font-size: 0.82rem; color: var(--color-subtle);
+		font-size: 0.82rem; color: var(--color-muted);
 	}
 	.dot { color: var(--color-muted); opacity: 0.45; }
-	.star-val { color: var(--color-star); }
+	.star-val { color: var(--color-accent); }
 	.end-val { color: var(--color-muted); }
 
 	.se-tag {
 		font-size: 0.72rem; font-weight: 600;
-		color: var(--color-nebula); letter-spacing: 0.015em;
+		color: var(--color-accent); letter-spacing: 0.015em;
 	}
 	.critic-tag {
 		font-size: 0.68rem; font-weight: 700;
@@ -1164,14 +1863,14 @@
 	/* Genres */
 	.genre-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 	.genre-chip {
-		font-size: 0.68rem; font-weight: 500; color: var(--color-subtle);
+		font-size: 0.68rem; font-weight: 500; color: var(--color-muted);
 		padding: 0.2rem 0.6rem;
-		border: 1px solid var(--color-border); border-radius: 100px;
+		border: 1px solid rgba(240,235,227,0.06); border-radius: 100px;
 		transition: all 0.2s ease;
 	}
 	.genre-chip:hover {
-		border-color: color-mix(in oklch, var(--color-nebula) 40%, transparent);
-		color: var(--color-nebula);
+		border-color: color-mix(in oklch, var(--color-accent) 40%, transparent);
+		color: var(--color-accent);
 	}
 
 	.tagline { font-size: 0.82rem; font-style: italic; color: var(--color-muted); }
@@ -1179,7 +1878,7 @@
 	/* Description */
 	.desc {
 		max-width: 38rem; font-size: 0.85rem; line-height: 1.7;
-		color: var(--color-subtle); cursor: pointer;
+		color: var(--color-muted); cursor: pointer;
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 3; overflow: hidden;
 		transition: all 0.3s ease;
@@ -1196,23 +1895,23 @@
 	.act-play {
 		display: inline-flex; align-items: center; gap: 0.45rem;
 		padding: 0.55rem 1.4rem; border-radius: 100px;
-		background: var(--color-nebula); color: white;
+		background: var(--color-accent); color: white;
 		font-family: var(--font-display); font-weight: 700; font-size: 0.85rem;
 		letter-spacing: 0.01em; border: none;
 		transition: all 0.2s ease;
-		box-shadow: 0 0 28px var(--color-nebula-dim);
+		box-shadow: 0 0 28px rgba(212,162,83,0.12);
 	}
 	.act-play:hover {
-		background: color-mix(in oklch, var(--color-nebula) 82%, white);
-		box-shadow: 0 0 44px color-mix(in oklch, var(--color-nebula) 30%, transparent);
+		background: color-mix(in oklch, var(--color-accent) 82%, white);
+		box-shadow: 0 0 44px color-mix(in oklch, var(--color-accent) 30%, transparent);
 		transform: translateY(-1px);
 	}
 	.act-back {
 		display: inline-flex; align-items: center; gap: 0.35rem;
 		padding: 0.5rem 1.15rem; border-radius: 100px;
-		background: transparent; color: var(--color-text);
+		background: transparent; color: var(--color-cream);
 		font-family: var(--font-display); font-weight: 600; font-size: 0.82rem;
-		border: 1px solid var(--color-border); transition: all 0.2s ease;
+		border: 1px solid rgba(240,235,227,0.06); transition: all 0.2s ease;
 	}
 	.act-back:hover {
 		background: var(--color-raised); border-color: var(--color-muted);
@@ -1249,7 +1948,7 @@
 	.sect__title {
 		font-family: var(--font-display);
 		font-size: 1.1rem; font-weight: 700;
-		color: var(--color-text); letter-spacing: -0.02em;
+		color: var(--color-cream); letter-spacing: -0.02em;
 	}
 	@media (min-width: 640px) { .sect__title { font-size: 1.2rem; } }
 
@@ -1264,11 +1963,11 @@
 	.scroll-arrow {
 		display: flex; align-items: center; justify-content: center;
 		width: 30px; height: 30px; border-radius: 8px;
-		background: transparent; color: var(--color-subtle);
+		background: transparent; color: var(--color-muted);
 		border: none; transition: all 0.15s ease;
 	}
 	.scroll-arrow:not(:disabled):hover {
-		background: var(--color-raised); color: var(--color-text);
+		background: var(--color-raised); color: var(--color-cream);
 	}
 	.scroll-arrow:disabled { opacity: 0.18; pointer-events: none; }
 
@@ -1283,7 +1982,7 @@
 	}
 	.lib-badge--owned {
 		background: rgba(77, 217, 192, 0.12);
-		color: var(--color-pulsar);
+		color: var(--color-steel);
 		border: 1px solid rgba(77, 217, 192, 0.25);
 	}
 	.lib-badge--requested {
@@ -1294,7 +1993,7 @@
 	.lib-badge--missing {
 		background: rgba(255, 255, 255, 0.05);
 		color: var(--color-muted);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 	}
 
 	/* ═══════════════════════════════════════
@@ -1311,23 +2010,23 @@
 		flex-shrink: 0;
 		display: inline-flex; align-items: center; gap: 0.35rem;
 		padding: 0.4rem 0.9rem; border-radius: 100px;
-		background: var(--color-surface); color: var(--color-subtle);
+		background: var(--color-surface); color: var(--color-muted);
 		font-size: 0.78rem; font-weight: 500;
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		transition: all 0.2s ease; cursor: pointer;
 	}
 	.season-tab:hover {
 		background: var(--color-raised);
-		color: var(--color-text);
+		color: var(--color-cream);
 		border-color: var(--color-muted);
 	}
 	.season-tab--active {
-		background: var(--color-nebula);
+		background: var(--color-accent);
 		color: white;
-		border-color: var(--color-nebula);
+		border-color: var(--color-accent);
 	}
 	.season-tab--active:hover {
-		background: color-mix(in oklch, var(--color-nebula) 85%, white);
+		background: color-mix(in oklch, var(--color-accent) 85%, white);
 	}
 
 	.season-unseen {
@@ -1357,7 +2056,7 @@
 		display: flex; flex-direction: column;
 		border-radius: 10px; overflow: hidden;
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 	@media (min-width: 640px)  { .epc { width: 16.5rem; } }
@@ -1365,15 +2064,15 @@
 
 	.epc:hover {
 		transform: translateY(-5px);
-		border-color: color-mix(in oklch, var(--color-subtle) 35%, var(--color-border));
+		border-color: color-mix(in oklch, var(--color-muted) 35%, rgba(240,235,227,0.06));
 		box-shadow: 0 14px 44px rgba(0,0,0,0.55);
 	}
 	.epc:hover .epc__img {
 		transform: scale(1.06); filter: brightness(1.12);
 	}
 	.epc--active {
-		border-color: var(--color-nebula);
-		background: color-mix(in oklch, var(--color-nebula) 5%, var(--color-surface));
+		border-color: var(--color-accent);
+		background: color-mix(in oklch, var(--color-accent) 5%, var(--color-surface));
 		animation: activeGlow 3.2s ease-in-out infinite;
 	}
 	.epc--seen { opacity: 0.55; }
@@ -1431,7 +2130,7 @@
 		display: flex; align-items: center; justify-content: center;
 		border-radius: 50%;
 		background: rgba(77,217,192,0.18); backdrop-filter: blur(8px);
-		color: var(--color-pulsar);
+		color: var(--color-steel);
 	}
 
 	/* Progress bar */
@@ -1440,7 +2139,7 @@
 		height: 3px; background: rgba(255,255,255,0.08);
 	}
 	.epc__bar-fill {
-		height: 100%; background: var(--color-nebula); border-radius: 0 2px 0 0;
+		height: 100%; background: var(--color-accent); border-radius: 0 2px 0 0;
 	}
 
 	/* Info below thumb */
@@ -1448,7 +2147,7 @@
 	.epc__title {
 		display: block;
 		font-size: 0.78rem; font-weight: 500;
-		color: var(--color-text); line-height: 1.35;
+		color: var(--color-cream); line-height: 1.35;
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.epc__desc {
@@ -1477,7 +2176,7 @@
 
 	.cp__img {
 		width: 3.75rem; height: 3.75rem; border-radius: 50%;
-		object-fit: cover; border: 2px solid var(--color-border);
+		object-fit: cover; border: 2px solid rgba(240,235,227,0.06);
 		transition: border-color 0.2s ease;
 	}
 	.cp:hover .cp__img { border-color: var(--color-muted); }
@@ -1492,7 +2191,7 @@
 
 	.cp__name {
 		text-align: center; font-size: 0.68rem; font-weight: 500;
-		color: var(--color-text); line-height: 1.2;
+		color: var(--color-cream); line-height: 1.2;
 	}
 	.cp__role {
 		text-align: center; font-size: 0.58rem;
@@ -1514,11 +2213,11 @@
 
 	.sim__poster {
 		overflow: hidden; border-radius: 8px;
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		transition: all 0.25s ease;
 	}
 	.sim:hover .sim__poster {
-		border-color: color-mix(in oklch, var(--color-nebula) 35%, transparent);
+		border-color: color-mix(in oklch, var(--color-accent) 35%, transparent);
 		box-shadow: 0 10px 36px rgba(0,0,0,0.5);
 	}
 	.sim__poster img {
@@ -1534,7 +2233,7 @@
 	}
 	.sim__name {
 		margin-top: 0.45rem; font-size: 0.72rem; font-weight: 500;
-		color: var(--color-text);
+		color: var(--color-cream);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.sim__year { font-size: 0.62rem; color: var(--color-muted); }
@@ -1549,7 +2248,7 @@
 		display: flex; flex-direction: column; gap: 0.15rem;
 		padding: 0.6rem 0.9rem; border-radius: 10px;
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 	}
 	.game-info-label {
 		font-size: 0.62rem; font-weight: 500;
@@ -1558,11 +2257,11 @@
 	}
 	.game-info-value {
 		font-size: 0.82rem; font-weight: 600;
-		color: var(--color-text);
+		color: var(--color-cream);
 	}
 
 	.game-status { text-transform: capitalize; }
-	.game-status--playing { color: #7c6cf8; }
+	.game-status--playing { color: var(--color-accent); }
 	.game-status--finished { color: #4dd9c0; }
 	.game-status--completed { color: #6bbd45; }
 	.game-status--retired { color: #f59e0b; }
@@ -1572,19 +2271,19 @@
 	   HLTB
 	   ═══════════════════════════════════════ */
 	.hltb-grid {
-		display: flex; gap: 0.75rem; flex-wrap: wrap;
+		display: flex; gap: 0.75rem; flex-wrap: wrap; /* legacy — unused after HltbDisplay component */
 	}
 	.hltb-card {
 		display: flex; flex-direction: column; align-items: center;
 		gap: 0.25rem; padding: 1rem 1.5rem;
 		border-radius: 12px; background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		min-width: 7rem;
 	}
 	.hltb-time {
 		font-family: var(--font-display);
 		font-size: 1.25rem; font-weight: 800;
-		color: var(--color-nebula);
+		color: var(--color-accent);
 	}
 	.hltb-label {
 		font-size: 0.68rem; font-weight: 500;
@@ -1616,7 +2315,7 @@
 	.ra-badge {
 		width: 3rem; height: 3rem;
 		border-radius: 8px; object-fit: cover;
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 	}
 	.ra-badge--empty {
 		display: flex; align-items: center; justify-content: center;
@@ -1624,7 +2323,7 @@
 	}
 	.ra-title {
 		font-size: 0.65rem; font-weight: 600;
-		color: var(--color-text); line-height: 1.25;
+		color: var(--color-cream); line-height: 1.25;
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 2; overflow: hidden;
 	}
@@ -1638,6 +2337,16 @@
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 2; overflow: hidden;
 	}
+	.ra-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+		max-height: 24rem;
+		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: var(--color-raised) transparent;
+	}
 
 	/* ═══════════════════════════════════════
 	   GAME CONTROLS
@@ -1645,38 +2354,48 @@
 	.game-platform-badge {
 		font-size: 0.68rem; font-weight: 600;
 		padding: 0.25rem 0.65rem; border-radius: 100px;
-		background: var(--color-nebula-dim);
-		color: var(--color-nebula);
-		border: 1px solid color-mix(in oklch, var(--color-nebula) 30%, transparent);
+		background: rgba(212,162,83,0.12);
+		color: var(--color-accent);
+		border: 1px solid color-mix(in oklch, var(--color-accent) 30%, transparent);
 	}
 	.game-status-select {
 		font-size: 0.75rem; font-weight: 500;
 		padding: 0.3rem 0.6rem; border-radius: 8px;
 		background: var(--color-surface);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
+		color: var(--color-cream);
+		border: 1px solid rgba(240,235,227,0.06);
 		cursor: pointer;
 		transition: border-color 0.15s;
 	}
 	.game-status-select:hover { border-color: var(--color-muted); }
-	.game-status-select:focus { border-color: var(--color-nebula); outline: none; }
+	.game-status-select:focus { border-color: var(--color-accent); outline: none; }
 
 	.game-fav-btn {
 		display: flex; align-items: center; justify-content: center;
 		width: 2rem; height: 2rem; border-radius: 50%;
-		background: var(--color-surface); border: 1px solid var(--color-border);
+		background: var(--color-surface); border: 1px solid rgba(240,235,227,0.06);
 		color: var(--color-muted); cursor: pointer;
 		transition: all 0.15s;
 	}
-	.game-fav-btn:hover { color: var(--color-nova); border-color: var(--color-nova); }
-	.game-fav-btn--active { color: var(--color-nova); background: color-mix(in oklch, var(--color-nova) 12%, transparent); border-color: var(--color-nova); }
+	.game-fav-btn:hover { color: var(--color-warm); border-color: var(--color-warm); }
+	.game-fav-btn--active { color: var(--color-warm); background: color-mix(in oklch, var(--color-warm) 12%, transparent); border-color: var(--color-warm); }
+
+	.game-play-btn {
+		display: inline-flex; align-items: center; gap: 0.375rem;
+		padding: 0.375rem 0.875rem; border-radius: 8px;
+		background: var(--color-accent, #6d28d9); color: #fff;
+		font-size: 0.8125rem; font-weight: 600;
+		text-decoration: none; cursor: pointer;
+		transition: opacity 0.15s;
+	}
+	.game-play-btn:hover { opacity: 0.85; }
 
 	.game-copy-btn {
 		display: flex; align-items: center; justify-content: center;
 		padding: 0.25rem; border-radius: 4px; color: var(--color-muted);
 		transition: color 0.15s; cursor: pointer;
 	}
-	.game-copy-btn:hover { color: var(--color-text); }
+	.game-copy-btn:hover { color: var(--color-cream); }
 
 	/* ═══════════════════════════════════════
 	   GAME TABS
@@ -1687,26 +2406,26 @@
 		padding: 0.25rem;
 		background: var(--color-surface);
 		border-radius: 10px;
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 	}
 	.game-tab {
 		flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.35rem;
 		padding: 0.45rem 0.75rem; border-radius: 8px;
 		font-size: 0.75rem; font-weight: 500;
-		color: var(--color-subtle); cursor: pointer;
+		color: var(--color-muted); cursor: pointer;
 		transition: all 0.15s; white-space: nowrap;
 	}
-	.game-tab:hover { color: var(--color-text); }
+	.game-tab:hover { color: var(--color-cream); }
 	.game-tab--active {
 		background: var(--color-raised);
-		color: var(--color-text);
+		color: var(--color-cream);
 		box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 	}
 	.game-tab-count {
 		font-size: 0.6rem; font-weight: 600;
 		padding: 0.05rem 0.35rem; border-radius: 100px;
-		background: var(--color-nebula-dim);
-		color: var(--color-nebula);
+		background: rgba(212,162,83,0.12);
+		color: var(--color-accent);
 	}
 
 	/* ═══════════════════════════════════════
@@ -1720,7 +2439,7 @@
 	.save-card {
 		border-radius: 10px;
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		overflow: hidden;
 		transition: border-color 0.2s;
 	}
@@ -1748,7 +2467,7 @@
 	}
 	.save-name {
 		display: block; font-size: 0.72rem; font-weight: 500;
-		color: var(--color-text);
+		color: var(--color-cream);
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.save-meta {
@@ -1762,12 +2481,12 @@
 		text-transform: uppercase;
 	}
 	.save-type--state {
-		background: color-mix(in oklch, var(--color-nebula) 15%, transparent);
-		color: var(--color-nebula);
+		background: color-mix(in oklch, var(--color-accent) 15%, transparent);
+		color: var(--color-accent);
 	}
 	.save-type--sram {
-		background: color-mix(in oklch, var(--color-pulsar) 15%, transparent);
-		color: var(--color-pulsar);
+		background: color-mix(in oklch, var(--color-steel) 15%, transparent);
+		color: var(--color-steel);
 	}
 
 	/* ═══════════════════════════════════════
@@ -1782,7 +2501,7 @@
 		aspect-ratio: 16 / 9;
 		border-radius: 8px;
 		overflow: hidden;
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		transition: border-color 0.2s;
 	}
 	.screenshot-card:hover { border-color: var(--color-muted); }
@@ -1792,4 +2511,114 @@
 		transition: transform 0.3s;
 	}
 	.screenshot-card:hover img { transform: scale(1.03); }
+
+	/* ═══════════════════════════════════════
+	   VIDEO DETAIL LAYOUT
+	   ═══════════════════════════════════════ */
+	.video-detail {
+		padding: 1rem 1.5rem 3rem;
+		max-width: 1600px;
+		margin: 0 auto;
+	}
+	.video-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 1.5rem;
+	}
+	@media (min-width: 1024px) {
+		.video-grid {
+			grid-template-columns: 1fr 400px;
+		}
+	}
+	.video-main {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.video-player-placeholder {
+		aspect-ratio: 16 / 9;
+		background: black;
+		border-radius: 0.75rem;
+		overflow: hidden;
+		position: relative;
+	}
+	.player-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0, 0, 0, 0.4);
+	}
+	.video-sidebar {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	@media (min-width: 1024px) {
+		.video-sidebar {
+			position: sticky;
+			top: 5rem;
+			max-height: calc(100vh - 6rem);
+			overflow-y: auto;
+		}
+	}
+
+	/* BOOK STYLES */
+	.book-series-nav {
+		display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+		padding: 0.75rem 1rem; border-radius: 10px;
+		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
+	}
+	.book-series-label { font-size: 0.8rem; color: var(--color-muted); text-align: center; }
+	.book-series-link {
+		display: flex; align-items: center; gap: 0.4rem;
+		font-size: 0.78rem; font-weight: 500; color: var(--color-accent); text-decoration: none;
+		padding: 0.35rem 0.65rem; border-radius: 6px;
+		background: rgba(212,162,83,0.06); border: 1px solid rgba(212,162,83,0.1);
+		transition: background 0.2s, border-color 0.2s;
+	}
+	.book-series-link:hover { background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.2); }
+	.book-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+	.book-action-btn {
+		display: inline-flex; align-items: center; gap: 0.4rem;
+		padding: 0.5rem 1rem; border-radius: 8px;
+		font-size: 0.78rem; font-weight: 500; color: var(--color-cream);
+		background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+		cursor: pointer; transition: background 0.2s, border-color 0.2s; text-decoration: none;
+	}
+	.book-action-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
+	.book-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.book-action-btn--primary { background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.2); color: var(--color-accent); }
+	.book-action-btn--primary:hover { background: rgba(212,162,83,0.2); border-color: rgba(212,162,83,0.3); }
+	.book-action-btn--read { color: var(--color-steel); border-color: rgba(61,143,132,0.2); background: rgba(61,143,132,0.08); }
+	.book-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+	.book-meta-card { padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); }
+	.book-meta-label { display: block; font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); margin-bottom: 0.25rem; }
+	.book-meta-value { display: block; font-size: 0.82rem; color: var(--color-cream); }
+	.book-note-form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+	.book-note-input {
+		width: 100%; padding: 0.65rem 0.85rem; border-radius: 8px;
+		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+		color: var(--color-cream); font-size: 0.82rem; font-family: inherit;
+		resize: vertical; min-height: 3.5rem; transition: border-color 0.2s;
+	}
+	.book-note-input:focus { outline: none; border-color: rgba(212,162,83,0.3); }
+	.book-note-input::placeholder { color: var(--color-faint); }
+	.book-notes-list { display: flex; flex-direction: column; gap: 0.5rem; }
+	.book-note-card { padding: 0.75rem 1rem; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); }
+	.book-note-text { font-size: 0.82rem; color: var(--color-cream); line-height: 1.5; margin: 0; }
+	.book-note-date { display: block; margin-top: 0.35rem; font-size: 0.68rem; color: var(--color-faint); }
+	.book-highlights-list { display: flex; flex-direction: column; gap: 0.5rem; }
+	.book-highlight-card {
+		padding: 0.75rem 1rem; border-radius: 8px;
+		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
+		border-left: 3px solid var(--color-accent);
+	}
+	.book-highlight-text { font-size: 0.82rem; color: var(--color-cream); line-height: 1.5; font-style: italic; margin: 0; }
+	.book-highlight-chapter { display: inline-block; margin-top: 0.35rem; font-size: 0.68rem; color: var(--color-muted); font-weight: 500; }
+	.book-highlight-note { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--color-muted); line-height: 1.4; }
+	.sim--current { opacity: 0.5; pointer-events: none; }
+	.sim--current .sim__poster { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 8px; }
 </style>

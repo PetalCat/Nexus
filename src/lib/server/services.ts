@@ -175,26 +175,22 @@ function resolveUserCred(config: ServiceConfig, userId?: string): UserCredential
 /** Media-server adapter types (things the user actually owns). */
 const LIBRARY_TYPES = new Set(['jellyfin', 'calibre', 'romm', 'invidious']);
 
-export async function getDashboard(userId?: string): Promise<DashboardRow[]> {
+/** Fast dashboard rows: continue watching + new in library (local Jellyfin calls) */
+export async function getDashboardFast(userId?: string): Promise<DashboardRow[]> {
 	const configs = getEnabledConfigs();
 	const libraryConfigs = configs.filter((c) => LIBRARY_TYPES.has(c.type));
 
-	// Continue-watching is user-specific (short TTL). Shared rows cached longer.
-	const [continueWatching, personalizedRows, newInLibrary] = await Promise.all([
+	const [continueWatching, newInLibrary] = await Promise.all([
 		userId
 			? withCache(`cw:${userId}`, 30_000, () => aggregateContinueWatching(configs, userId))
 			: Promise.resolve([]),
-		userId ? getPersonalizedRows(userId) : Promise.resolve([]),
-		// Small "New in Library" row — only from media servers the user actually owns content on
 		withCache('new-in-library', 60_000, () => aggregateRecentlyAdded(libraryConfigs, userId))
 	]);
 
 	const rows: DashboardRow[] = [];
-
 	if (continueWatching.length > 0) {
 		rows.push({ id: 'continue', title: 'Continue Watching', items: continueWatching });
 	}
-	rows.push(...personalizedRows);
 	if (newInLibrary.length > 0) {
 		rows.push({
 			id: 'new-in-library',
@@ -203,7 +199,36 @@ export async function getDashboard(userId?: string): Promise<DashboardRow[]> {
 			items: newInLibrary.slice(0, 12)
 		});
 	}
+	return rows;
+}
 
+/** Slow dashboard rows: recommendation engine (content-based + StreamyStats + more) */
+export async function getDashboardPersonalized(userId?: string): Promise<DashboardRow[]> {
+	if (!userId) return [];
+	try {
+		const { getRecommendationRows } = await import('./recommendations/aggregator');
+		const rows = await getRecommendationRows(userId);
+		if (rows.length > 0) return rows;
+	} catch (e) {
+		console.warn('[services] Recommendation engine unavailable, falling back to StreamyStats:', e instanceof Error ? e.message : e);
+	}
+	// Fallback to legacy StreamyStats-only path
+	return getPersonalizedRows(userId);
+}
+
+/** Legacy combined call — still used by anything that wants all rows at once */
+export async function getDashboard(userId?: string): Promise<DashboardRow[]> {
+	const [fast, personalized] = await Promise.all([
+		getDashboardFast(userId),
+		getDashboardPersonalized(userId)
+	]);
+	// Interleave: continue watching first, then personalized, then new in library
+	const continueRow = fast.find((r) => r.id === 'continue');
+	const newRow = fast.find((r) => r.id === 'new-in-library');
+	const rows: DashboardRow[] = [];
+	if (continueRow) rows.push(continueRow);
+	rows.push(...personalized);
+	if (newRow) rows.push(newRow);
 	return rows;
 }
 
@@ -351,17 +376,39 @@ export async function getQueue(): Promise<UnifiedMedia[]> {
 // Search
 // ---------------------------------------------------------------------------
 
-export async function unifiedSearch(query: string, userId?: string): Promise<UnifiedMedia[]> {
+export async function unifiedSearch(query: string, userId?: string, source?: 'library' | 'discover'): Promise<UnifiedMedia[]> {
 	const configs = getEnabledConfigs();
+
+	const hasOverseerr = configs.some((c) => c.type === 'overseerr');
+	const overseerrRedundant = new Set(['radarr', 'sonarr']);
+	const excludeFromSearch = new Set(['invidious', 'prowlarr', 'streamystats', 'bazarr']);
+
+	// Fast library services (local network, sub-100ms)
+	const libraryTypes = new Set(['jellyfin', 'calibre', 'romm']);
+
+	const searchConfigs = configs.filter((c) => {
+		if (excludeFromSearch.has(c.type)) return false;
+		if (hasOverseerr && overseerrRedundant.has(c.type)) return false;
+		if (source === 'library' && !libraryTypes.has(c.type)) return false;
+		if (source === 'discover' && libraryTypes.has(c.type)) return false;
+		return true;
+	});
+
 	const results = await Promise.allSettled(
-		configs.map(async (config) => {
+		searchConfigs.map(async (config) => {
 			const adapter = registry.get(config.type);
 			const cred = resolveUserCred(config, userId);
 			const result = await adapter?.search?.(config, query, cred);
-			return result?.items ?? [];
+			return (result?.items ?? []).map((item) => ({ ...item, _searchSource: config.type }));
 		})
 	);
-	return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+	const allItems = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+
+	// Priority sort: Jellyfin (in-library) > Overseerr (requestable) > other *arr services
+	const priority: Record<string, number> = { jellyfin: 0, calibre: 0, romm: 0, overseerr: 1, lidarr: 2, radarr: 3, sonarr: 3 };
+	allItems.sort((a, b) => (priority[a.serviceType] ?? 4) - (priority[b.serviceType] ?? 4));
+
+	return allItems;
 }
 
 // ---------------------------------------------------------------------------

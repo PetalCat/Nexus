@@ -37,8 +37,8 @@ export function attachWebSocketServer(server: http.Server): void {
 	server.on('upgrade', (req, socket, head) => {
 		const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
-		if (url.pathname !== '/ws') {
-			socket.destroy();
+		if (url.pathname !== '/api/ws') {
+			// Don't destroy — let other handlers (e.g. Vite HMR) handle the upgrade
 			return;
 		}
 

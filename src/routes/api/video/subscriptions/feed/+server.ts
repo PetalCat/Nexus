@@ -28,7 +28,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const thisWeek: UnifiedMedia[] = [];
 	const earlier: UnifiedMedia[] = [];
 
-	for (const video of feed.videos) {
+	// Invidious puts recent uploads in `notifications`, not `videos`
+	const allVideos = [...feed.notifications, ...feed.videos];
+	for (const video of allVideos) {
 		// metadata.published is unix seconds from Invidious
 		const publishedSec = video.metadata?.published as number | undefined;
 		if (!publishedSec) {

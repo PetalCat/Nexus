@@ -290,10 +290,15 @@ export const overseerrAdapter: ServiceAdapter = {
 		} catch { return { items: [], total: 0, source: 'overseerr' }; }
 	},
 
-	async requestMedia(config, tmdbId, type, userCred?): Promise<boolean> {
+	async requestMedia(config, tmdbId, type, userCred?, seasons?): Promise<boolean> {
 		try {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const body: any = { mediaType: type, mediaId: Number(tmdbId) };
+
+			// For TV requests, pass specific seasons if provided
+			if (type === 'tv' && seasons && seasons.length > 0) {
+				body.seasons = seasons;
+			}
 
 			// When the user is auto-linked (no session cookie), we use the admin API key.
 			// Pass userId so Overseerr attributes the request to the correct user,

@@ -2,11 +2,15 @@ import { redirect, type Handle } from '@sveltejs/kit';
 import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
 import { startSessionPoller } from '$lib/server/session-poller';
 import { startStatsScheduler } from '$lib/server/stats-scheduler';
+import { startVideoNotificationPoller } from '$lib/server/video-notifications';
+import { startRecScheduler } from '$lib/server/rec-scheduler';
 import { initSocialWsHandlers } from '$lib/server/social-ws';
 
 // Start background analytics
 startSessionPoller();
 startStatsScheduler();
+startVideoNotificationPoller();
+startRecScheduler();
 
 // Register social WS event handlers
 initSocialWsHandlers();

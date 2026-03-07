@@ -19,7 +19,7 @@
 <div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-8">
 	<div class="mb-6 sm:mb-8">
 		<h1 class="text-display text-2xl font-bold">Activity</h1>
-		<p class="mt-1 text-sm text-[var(--color-subtle)]">Your watch history and progress across all services.</p>
+		<p class="mt-1 text-sm text-[var(--color-muted)]">Your watch history and progress across all services.</p>
 	</div>
 
 	{#if data.continueWatching.length === 0}
@@ -31,7 +31,7 @@
 				</svg>
 			</div>
 			<p class="font-medium">No activity yet</p>
-			<p class="mt-1 text-sm text-[var(--color-subtle)]">Start watching something and your progress will appear here.</p>
+			<p class="mt-1 text-sm text-[var(--color-muted)]">Start watching something and your progress will appear here.</p>
 			<a href="/" class="btn btn-primary mt-4 text-sm">Go to Home</a>
 		</div>
 	{:else}
@@ -44,7 +44,7 @@
 						{#if item.progress}
 							<div class="absolute bottom-10 left-2 right-2 h-1 overflow-hidden rounded-full bg-white/20">
 								<div
-									class="h-full rounded-full bg-[var(--color-nebula)]"
+									class="h-full rounded-full bg-[var(--color-accent)]"
 									style="width: {Math.round((item.progress ?? 0) * 100)}%"
 								></div>
 							</div>

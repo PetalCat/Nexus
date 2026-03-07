@@ -5,7 +5,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Tab state ──────────────────────────────────────────────
-	let activeTab = $state<'services' | 'users' | 'accounts'>('services');
+	let activeTab = $state<'services' | 'users' | 'accounts' | 'notifications'>('services');
 
 	// ── Services tab state ─────────────────────────────────────
 	let showAddForm = $state(false);
@@ -53,6 +53,46 @@
 	let resetPasswordLoading = $state(false);
 	let resetPasswordError = $state<string | null>(null);
 	let approveLoading = $state<string | null>(null);
+
+	// ── Notification preferences state ─────────────────────────
+	let notifPrefs = $state<Record<string, boolean>>({});
+	let notifTypes = $state<Record<string, { label: string; description: string }>>({});
+	let notifPrefsLoading = $state(false);
+	let notifPrefsLoaded = $state(false);
+	let notifPrefSaving = $state<string | null>(null);
+
+	async function loadNotifPrefs() {
+		if (notifPrefsLoaded) return;
+		notifPrefsLoading = true;
+		try {
+			const res = await fetch('/api/notifications/preferences');
+			const json = await res.json();
+			notifPrefs = json.preferences ?? {};
+			notifTypes = json.types ?? {};
+			notifPrefsLoaded = true;
+		} catch { /* silent */ }
+		finally { notifPrefsLoading = false; }
+	}
+
+	async function toggleNotifPref(type: string) {
+		const newVal = !notifPrefs[type];
+		notifPrefs[type] = newVal;
+		notifPrefSaving = type;
+		try {
+			await fetch('/api/notifications/preferences', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ preferences: { [type]: newVal } })
+			});
+		} catch {
+			notifPrefs[type] = !newVal; // revert
+		}
+		finally { notifPrefSaving = null; }
+	}
+
+	$effect(() => {
+		if (activeTab === 'notifications') loadNotifPrefs();
+	});
 
 	// ── Account linking state ──────────────────────────────────
 	let linkServiceId = $state('');
@@ -427,22 +467,23 @@
 <div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-8 max-w-3xl">
 	<div class="mb-4 sm:mb-6">
 		<h1 class="text-display text-xl font-bold sm:text-2xl">Settings</h1>
-		<p class="mt-1 text-sm text-[var(--color-subtle)]">Manage services, users, and your linked accounts.</p>
+		<p class="mt-1 text-sm text-[var(--color-muted)]">Manage services, users, and your linked accounts.</p>
 	</div>
 
 	<!-- Tab bar -->
 	<div class="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-[var(--color-surface)] p-1 scrollbar-none sm:mb-6">
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'services' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'services')}>
 			Services
-			{#if data.isAdmin}<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">Admin</span>{/if}
+			{#if data.isAdmin}<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>{/if}
 		</button>
 		{#if data.isAdmin}
 			<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'users' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'users')}>
 				Users & Invites
-				<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">Admin</span>
+				<span class="ml-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>
 			</button>
 		{/if}
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'accounts' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'accounts')}>My Accounts</button>
+		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'notifications' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'notifications')}>Notifications</button>
 	</div>
 
 	<!-- ═══════════════════════════ Services Tab ═══════════════════════════ -->
@@ -451,7 +492,7 @@
 			<div class="mb-1 flex items-center justify-between">
 				<div class="flex items-center gap-2">
 					<h2 class="text-display text-base font-semibold">Connected Services</h2>
-					{#if data.isAdmin}<span class="badge text-[10px] bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">Admin</span>{/if}
+					{#if data.isAdmin}<span class="badge text-[10px] bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>{/if}
 				</div>
 				{#if data.isAdmin}
 					<button class="btn btn-primary text-sm" onclick={() => (showAddForm = !showAddForm)}>
@@ -459,7 +500,7 @@
 					</button>
 				{/if}
 			</div>
-			<p class="mb-4 text-xs text-[var(--color-subtle)]">
+			<p class="mb-4 text-xs text-[var(--color-muted)]">
 				{#if data.isAdmin}
 					Configure the backend services Nexus connects to — Jellyfin, Overseerr, Calibre, etc. These settings affect all users.
 				{:else}
@@ -476,7 +517,7 @@
 					</div>
 					<div>
 						<p class="font-medium text-sm">No services connected yet</p>
-						<p class="mt-0.5 text-sm text-[var(--color-subtle)]">Add your first service to get started.</p>
+						<p class="mt-0.5 text-sm text-[var(--color-muted)]">Add your first service to get started.</p>
 					</div>
 					<button class="btn btn-primary text-sm mt-1" onclick={() => (showAddForm = true)}>Add Service</button>
 				</div>
@@ -486,7 +527,7 @@
 				<div class="flex flex-col gap-2">
 					{#each data.services as service}
 						{@const h = healthMap[service.id]}
-						{@const color = serviceColors[service.type] ?? '#7c6cf8'}
+						{@const color = serviceColors[service.type] ?? 'var(--color-accent)'}
 						{@const tr = serviceTestResults[service.id]}
 						{@const isEditing = editingId === service.id}
 						<div class="card-raised overflow-hidden {!(service as any).enabled ? 'opacity-60' : ''}">
@@ -518,7 +559,7 @@
 													<label for="ef-authmode" class="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
 														Auth Mode
 														<span class="tooltip" data-tip="Controls how users link their Overseerr account. 'Local' uses their Overseerr email + password. 'Jellyfin' delegates login to Jellyfin — users sign in with their Jellyfin credentials.">
-															<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-[var(--color-subtle)] cursor-help"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+															<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-[var(--color-muted)] cursor-help"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
 														</span>
 													</label>
 													<select id="ef-authmode" bind:value={editForm.username} class="input text-sm">
@@ -529,7 +570,7 @@
 													</select>
 												</div>
 											{:else}
-												<div class="sm:col-span-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-muted)]">
+												<div class="sm:col-span-2 rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-muted)]">
 													<strong class="text-[var(--color-body)]">Auth mode:</strong> Add a Jellyfin service first to enable Jellyfin-based auth for Overseerr.
 												</div>
 											{/if}
@@ -547,9 +588,9 @@
 												<div class="sm:col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
 													<p class="text-[11px] font-medium text-amber-400">Invidious Config Requirements</p>
 													<ul class="mt-1.5 space-y-1 text-[10px] text-[var(--color-muted)]">
-														<li><code class="text-[var(--color-text)]">login_enabled: true</code></li>
-														<li><code class="text-[var(--color-text)]">registration_enabled: true</code></li>
-														<li><code class="text-[var(--color-text)]">captcha_enabled: false</code></li>
+														<li><code class="text-[var(--color-cream)]">login_enabled: true</code></li>
+														<li><code class="text-[var(--color-cream)]">registration_enabled: true</code></li>
+														<li><code class="text-[var(--color-cream)]">captcha_enabled: false</code></li>
 													</ul>
 													<p class="mt-1.5 text-[10px] text-[var(--color-muted)]">Set these in your Invidious config.yml or INVIDIOUS_CONFIG env var. Nexus auto-creates accounts for users on sign-in.</p>
 												</div>
@@ -559,12 +600,12 @@
 										{/if}
 									</div>
 									{#if editTestResult}
-										<div class="mt-3 rounded-lg border px-3 py-2 text-sm {editTestResult.online ? 'border-[var(--color-pulsar)]/30 bg-[var(--color-pulsar-dim)] text-[var(--color-pulsar)]' : 'border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 text-[var(--color-nova)]'}">
+										<div class="mt-3 rounded-lg border px-3 py-2 text-sm {editTestResult.online ? 'border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] text-[var(--color-steel)]' : 'border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 text-[var(--color-warm)]'}">
 											{editTestResult.online ? `✓ Connected${editTestResult.latency ? ` · ${editTestResult.latency}ms` : ''}` : `✗ ${editTestResult.error ?? 'Failed'}`}
 										</div>
 									{/if}
 									{#if editError}
-										<div class="mt-3 rounded-lg border border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 px-3 py-2 text-sm text-[var(--color-nova)]">✗ {editError}</div>
+										<div class="mt-3 rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">✗ {editError}</div>
 									{/if}
 									<div class="mt-4 flex gap-2 flex-wrap">
 										<button class="btn btn-ghost text-sm" onclick={testEditConnection} disabled={editSaving}>Test</button>
@@ -586,15 +627,15 @@
 												<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">Disabled</span>
 											{/if}
 											{#if h}
-												<span class="flex h-2 w-2 rounded-full {h.online ? 'bg-[var(--color-pulsar)]' : 'bg-[var(--color-nova)]'}"></span>
+												<span class="flex h-2 w-2 rounded-full {h.online ? 'bg-[var(--color-steel)]' : 'bg-[var(--color-warm)]'}"></span>
 												{#if h.latency}<span class="text-mono text-[10px] text-[var(--color-muted)]">{h.latency}ms</span>{/if}
-												{#if !h.online && h.error}<span class="text-[10px] text-[var(--color-nova)] truncate max-w-[100px]" title={h.error}>{h.error}</span>{/if}
+												{#if !h.online && h.error}<span class="text-[10px] text-[var(--color-warm)] truncate max-w-[100px]" title={h.error}>{h.error}</span>{/if}
 											{/if}
 										</div>
 										<div class="flex items-center gap-2">
 											<p class="truncate text-xs text-[var(--color-muted)]">{service.url}</p>
 											{#if tr}
-												<span class="text-[10px] flex-shrink-0 {tr.online ? 'text-[var(--color-pulsar)]' : 'text-[var(--color-nova)]'}">
+												<span class="text-[10px] flex-shrink-0 {tr.online ? 'text-[var(--color-steel)]' : 'text-[var(--color-warm)]'}">
 													{tr.online ? `✓${tr.latency ? ` ${tr.latency}ms` : ''}` : `✗ ${(tr.error ?? 'Failed').slice(0, 28)}`}
 												</span>
 											{/if}
@@ -614,15 +655,15 @@
 											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 										</button>
 										<!-- Enable/Disable -->
-										<button class="btn-icon p-2 {(service as any).enabled ? 'text-[var(--color-muted)] hover:text-[var(--color-body)]' : 'text-[var(--color-nova)] opacity-70 hover:opacity-100'}" onclick={() => toggleEnabled(service)} title={(service as any).enabled ? 'Disable service' : 'Enable service'}>
+										<button class="btn-icon p-2 {(service as any).enabled ? 'text-[var(--color-muted)] hover:text-[var(--color-body)]' : 'text-[var(--color-warm)] opacity-70 hover:opacity-100'}" onclick={() => toggleEnabled(service)} title={(service as any).enabled ? 'Disable service' : 'Enable service'}>
 											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 2v6"/><path d="M7.5 4.8a9 9 0 1 0 9 0"/></svg>
 										</button>
 										<!-- Delete -->
 										{#if deleteConfirm === service.id}
-											<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => deleteService(service.id)}>Confirm</button>
+											<button class="btn btn-ghost text-xs text-[var(--color-warm)]" onclick={() => deleteService(service.id)}>Confirm</button>
 											<button class="btn btn-ghost text-xs" onclick={() => (deleteConfirm = null)}>Cancel</button>
 										{:else}
-											<button class="btn-icon p-2 text-[var(--color-nova)] opacity-40 hover:opacity-100" onclick={() => (deleteConfirm = service.id)} title="Delete service">
+											<button class="btn-icon p-2 text-[var(--color-warm)] opacity-40 hover:opacity-100" onclick={() => (deleteConfirm = service.id)} title="Delete service">
 												<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5H12M5 3.5V2.5H9V3.5M5.5 6V10.5M8.5 6V10.5M3 3.5L3.5 11.5H10.5L11 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 											</button>
 										{/if}
@@ -637,9 +678,9 @@
 
 		<!-- Link-your-account prompt (appears after adding a user-linkable service) -->
 		{#if pendingLinkServiceId}
-			<section class="card mb-6 border-[var(--color-nebula)]/30 bg-[var(--color-nebula-dim)] p-5">
+			<section class="card mb-6 border-[var(--color-accent)]/30 bg-[rgba(212,162,83,0.12)] p-5">
 				<div class="flex items-start gap-3 mb-4">
-					<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">
+					<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)]/20 text-[var(--color-accent)]">
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
 					</div>
 					<div>
@@ -658,7 +699,7 @@
 					</div>
 				</div>
 				{#if pendingLinkError}
-					<div class="mt-3 rounded-lg border border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 px-3 py-2 text-sm text-[var(--color-nova)]">{pendingLinkError}</div>
+					<div class="mt-3 rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">{pendingLinkError}</div>
 				{/if}
 				<div class="mt-4 flex gap-2">
 					<button class="btn btn-primary text-sm" onclick={linkPendingAccount} disabled={pendingLinking || !pendingLinkUsername || !pendingLinkPassword}>
@@ -676,8 +717,8 @@
 					<label class="mb-2 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Service Type</label>
 					<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
 						{#each data.available as adapter}
-							{@const color = serviceColors[adapter.id] ?? '#7c6cf8'}
-							<button onclick={() => selectType(adapter.id)} class="flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-all {form.type === adapter.id ? 'border-[var(--color-nebula)] bg-[var(--color-nebula-dim)]' : 'border-[var(--color-border)] hover:border-[var(--color-muted)] hover:bg-[var(--color-surface)]'}">
+							{@const color = serviceColors[adapter.id] ?? 'var(--color-accent)'}
+							<button onclick={() => selectType(adapter.id)} class="flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-all {form.type === adapter.id ? 'border-[var(--color-accent)] bg-[rgba(212,162,83,0.12)]' : 'border-[rgba(240,235,227,0.06)] hover:border-[var(--color-muted)] hover:bg-[var(--color-surface)]'}">
 								<span class="h-2 w-2 rounded-full" style="background: {color}"></span>
 								<span class="text-sm font-medium leading-tight">{adapter.displayName}</span>
 								<span class="text-[10px] text-[var(--color-muted)] font-mono">:{adapter.defaultPort}</span>
@@ -717,9 +758,9 @@
 								<div class="sm:col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
 									<p class="text-[11px] font-medium text-amber-400">Invidious Config Requirements</p>
 									<ul class="mt-1.5 space-y-1 text-[10px] text-[var(--color-muted)]">
-										<li><code class="text-[var(--color-text)]">login_enabled: true</code></li>
-										<li><code class="text-[var(--color-text)]">registration_enabled: true</code></li>
-										<li><code class="text-[var(--color-text)]">captcha_enabled: false</code></li>
+										<li><code class="text-[var(--color-cream)]">login_enabled: true</code></li>
+										<li><code class="text-[var(--color-cream)]">registration_enabled: true</code></li>
+										<li><code class="text-[var(--color-cream)]">captcha_enabled: false</code></li>
 									</ul>
 									<p class="mt-1.5 text-[10px] text-[var(--color-muted)]">Set these in your Invidious config.yml or INVIDIOUS_CONFIG env var. Nexus auto-creates accounts for users on sign-in.</p>
 								</div>
@@ -730,13 +771,13 @@
 					</div>
 
 					{#if testResult}
-						<div class="mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm {testResult.online ? 'border-[var(--color-pulsar)]/30 bg-[var(--color-pulsar-dim)] text-[var(--color-pulsar)]' : 'border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 text-[var(--color-nova)]'}">
+						<div class="mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm {testResult.online ? 'border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] text-[var(--color-steel)]' : 'border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 text-[var(--color-warm)]'}">
 							{#if testResult.online}✓ Connected {#if testResult.latency}· {testResult.latency}ms{/if}{:else}✗ Failed: {testResult.error ?? 'Unable to connect'}{/if}
 						</div>
 					{/if}
 
 					{#if saveError}
-						<div class="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 px-3 py-2 text-sm text-[var(--color-nova)]">✗ {saveError}</div>
+						<div class="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">✗ {saveError}</div>
 					{/if}
 
 					<div class="mt-5 flex gap-2">
@@ -761,7 +802,7 @@
 						<p class="text-xs text-[var(--color-muted)]">Allow anyone to create an account from the login page.</p>
 					</div>
 					<button
-						class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_enabled === 'true' ? 'bg-[var(--color-nebula)]' : 'bg-[var(--color-raised)]'}"
+						class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_enabled === 'true' ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
 						onclick={() => toggleSetting('registration_enabled', data.settings.registration_enabled !== 'true')}
 						disabled={savingSettings}
 					>
@@ -769,13 +810,13 @@
 					</button>
 				</label>
 				{#if data.settings.registration_enabled === 'true'}
-					<label class="flex items-center justify-between gap-4 border-t border-[var(--color-border)] pt-4">
+					<label class="flex items-center justify-between gap-4 border-t border-[rgba(240,235,227,0.06)] pt-4">
 						<div>
 							<span class="text-sm font-medium">Require Approval</span>
 							<p class="text-xs text-[var(--color-muted)]">New accounts must be approved by an admin before they can sign in.</p>
 						</div>
 						<button
-							class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_requires_approval === 'true' ? 'bg-[var(--color-nebula)]' : 'bg-[var(--color-raised)]'}"
+							class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {data.settings.registration_requires_approval === 'true' ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
 							onclick={() => toggleSetting('registration_requires_approval', data.settings.registration_requires_approval !== 'true')}
 							disabled={savingSettings}
 						>
@@ -808,7 +849,7 @@
 								<button class="btn btn-primary text-xs" onclick={() => approveUser(user.id)} disabled={approveLoading === user.id}>
 									{approveLoading === user.id ? '...' : 'Approve'}
 								</button>
-								<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => denyUser(user.id)} disabled={approveLoading === user.id}>Deny</button>
+								<button class="btn btn-ghost text-xs text-[var(--color-warm)]" onclick={() => denyUser(user.id)} disabled={approveLoading === user.id}>Deny</button>
 							</div>
 						</div>
 					{/each}
@@ -824,7 +865,7 @@
 					{@const userCreds = data.allUserCredentials[user.id] ?? []}
 					{@const unlinkedProvisionable = data.provisionableServices.filter((s) => s.supportsCreate && !userCreds.some((uc) => uc.serviceId === s.id))}
 					<div class="card-raised flex items-center gap-4 px-4 py-3">
-						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-nebula)]/10 text-[var(--color-nebula)] text-xs font-bold">
+						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)]/10 text-[var(--color-accent)] text-xs font-bold">
 							{user.displayName.slice(0, 2).toUpperCase()}
 						</div>
 						<div class="flex-1 min-w-0">
@@ -832,7 +873,7 @@
 								<span class="font-medium text-sm">{user.displayName}</span>
 								<span class="font-mono text-xs text-[var(--color-muted)]">@{user.username}</span>
 								{#if user.isAdmin}
-									<span class="badge text-[10px] bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">Admin</span>
+									<span class="badge text-[10px] bg-[var(--color-accent)]/20 text-[var(--color-accent)]">Admin</span>
 								{/if}
 								{#if user.authProvider !== 'local'}
 									<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">{user.authProvider}</span>
@@ -847,14 +888,14 @@
 							<div class="mt-0.5 flex items-center gap-1.5 flex-wrap">
 								{#if userCreds.length > 0}
 									{#each userCreds as uc}
-										{@const svcColor = serviceColors[uc.serviceType] ?? '#7c6cf8'}
+										{@const svcColor = serviceColors[uc.serviceType] ?? 'var(--color-accent)'}
 										<span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium" style="background: {svcColor}15; color: {svcColor}" title="{uc.serviceType} — @{uc.externalUsername}">
 											<span class="h-1.5 w-1.5 rounded-full" style="background: {svcColor}"></span>
 											{uc.serviceType}
 										</span>
 									{/each}
 								{:else}
-									<span class="text-[10px] text-[var(--color-subtle)]">No linked services</span>
+									<span class="text-[10px] text-[var(--color-muted)]">No linked services</span>
 								{/if}
 								{#if unlinkedProvisionable.length > 0 && !user.isAdmin}
 									<button
@@ -883,10 +924,10 @@
 									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
 								</button>
 								{#if deleteUserConfirm === user.id}
-									<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => deleteUser(user.id)}>Confirm</button>
+									<button class="btn btn-ghost text-xs text-[var(--color-warm)]" onclick={() => deleteUser(user.id)}>Confirm</button>
 									<button class="btn btn-ghost text-xs" onclick={() => (deleteUserConfirm = null)}>Cancel</button>
 								{:else}
-									<button class="btn-icon p-2 text-[var(--color-nova)] opacity-50 hover:opacity-100" onclick={() => (deleteUserConfirm = user.id)} title="Delete user">
+									<button class="btn-icon p-2 text-[var(--color-warm)] opacity-50 hover:opacity-100" onclick={() => (deleteUserConfirm = user.id)} title="Delete user">
 										<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5H12M5 3.5V2.5H9V3.5M5.5 6V10.5M8.5 6V10.5M3 3.5L3.5 11.5H10.5L11 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 									</button>
 								{/if}
@@ -894,18 +935,18 @@
 						</div>
 					</div>
 					{#if provisionUserId === user.id && (provisionResult || provisionError)}
-						<div class="border-t border-[var(--color-border)] px-4 py-2.5 bg-[var(--color-surface)]/50">
+						<div class="border-t border-[rgba(240,235,227,0.06)] px-4 py-2.5 bg-[var(--color-surface)]/50">
 							{#if provisionError}
-								<div class="text-xs text-[var(--color-nova)]">{provisionError}</div>
+								<div class="text-xs text-[var(--color-warm)]">{provisionError}</div>
 							{/if}
 							{#if provisionResult}
 								<div class="flex flex-col gap-1">
 									{#each provisionResult as r}
-										{@const svcColor = serviceColors[r.serviceType] ?? '#7c6cf8'}
+										{@const svcColor = serviceColors[r.serviceType] ?? 'var(--color-accent)'}
 										<div class="flex items-center gap-2 text-xs">
 											<span class="h-1.5 w-1.5 rounded-full" style="background: {svcColor}"></span>
 											<span class="font-medium">{r.serviceName}</span>
-											<span class="{r.status === 'created' ? 'text-[var(--color-pulsar)]' : r.status === 'linked' ? 'text-[var(--color-muted)]' : r.status === 'error' ? 'text-[var(--color-nova)]' : 'text-[var(--color-subtle)]'}">
+											<span class="{r.status === 'created' ? 'text-[var(--color-steel)]' : r.status === 'linked' ? 'text-[var(--color-muted)]' : r.status === 'error' ? 'text-[var(--color-warm)]' : 'text-[var(--color-muted)]'}">
 												{r.status === 'created' ? `✓ Created as @${r.externalUsername}` : r.status === 'linked' ? `Already linked` : r.status === 'skipped' ? 'Skipped' : `✗ ${r.error ?? 'Failed'}`}
 											</span>
 										</div>
@@ -915,7 +956,7 @@
 						</div>
 					{/if}
 					{#if resetPasswordUserId === user.id}
-						<div class="border-t border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
+						<div class="border-t border-[rgba(240,235,227,0.06)] px-4 py-3 flex items-center gap-3">
 							<input
 								bind:value={resetPasswordValue}
 								type="password"
@@ -929,7 +970,7 @@
 							<button class="btn btn-ghost text-xs" onclick={() => { resetPasswordUserId = null; resetPasswordError = null; }}>Cancel</button>
 						</div>
 						{#if resetPasswordError}
-							<div class="px-4 pb-3 text-xs text-[var(--color-nova)]">{resetPasswordError}</div>
+							<div class="px-4 pb-3 text-xs text-[var(--color-warm)]">{resetPasswordError}</div>
 						{/if}
 					{/if}
 				{/each}
@@ -957,8 +998,8 @@
 				</div>
 
 				{#if newInviteCode}
-					<div class="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-pulsar)]/30 bg-[var(--color-pulsar-dim)] px-3 py-2">
-						<span class="text-sm text-[var(--color-pulsar)] flex-1 font-mono truncate">{window.location.origin}/invite?code={newInviteCode}</span>
+					<div class="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] px-3 py-2">
+						<span class="text-sm text-[var(--color-steel)] flex-1 font-mono truncate">{window.location.origin}/invite?code={newInviteCode}</span>
 						<button class="btn btn-ghost text-xs" onclick={() => copyToClipboard(`${window.location.origin}/invite?code=${newInviteCode}`)}>Copy</button>
 					</div>
 				{/if}
@@ -975,7 +1016,7 @@
 									<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">{invite.uses}/{invite.maxUses} used</span>
 									{#if invite.expiresAt}
 										{@const expired = new Date(invite.expiresAt) < new Date()}
-										<span class="badge text-[10px] {expired ? 'bg-[var(--color-nova)]/20 text-[var(--color-nova)]' : 'bg-[var(--color-surface)] text-[var(--color-muted)]'}">
+										<span class="badge text-[10px] {expired ? 'bg-[var(--color-warm)]/20 text-[var(--color-warm)]' : 'bg-[var(--color-surface)] text-[var(--color-muted)]'}">
 											{expired ? 'Expired' : `Expires ${new Date(invite.expiresAt).toLocaleDateString()}`}
 										</span>
 									{:else}
@@ -986,10 +1027,10 @@
 							<div class="flex items-center gap-1 flex-shrink-0">
 								<button class="btn btn-ghost text-xs" onclick={() => copyToClipboard(`${window.location.origin}/invite?code=${invite.code}`)}>Copy Link</button>
 								{#if deleteInviteConfirm === invite.code}
-									<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => deleteInvite(invite.code)}>Confirm</button>
+									<button class="btn btn-ghost text-xs text-[var(--color-warm)]" onclick={() => deleteInvite(invite.code)}>Confirm</button>
 									<button class="btn btn-ghost text-xs" onclick={() => (deleteInviteConfirm = null)}>Cancel</button>
 								{:else}
-									<button class="btn-icon p-2 text-[var(--color-nova)] opacity-50 hover:opacity-100" onclick={() => (deleteInviteConfirm = invite.code)}>
+									<button class="btn-icon p-2 text-[var(--color-warm)] opacity-50 hover:opacity-100" onclick={() => (deleteInviteConfirm = invite.code)}>
 										<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5H12M5 3.5V2.5H9V3.5M5.5 6V10.5M8.5 6V10.5M3 3.5L3.5 11.5H10.5L11 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 									</button>
 								{/if}
@@ -1005,7 +1046,7 @@
 		<!-- Jellyfin Migration -->
 		<section class="mb-8">
 			<h2 class="text-display text-base font-semibold mb-3">Import Jellyfin Users</h2>
-			<p class="text-sm text-[var(--color-subtle)] mb-4">Import users from Jellyfin — creates Nexus accounts and automatically links their Jellyfin credentials.</p>
+			<p class="text-sm text-[var(--color-muted)] mb-4">Import users from Jellyfin — creates Nexus accounts and automatically links their Jellyfin credentials.</p>
 
 			<div class="flex gap-2 mb-4">
 				<button class="btn btn-ghost text-sm" onclick={previewMigration} disabled={migrateLoading}>
@@ -1027,7 +1068,7 @@
 							<div class="card-raised flex items-center gap-3 px-3 py-2">
 								<span class="text-sm font-medium">{jfUser.username}</span>
 								<span class="text-xs text-[var(--color-muted)]">{jfUser.serviceName}</span>
-								{#if jfUser.isAdmin}<span class="badge text-[10px] bg-[var(--color-nebula)]/20 text-[var(--color-nebula)]">JF Admin</span>{/if}
+								{#if jfUser.isAdmin}<span class="badge text-[10px] bg-[var(--color-accent)]/20 text-[var(--color-accent)]">JF Admin</span>{/if}
 							</div>
 						{/each}
 					</div>
@@ -1035,8 +1076,8 @@
 			{/if}
 
 			{#if migrateResult}
-				<div class="mt-3 rounded-lg border border-[var(--color-pulsar)]/30 bg-[var(--color-pulsar-dim)] p-3">
-					<p class="text-sm text-[var(--color-pulsar)] font-medium mb-2">Imported {migrateResult.imported} users</p>
+				<div class="mt-3 rounded-lg border border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] p-3">
+					<p class="text-sm text-[var(--color-steel)] font-medium mb-2">Imported {migrateResult.imported} users</p>
 					<div class="flex flex-col gap-1">
 						{#each migrateResult.results as r}
 							<div class="flex items-center gap-2 text-xs">
@@ -1055,24 +1096,24 @@
 		<section class="mb-8">
 			<div class="flex items-center gap-2 mb-2">
 				<h2 class="text-display text-base font-semibold">My Linked Accounts</h2>
-				<span class="badge text-[10px] bg-[var(--color-pulsar)]/20 text-[var(--color-pulsar)]">Personal</span>
+				<span class="badge text-[10px] bg-[var(--color-steel)]/20 text-[var(--color-steel)]">Personal</span>
 			</div>
-			<p class="text-sm text-[var(--color-subtle)] mb-1">These are <strong class="text-[var(--color-body)]">your</strong> credentials — only you can see them. Linking lets Nexus show your personal watch history, reading progress, and request media on your behalf.</p>
-			<div class="mb-4 flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-muted)]">
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="mt-0.5 flex-shrink-0 text-[var(--color-subtle)]"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+			<p class="text-sm text-[var(--color-muted)] mb-1">These are <strong class="text-[var(--color-body)]">your</strong> credentials — only you can see them. Linking lets Nexus show your personal watch history, reading progress, and request media on your behalf.</p>
+			<div class="mb-4 flex items-start gap-2 rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-muted)]">
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="mt-0.5 flex-shrink-0 text-[var(--color-muted)]"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
 				<span>Your admin has set up these services. Enter <em>your own</em> username/password for each one — not the admin's API key.</span>
 			</div>
 
 			{#if data.linkableServices.length === 0}
 				<div class="card py-12 text-center">
 					<p class="text-sm text-[var(--color-muted)]">No user-linkable services configured yet.</p>
-					<p class="text-xs text-[var(--color-subtle)] mt-1">Ask your admin to add Jellyfin, Overseerr, or Calibre.</p>
+					<p class="text-xs text-[var(--color-muted)] mt-1">Ask your admin to add Jellyfin, Overseerr, or Calibre.</p>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-2">
 					{#each data.linkableServices as svc}
 						{@const cred = credMap[svc.id]}
-						{@const color = serviceColors[svc.type] ?? '#7c6cf8'}
+						{@const color = serviceColors[svc.type] ?? 'var(--color-accent)'}
 						{@const isLinking = linkServiceId === svc.id}
 						{@const isAuto = svc.authMode === 'auto-jellyfin'}
 						{@const isProvisioned = svc.authMode === 'auto-provisioned'}
@@ -1092,18 +1133,18 @@
 										<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">{svc.type}</span>
 										{#if isAuto}
 											{#if autoConnected}
-												<span class="badge text-[10px] bg-[var(--color-pulsar)]/20 text-[var(--color-pulsar)]">✓ Auto-connected</span>
+												<span class="badge text-[10px] bg-[var(--color-steel)]/20 text-[var(--color-steel)]">✓ Auto-connected</span>
 											{:else if autoWaiting}
 												<span class="badge text-[10px] bg-amber-500/20 text-amber-400">Setting up…</span>
 											{:else}
 												<span class="badge text-[10px] bg-[var(--color-surface)] text-[var(--color-muted)]">Needs Jellyfin</span>
 											{/if}
 										{:else if isProvisioned}
-											<span class="badge text-[10px] bg-[var(--color-pulsar)]/20 text-[var(--color-pulsar)]">✓ Connected</span>
+											<span class="badge text-[10px] bg-[var(--color-steel)]/20 text-[var(--color-steel)]">✓ Connected</span>
 										{:else if isNeedsReauth}
 											<span class="badge text-[10px] bg-amber-500/20 text-amber-400">↻ Session expired</span>
 										{:else if cred}
-											<span class="badge text-[10px] bg-[var(--color-pulsar)]/20 text-[var(--color-pulsar)]">✓ Connected</span>
+											<span class="badge text-[10px] bg-[var(--color-steel)]/20 text-[var(--color-steel)]">✓ Connected</span>
 										{/if}
 									</div>
 
@@ -1113,19 +1154,19 @@
 												{#if cred?.externalUsername}
 													<span class="text-xs text-[var(--color-body)] font-medium">@{cred.externalUsername}</span>
 												{/if}
-												<span class="text-xs text-[var(--color-subtle)]">via Jellyfin — no separate login needed</span>
+												<span class="text-xs text-[var(--color-muted)]">via Jellyfin — no separate login needed</span>
 											</div>
 										{:else if autoWaiting}
-											<p class="mt-0.5 text-xs text-[var(--color-subtle)]">Refresh to retry — Jellyfin is linked but {svc.name} couldn't be reached</p>
+											<p class="mt-0.5 text-xs text-[var(--color-muted)]">Refresh to retry — Jellyfin is linked but {svc.name} couldn't be reached</p>
 										{:else}
-											<p class="mt-0.5 text-xs text-[var(--color-subtle)]">Link your Jellyfin account above to activate</p>
+											<p class="mt-0.5 text-xs text-[var(--color-muted)]">Link your Jellyfin account above to activate</p>
 										{/if}
 									{:else if isProvisioned}
 										<div class="mt-0.5 flex items-center gap-2 flex-wrap">
 											{#if cred?.externalUsername}
 												<span class="text-xs text-[var(--color-body)] font-medium">@{cred.externalUsername}</span>
 											{/if}
-											<span class="text-xs text-[var(--color-subtle)]">set up by admin</span>
+											<span class="text-xs text-[var(--color-muted)]">set up by admin</span>
 										</div>
 									{:else if isNeedsReauth}
 										<p class="mt-0.5 text-xs text-amber-400/80">Refresh your session to activate personalized features like For You recommendations</p>
@@ -1136,7 +1177,7 @@
 												<span class="font-mono text-[10px] text-[var(--color-muted)]">id:{cred.externalUserId}</span>
 											{/if}
 											{#if cred.linkedAt}
-												<span class="text-[10px] text-[var(--color-subtle)]">connected {new Date(cred.linkedAt).toLocaleDateString()}</span>
+												<span class="text-[10px] text-[var(--color-muted)]">connected {new Date(cred.linkedAt).toLocaleDateString()}</span>
 											{/if}
 										</div>
 									{:else}
@@ -1149,14 +1190,14 @@
 										<!-- Fully automatic — no action needed -->
 									{:else if isNeedsReauth}
 										<button
-											class="btn btn-ghost text-xs {linkServiceId === svc.id ? 'text-[var(--color-nebula)]' : 'text-amber-400'}"
+											class="btn btn-ghost text-xs {linkServiceId === svc.id ? 'text-[var(--color-accent)]' : 'text-amber-400'}"
 											onclick={() => { linkServiceId = linkServiceId === svc.id ? '' : svc.id; linkUsername = (svc as any).prefillUsername ?? ''; linkPassword = ''; linkError = null; linkSuccess = null; }}
 										>{linkServiceId === svc.id ? 'Cancel' : 'Refresh'}</button>
 									{:else if cred}
-										<button class="btn btn-ghost text-xs text-[var(--color-nova)]" onclick={() => unlinkAccount(svc.id)}>Unlink</button>
+										<button class="btn btn-ghost text-xs text-[var(--color-warm)]" onclick={() => unlinkAccount(svc.id)}>Unlink</button>
 									{:else}
 										<button
-											class="btn btn-ghost text-xs {isLinking ? 'text-[var(--color-nebula)]' : ''}"
+											class="btn btn-ghost text-xs {isLinking ? 'text-[var(--color-accent)]' : ''}"
 											onclick={() => { linkServiceId = isLinking ? '' : svc.id; linkUsername = ''; linkPassword = ''; linkError = null; linkSuccess = null; }}
 										>{isLinking ? 'Cancel' : 'Link'}</button>
 									{/if}
@@ -1165,15 +1206,15 @@
 
 							<!-- Manual link feedback -->
 							{#if !isLinking && (linkError || linkSuccess)}
-								<div class="border-t border-[var(--color-border)] px-4 py-2 bg-[var(--color-surface)]/50">
-									{#if linkError}<p class="text-xs text-[var(--color-nova)]">✗ {linkError}</p>{/if}
-									{#if linkSuccess}<p class="text-xs text-[var(--color-pulsar)]">✓ {linkSuccess}</p>{/if}
+								<div class="border-t border-[rgba(240,235,227,0.06)] px-4 py-2 bg-[var(--color-surface)]/50">
+									{#if linkError}<p class="text-xs text-[var(--color-warm)]">✗ {linkError}</p>{/if}
+									{#if linkSuccess}<p class="text-xs text-[var(--color-steel)]">✓ {linkSuccess}</p>{/if}
 								</div>
 							{/if}
 
 							<!-- Inline manual link form -->
 							{#if isLinking}
-								<div class="border-t border-[var(--color-border)] px-4 pt-3 pb-4 bg-[var(--color-surface)]/50">
+								<div class="border-t border-[rgba(240,235,227,0.06)] px-4 pt-3 pb-4 bg-[var(--color-surface)]/50">
 									<div class="grid gap-3 sm:grid-cols-2">
 										<div>
 											<label for="link-u-{svc.id}" class="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">{svc.authUsernameLabel ?? 'Username'}</label>
@@ -1185,16 +1226,59 @@
 										</div>
 									</div>
 									{#if linkError}
-										<div class="mt-2 rounded-lg border border-[var(--color-nova)]/30 bg-[var(--color-nova)]/10 px-3 py-2 text-xs text-[var(--color-nova)]">✗ {linkError}</div>
+										<div class="mt-2 rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-xs text-[var(--color-warm)]">✗ {linkError}</div>
 									{/if}
 									{#if linkSuccess}
-										<div class="mt-2 rounded-lg border border-[var(--color-pulsar)]/30 bg-[var(--color-pulsar-dim)] px-3 py-2 text-xs text-[var(--color-pulsar)]">✓ {linkSuccess}</div>
+										<div class="mt-2 rounded-lg border border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] px-3 py-2 text-xs text-[var(--color-steel)]">✓ {linkSuccess}</div>
 									{/if}
 									<button class="btn btn-primary text-sm mt-3" onclick={linkAccount} disabled={linking || !linkUsername || !linkPassword}>
 										{linking ? 'Linking…' : 'Link Account'}
 									</button>
 								</div>
 							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
+	{/if}
+
+	<!-- ═══════════════════════════ Notifications Tab ═══════════════════════════ -->
+	{#if activeTab === 'notifications'}
+		<section class="mb-8">
+			<h2 class="text-display mb-1 text-base font-semibold">Notification Preferences</h2>
+			<p class="text-body-muted mb-5 text-xs">Choose which notifications you want to receive.</p>
+
+			{#if notifPrefsLoading}
+				<div class="space-y-3">
+					{#each { length: 6 } as _, i (i)}
+						<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+							<div class="space-y-1.5">
+								<div class="h-4 w-32 rounded bg-[var(--color-raised)] animate-pulse"></div>
+								<div class="h-3 w-48 rounded bg-[var(--color-raised)] animate-pulse"></div>
+							</div>
+							<div class="h-6 w-11 rounded-full bg-[var(--color-raised)] animate-pulse"></div>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="space-y-2">
+					{#each Object.entries(notifTypes) as [type, meta] (type)}
+						<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+							<div>
+								<p class="text-sm font-medium text-[var(--color-display)]">{meta.label}</p>
+								<p class="mt-0.5 text-xs text-[var(--color-muted)]">{meta.description}</p>
+							</div>
+							<button
+								class="relative h-6 w-11 rounded-full transition-colors {notifPrefs[type] ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
+								onclick={() => toggleNotifPref(type)}
+								disabled={notifPrefSaving === type}
+								aria-label="Toggle {meta.label}"
+							>
+								<span
+									class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform {notifPrefs[type] ? 'translate-x-[22px]' : 'translate-x-0.5'}"
+								></span>
+							</button>
 						</div>
 					{/each}
 				</div>
@@ -1218,7 +1302,7 @@
 		transform: translateX(-50%);
 		background: var(--color-raised);
 		color: var(--color-body);
-		border: 1px solid var(--color-border);
+		border: 1px solid rgba(240,235,227,0.06);
 		border-radius: 6px;
 		padding: 6px 10px;
 		font-size: 11px;

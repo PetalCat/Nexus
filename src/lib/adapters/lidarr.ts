@@ -12,7 +12,7 @@ async function lidarrFetch(config: ServiceConfig, path: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeArtist(config: ServiceConfig, item: any): UnifiedMedia {
 	return {
-		id: `artist-${item.id}:${config.id}`,
+		id: `artist-${item.id ?? item.foreignArtistId}:${config.id}`,
 		sourceId: String(item.id),
 		serviceId: config.id,
 		serviceType: 'lidarr',

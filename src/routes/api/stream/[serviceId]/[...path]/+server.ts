@@ -32,8 +32,6 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	const config = getServiceConfig(serviceId);
 	if (!config) return new Response('Service not found', { status: 404 });
 
-	console.log(`[stream-proxy] ${request.method} /api/stream/${serviceId}/${pathSegments}`);
-	console.log(`[stream-proxy] Service: ${config.type} @ ${config.url}`);
 
 	const adapter = registry.get(config.type);
 
@@ -44,7 +42,6 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 			: undefined;
 
 	const token = userCred?.accessToken ?? config.apiKey ?? '';
-	console.log(`[stream-proxy] Auth: ${userCred ? 'user-credential' : 'api-key'}, token length: ${token.length}`);
 
 	// Resolve Jellyfin userId for endpoints that need it
 	let jellyfinUserId = userCred?.externalUserId ?? '';
@@ -52,24 +49,18 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		const cached = userIdCache.get(serviceId);
 		if (cached) {
 			jellyfinUserId = cached;
-			console.log(`[stream-proxy] UserId from cache: ${jellyfinUserId}`);
 		} else if (config.apiKey) {
 			// With an API key we need a userId — try to get it from /Users/Me or first admin
-			console.log(`[stream-proxy] Resolving userId from Jellyfin...`);
 			try {
 				const meRes = await fetch(`${config.url}/Users/Me`, {
 					headers: { 'X-Emby-Token': config.apiKey },
 					signal: AbortSignal.timeout(5000)
 				});
-				console.log(`[stream-proxy] /Users/Me → ${meRes.status}`);
 				if (meRes.ok) {
 					const me = await meRes.json();
 					jellyfinUserId = me.Id ?? '';
-					console.log(`[stream-proxy] Got userId from /Users/Me: ${jellyfinUserId}`);
 				}
-			} catch (e) {
-				console.log(`[stream-proxy] /Users/Me failed:`, e);
-			}
+			} catch { /* silent */ }
 
 			if (!jellyfinUserId) {
 				try {
@@ -77,24 +68,18 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 						headers: { 'X-Emby-Token': config.apiKey },
 						signal: AbortSignal.timeout(5000)
 					});
-					console.log(`[stream-proxy] /Users → ${usersRes.status}`);
 					if (usersRes.ok) {
 						const users = await usersRes.json();
 						const list = Array.isArray(users) ? users : (users.Items ?? []);
-						console.log(`[stream-proxy] Found ${list.length} users`);
 						const admin = list.find((u: any) => u.Policy?.IsAdministrator);
 						jellyfinUserId = (admin ?? list[0])?.Id ?? '';
-						console.log(`[stream-proxy] Got userId from /Users: ${jellyfinUserId}`);
 					}
-				} catch (e) {
-					console.log(`[stream-proxy] /Users failed:`, e);
-				}
+				} catch { /* silent */ }
 			}
 
 			if (jellyfinUserId) userIdCache.set(serviceId, jellyfinUserId);
 		}
 	}
-	console.log(`[stream-proxy] Final userId: ${jellyfinUserId || '(none)'}`);
 
 	// ── Build the upstream Jellyfin URL ──────────────────────────────────
 	const parts = pathSegments.split('/');
@@ -178,7 +163,6 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	}
 
 	// ── Proxy the request ─────────────────────────────────────────────────
-	console.log(`[stream-proxy] Upstream URL: ${upstream.toString()}`);
 
 	const proxyHeaders: Record<string, string> = {
 		Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${token}"`,
@@ -202,17 +186,11 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	try {
 		let upstream_res = await doFetch();
 
-		console.log(`[stream-proxy] Response: ${upstream_res.status} ${upstream_res.headers.get('Content-Type') ?? 'no-content-type'}`);
-
 		// Jellyfin returns 500 while the transcoder is spinning up for the first segment.
 		// Retry up to 2x with increasing delays before giving up.
 		if (!upstream_res.ok && isSegment && upstream_res.status >= 500) {
-			const err1 = await upstream_res.text().catch(() => '');
-			console.warn(`[stream-proxy] Segment ${upstream_res.status} on first try, retrying in 1.5s. Body: ${err1.slice(0, 200)}`);
 			upstream_res = await doFetch(1500);
 			if (!upstream_res.ok && upstream_res.status >= 500) {
-				const err2 = await upstream_res.text().catch(() => '');
-				console.warn(`[stream-proxy] Segment ${upstream_res.status} on second try, retrying in 3s. Body: ${err2.slice(0, 200)}`);
 				upstream_res = await doFetch(3000);
 			}
 		}
