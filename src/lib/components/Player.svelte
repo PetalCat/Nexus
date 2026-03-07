@@ -109,6 +109,127 @@
 	/* ── PiP ── */
 	let pipActive = $state(false);
 
+	/* ── SponsorBlock ── */
+	interface SBSeg { UUID: string; category: string; actionType: string; segment: [number, number]; votes: number; }
+	type SBAction = 'skip' | 'mute' | 'ask' | 'show' | 'off';
+	interface SBPrefs { enabled: boolean; categorySettings: Record<string, SBAction>; showOnTimeline: boolean; showSkipNotice: boolean; skipNoticeDuration: number; }
+	let sbSegments = $state<SBSeg[]>([]);
+	let sbPrefs = $state<SBPrefs | null>(null);
+	let sbSkipNotice = $state<{ category: string; timeout?: ReturnType<typeof setTimeout> } | null>(null);
+	let sbSkippedUUIDs = $state<Set<string>>(new Set());
+	let sbMutedSegment = $state<string | null>(null); // UUID of currently muted segment
+	let sbAskPrompt = $state<{ seg: SBSeg; action: SBAction } | null>(null); // "ask before skip" prompt
+
+	const SB_COLORS: Record<string, string> = {
+		sponsor: '#00d400', selfpromo: '#ffff00', interaction: '#cc00ff',
+		intro: '#00ffff', outro: '#0202ed', preview: '#008fd6',
+		music_offtopic: '#ff9900', filler: '#7300FF', poi_highlight: '#ff1684', chapter: '#ffd679'
+	};
+	const SB_LABELS: Record<string, string> = {
+		sponsor: 'Sponsor', selfpromo: 'Self-Promotion', interaction: 'Interaction',
+		intro: 'Intro', outro: 'Outro', preview: 'Preview',
+		music_offtopic: 'Non-Music', filler: 'Filler', poi_highlight: 'Highlight', chapter: 'Chapter'
+	};
+
+	/** Load SponsorBlock preferences then segments */
+	async function loadSponsorBlock() {
+		if (!videoId) return;
+		try {
+			const prefRes = await fetch('/api/sponsorblock/preferences');
+			if (!prefRes.ok) return;
+			sbPrefs = await prefRes.json();
+			if (!sbPrefs?.enabled) return;
+
+			const segRes = await fetch(`/api/sponsorblock/segments?videoId=${encodeURIComponent(videoId)}`);
+			if (!segRes.ok) return;
+			const { segments } = await segRes.json();
+			sbSegments = segments ?? [];
+		} catch { /* silent */ }
+	}
+
+	/** Called on every timeupdate — handles auto-skip and mute */
+	function sbHandleTimeUpdate(time: number) {
+		if (!sbPrefs?.enabled || sbSegments.length === 0) return;
+		const cats = sbPrefs.categorySettings;
+
+		for (const seg of sbSegments) {
+			const action = cats[seg.category] ?? 'off';
+			if (action === 'off') continue;
+			const [start, end] = seg.segment;
+
+			// Only act when in range and haven't already skipped this one
+			if (time >= start && time < end - 0.3) {
+				if (action === 'skip' && !sbSkippedUUIDs.has(seg.UUID)) {
+					sbSkippedUUIDs = new Set([...sbSkippedUUIDs, seg.UUID]);
+					seekTo(end / totalDuration);
+					showSBSkipNotice(seg.category);
+					break;
+				}
+				if (action === 'mute') {
+					if (sbMutedSegment !== seg.UUID) {
+						sbMutedSegment = seg.UUID;
+						const el = activeEl();
+						if (el && !el.muted) { el.muted = true; }
+					}
+				}
+				if (action === 'ask' && !sbSkippedUUIDs.has(seg.UUID) && !sbAskPrompt) {
+					sbAskPrompt = { seg, action };
+				}
+			}
+		}
+
+		// Unmute when leaving muted segment
+		if (sbMutedSegment) {
+			const mutedSeg = sbSegments.find(s => s.UUID === sbMutedSegment);
+			if (mutedSeg) {
+				const [, end] = mutedSeg.segment;
+				if (time >= end || time < mutedSeg.segment[0]) {
+					sbMutedSegment = null;
+					const el = activeEl();
+					if (el && !muted) { el.muted = false; }
+				}
+			}
+		}
+	}
+
+	function showSBSkipNotice(category: string) {
+		if (!sbPrefs?.showSkipNotice) return;
+		if (sbSkipNotice?.timeout) clearTimeout(sbSkipNotice.timeout);
+		const dur = sbPrefs.skipNoticeDuration || 3000;
+		const timeout = dur > 0 ? setTimeout(() => { sbSkipNotice = null; }, dur) : undefined;
+		sbSkipNotice = { category, timeout };
+	}
+
+	function sbAcceptAsk() {
+		if (!sbAskPrompt) return;
+		const { seg } = sbAskPrompt;
+		sbSkippedUUIDs = new Set([...sbSkippedUUIDs, seg.UUID]);
+		seekTo(seg.segment[1] / totalDuration);
+		showSBSkipNotice(seg.category);
+		sbAskPrompt = null;
+	}
+
+	function sbDismissAsk() {
+		if (!sbAskPrompt) return;
+		sbSkippedUUIDs = new Set([...sbSkippedUUIDs, sbAskPrompt.seg.UUID]);
+		sbAskPrompt = null;
+	}
+
+	/** Derived: segments to render on timeline */
+	const sbTimelineSegments = $derived(
+		sbPrefs?.showOnTimeline && totalDuration > 0
+			? sbSegments
+				.filter(s => (sbPrefs!.categorySettings[s.category] ?? 'off') !== 'off')
+				.map(s => ({
+					left: (s.segment[0] / totalDuration) * 100,
+					width: ((s.segment[1] - s.segment[0]) / totalDuration) * 100,
+					color: SB_COLORS[s.category] ?? '#888',
+					label: SB_LABELS[s.category] ?? s.category,
+					category: s.category
+				}))
+			: []
+	);
+
 	/* ── Scrub hover tooltip ── */
 	let scrubHover = $state(false);
 	let scrubHoverFrac = $state(0);
@@ -1050,6 +1171,7 @@
 		});
 		el.addEventListener('timeupdate', () => {
 			if (!isScrubbing) currentTime = el.currentTime;
+			sbHandleTimeUpdate(el.currentTime);
 		});
 		el.addEventListener('durationchange', () => {
 			if (el.duration && isFinite(el.duration)) totalDuration = el.duration;
@@ -1118,6 +1240,9 @@
 		}
 		// Also fetch server-side rules (async, may override localStorage)
 		loadSpeedRulesFromServer();
+
+		// Load SponsorBlock segments & preferences
+		loadSponsorBlock();
 
 		if (autoplay) { hasStarted = true; startPlayback(); }
 	});
@@ -1242,6 +1367,25 @@
 		{/if}
 
 		{#if hasStarted && !errorMsg}
+			<!-- SponsorBlock skip notice -->
+			{#if sbSkipNotice}
+				<div class="sb-notice" style="--sb-color: {SB_COLORS[sbSkipNotice.category] ?? '#888'}">
+					<span class="sb-notice__dot" style="background:{SB_COLORS[sbSkipNotice.category] ?? '#888'}"></span>
+					<span class="sb-notice__text">Skipped {SB_LABELS[sbSkipNotice.category] ?? sbSkipNotice.category}</span>
+					<button class="sb-notice__close" onclick={() => { sbSkipNotice = null; }}>&times;</button>
+				</div>
+			{/if}
+
+			<!-- SponsorBlock ask prompt -->
+			{#if sbAskPrompt}
+				<div class="sb-ask">
+					<span class="sb-ask__dot" style="background:{SB_COLORS[sbAskPrompt.seg.category] ?? '#888'}"></span>
+					<span class="sb-ask__text">Skip {SB_LABELS[sbAskPrompt.seg.category] ?? sbAskPrompt.seg.category}?</span>
+					<button class="sb-ask__btn sb-ask__btn--yes" onclick={sbAcceptAsk}>Skip</button>
+					<button class="sb-ask__btn sb-ask__btn--no" onclick={sbDismissAsk}>No</button>
+				</div>
+			{/if}
+
 			<div class="ctrl" class:ctrl--hidden={!showControls}>
 				<!-- Top bar: back + media info -->
 				<div class="ctrl__top">
@@ -1279,6 +1423,9 @@
 						<div class="scrub__rail">
 							<div class="scrub__buf" style="width:{bufferedPct}%"></div>
 							<div class="scrub__fill" style="width:{scrubPct}%"></div>
+							{#each sbTimelineSegments as seg}
+								<div class="scrub__sb-seg" style="left:{seg.left}%;width:{seg.width}%;background:{seg.color}" title="{seg.label}"></div>
+							{/each}
 						</div>
 						<div class="scrub__thumb" style="left:{scrubPct}%"></div>
 						{#if scrubHover && !isScrubbing}
@@ -1716,6 +1863,54 @@
 		padding: 0.2rem 0.5rem; border-radius: 5px; white-space: nowrap;
 	}
 	.scrub__tip--active { background: var(--color-accent); border-color: transparent; font-weight: 600; }
+
+	/* SponsorBlock segment overlays on timeline */
+	.scrub__sb-seg {
+		position: absolute; top: 0; bottom: 0; border-radius: 2px;
+		opacity: 0.6; pointer-events: none; z-index: 1;
+		transition: opacity 0.15s;
+	}
+	.scrub:hover .scrub__sb-seg { opacity: 0.85; }
+
+	/* SponsorBlock skip notice toast */
+	.sb-notice {
+		position: absolute; top: 1.25rem; right: 1.25rem; z-index: 50;
+		display: flex; align-items: center; gap: 0.5rem;
+		background: rgba(0,0,0,0.82); backdrop-filter: blur(12px);
+		border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid var(--sb-color, #888);
+		border-radius: 8px; padding: 0.5rem 0.75rem;
+		color: white; font-size: 0.8rem; pointer-events: auto;
+		animation: sb-slide-in 0.3s ease-out;
+	}
+	@keyframes sb-slide-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+	.sb-notice__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+	.sb-notice__text { white-space: nowrap; }
+	.sb-notice__close {
+		background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer;
+		font-size: 1.1rem; line-height: 1; padding: 0 0.15rem; margin-left: 0.25rem;
+	}
+	.sb-notice__close:hover { color: white; }
+
+	/* SponsorBlock ask prompt */
+	.sb-ask {
+		position: absolute; bottom: 6rem; right: 1.25rem; z-index: 50;
+		display: flex; align-items: center; gap: 0.5rem;
+		background: rgba(0,0,0,0.88); backdrop-filter: blur(12px);
+		border: 1px solid rgba(255,255,255,0.1);
+		border-radius: 10px; padding: 0.6rem 0.85rem;
+		color: white; font-size: 0.82rem; pointer-events: auto;
+		animation: sb-slide-in 0.3s ease-out;
+	}
+	.sb-ask__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+	.sb-ask__text { white-space: nowrap; }
+	.sb-ask__btn {
+		font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 6px;
+		border: 1px solid rgba(255,255,255,0.15); background: transparent;
+		color: white; cursor: pointer; transition: all 0.15s;
+	}
+	.sb-ask__btn:hover { background: rgba(255,255,255,0.1); }
+	.sb-ask__btn--yes { border-color: var(--color-accent); color: var(--color-accent); }
+	.sb-ask__btn--yes:hover { background: var(--color-accent); color: #000; }
 
 	.vol-wrap { display: flex; align-items: center; gap: 0.1rem; }
 	.vol-slider {
