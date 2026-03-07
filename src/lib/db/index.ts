@@ -559,6 +559,19 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		UNIQUE(user_id, service_id, entry_id, entry_type)
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_save_metadata_lookup ON save_metadata(user_id, service_id, entry_type)`);
+
+	// ── Playback Speed Rules ─────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS playback_speed_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		scope TEXT NOT NULL DEFAULT 'default',
+		scope_value TEXT,
+		scope_name TEXT,
+		speed REAL NOT NULL DEFAULT 1,
+		updated_at INTEGER NOT NULL,
+		UNIQUE(user_id, scope, scope_value)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_speed_rules_user ON playback_speed_rules(user_id, scope)`);
 }
 
 export { schema };

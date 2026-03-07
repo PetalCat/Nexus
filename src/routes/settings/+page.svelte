@@ -5,7 +5,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Tab state ──────────────────────────────────────────────
-	let activeTab = $state<'services' | 'accounts' | 'notifications'>('services');
+	let activeTab = $state<'services' | 'accounts' | 'notifications' | 'playback'>('services');
 
 	// ── Services tab state ─────────────────────────────────────
 	let showAddForm = $state(false);
@@ -29,7 +29,83 @@
 
 	let idManuallyEdited = $state(false);
 
+	// ── User management stubs (UI remains but logic moved to Admin) ──
+	let resetPasswordUserId = $state<string | null>(null);
+	let resetPasswordValue = $state('');
+	let resetPasswordError = $state<string | null>(null);
+	let resetPasswordLoading = $state(false);
+	let deleteUserConfirm = $state<string | null>(null);
+	let provisioning = $state(false);
+	let provisionUserId = $state<string | null>(null);
+	let provisionResult = $state<Array<{ serviceName: string; serviceType: string; status: string; externalUsername?: string; error?: string }> | null>(null);
+	let provisionError = $state<string | null>(null);
+	let migrateResult = $state<{ imported: number; results: Array<{ username: string; status: string; error?: string }> } | null>(null);
+
+	async function adminResetPassword(userId: string) {
+		if (!resetPasswordValue || resetPasswordValue.length < 6) { resetPasswordError = 'Min 6 characters'; return; }
+		resetPasswordLoading = true; resetPasswordError = null;
+		try {
+			const res = await fetch('/api/admin/users/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, password: resetPasswordValue }) });
+			if (!res.ok) { const b = await res.json().catch(() => ({})); resetPasswordError = b.error ?? 'Failed'; return; }
+			resetPasswordUserId = null; resetPasswordValue = '';
+		} catch (e) { resetPasswordError = String(e); }
+		finally { resetPasswordLoading = false; }
+	}
+
+	async function deleteUser(userId: string) {
+		await fetch(`/api/admin/users?id=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+		await invalidateAll(); deleteUserConfirm = null;
+	}
+
+	async function toggleForceReset(userId: string, val: boolean) {
+		await fetch('/api/admin/users/force-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, forcePasswordReset: val }) });
+		await invalidateAll();
+	}
+
 	// (Users tab moved to Admin → Users)
+
+	// ── Invite state (admin) ───────────────────────────────────
+	let inviteMaxUses = $state(1);
+	let inviteExpiry = $state(0);
+	let creatingInvite = $state(false);
+	let newInviteCode = $state<string | null>(null);
+	let deleteInviteConfirm = $state<string | null>(null);
+
+	async function createInvite() {
+		creatingInvite = true; newInviteCode = null;
+		try {
+			const res = await fetch('/api/admin/invites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxUses: inviteMaxUses, expiresIn: inviteExpiry || null }) });
+			if (res.ok) { const body = await res.json(); newInviteCode = body.code; await invalidateAll(); }
+		} catch { /* silent */ }
+		finally { creatingInvite = false; }
+	}
+
+	async function deleteInvite(code: string) {
+		await fetch(`/api/admin/invites?code=${encodeURIComponent(code)}`, { method: 'DELETE' });
+		await invalidateAll(); deleteInviteConfirm = null;
+	}
+
+	// ── Migration state (admin) ────────────────────────────────
+	let migrateLoading = $state(false);
+	let migratePreview = $state<Array<{ username: string; serviceName: string; isAdmin?: boolean }> | null>(null);
+
+	async function previewMigration() {
+		migrateLoading = true; migratePreview = null;
+		try {
+			const res = await fetch('/api/admin/migrate/preview');
+			if (res.ok) { migratePreview = await res.json(); }
+		} catch { /* silent */ }
+		finally { migrateLoading = false; }
+	}
+
+	async function executeMigration() {
+		migrateLoading = true;
+		try {
+			const res = await fetch('/api/admin/migrate', { method: 'POST' });
+			if (res.ok) { migrateResult = await res.json(); migratePreview = null; await invalidateAll(); }
+		} catch { /* silent */ }
+		finally { migrateLoading = false; }
+	}
 
 	// ── Notification preferences state ─────────────────────────
 	let notifPrefs = $state<Record<string, boolean>>({});
@@ -69,6 +145,58 @@
 
 	$effect(() => {
 		if (activeTab === 'notifications') loadNotifPrefs();
+	});
+
+	// ── Playback speed state ──────────────────────────────────
+	type SpeedRule = { id?: number; scope: string; scopeValue: string | null; scopeName: string | null; speed: number };
+	let speedRules = $state<SpeedRule[]>([]);
+	let speedLoading = $state(false);
+	let speedSaving = $state(false);
+	let newRuleScope = $state<'default' | 'type' | 'channel'>('default');
+	let newRuleScopeValue = $state('');
+	let newRuleScopeName = $state('');
+	let newRuleSpeed = $state(1);
+
+	async function loadSpeedRules() {
+		speedLoading = true;
+		try {
+			const res = await fetch('/api/speed');
+			if (res.ok) {
+				const { rules } = await res.json();
+				speedRules = rules;
+			}
+		} catch { /* silent */ }
+		finally { speedLoading = false; }
+	}
+
+	async function saveSpeedRule() {
+		speedSaving = true;
+		try {
+			await fetch('/api/speed', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					scope: newRuleScope,
+					scopeValue: newRuleScope === 'default' ? null : newRuleScopeValue || null,
+					scopeName: newRuleScope === 'default' ? null : newRuleScopeName || null,
+					speed: newRuleSpeed
+				})
+			});
+			newRuleScopeValue = '';
+			newRuleScopeName = '';
+			newRuleSpeed = 1;
+			await loadSpeedRules();
+		} catch { /* silent */ }
+		finally { speedSaving = false; }
+	}
+
+	async function deleteSpeedRule(id: number) {
+		await fetch(`/api/speed?id=${id}`, { method: 'DELETE' });
+		await loadSpeedRules();
+	}
+
+	$effect(() => {
+		if (activeTab === 'playback') loadSpeedRules();
 	});
 
 	// ── Account linking state ──────────────────────────────────
@@ -349,6 +477,7 @@
 		<!-- Users tab moved to Admin dashboard -->
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'accounts' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'accounts')}>My Accounts</button>
 		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'notifications' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'notifications')}>Notifications</button>
+		<button class="flex-shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all whitespace-nowrap {activeTab === 'playback' ? 'bg-[var(--color-raised)] text-[var(--color-display)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}" onclick={() => (activeTab = 'playback')}>Playback</button>
 	</div>
 
 	<!-- ═══════════════════════════ Services Tab ═══════════════════════════ -->
@@ -1109,6 +1238,87 @@
 	{/if}
 
 	<!-- ═══════════════════════════ Notifications Tab ═══════════════════════════ -->
+	{#if activeTab === 'playback'}
+		<section class="mb-8">
+			<h2 class="text-display mb-1 text-base font-semibold">Playback Speed Rules</h2>
+			<p class="text-body-muted mb-5 text-xs">Set default playback speeds. More specific rules (video &gt; channel &gt; type) take priority.</p>
+
+			{#if speedLoading}
+				<div class="space-y-3">
+					{#each { length: 3 } as _, i (i)}
+						<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+							<div class="h-4 w-40 rounded bg-[var(--color-raised)] animate-pulse"></div>
+							<div class="h-4 w-12 rounded bg-[var(--color-raised)] animate-pulse"></div>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<!-- Existing rules -->
+				{#if speedRules.length > 0}
+					<div class="space-y-2 mb-6">
+						{#each speedRules as rule (rule.id)}
+							<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+								<div>
+									<p class="text-sm font-medium text-[var(--color-display)]">
+										{#if rule.scope === 'default'}Global Default
+										{:else if rule.scope === 'type'}Type: {rule.scopeName || rule.scopeValue}
+										{:else if rule.scope === 'channel'}Channel: {rule.scopeName || rule.scopeValue}
+										{:else}Video: {rule.scopeName || rule.scopeValue}{/if}
+									</p>
+									<p class="mt-0.5 text-xs text-[var(--color-muted)]">{rule.speed}x</p>
+								</div>
+								<button class="text-xs text-red-400 hover:text-red-300 transition-colors" onclick={() => rule.id && deleteSpeedRule(rule.id)}>Remove</button>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-body-muted mb-6 text-xs">No speed rules yet. Add one below.</p>
+				{/if}
+
+				<!-- Add new rule -->
+				<div class="rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-5">
+					<h3 class="text-sm font-medium text-[var(--color-display)] mb-3">Add Speed Rule</h3>
+					<div class="flex flex-wrap gap-3 items-end">
+						<div>
+							<label class="block text-xs text-[var(--color-muted)] mb-1">Scope</label>
+							<select class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)]" bind:value={newRuleScope}>
+								<option value="default">Global Default</option>
+								<option value="type">Media Type</option>
+								<option value="channel">Channel</option>
+							</select>
+						</div>
+
+						{#if newRuleScope !== 'default'}
+							<div>
+								<label class="block text-xs text-[var(--color-muted)] mb-1">
+									{newRuleScope === 'type' ? 'Type (e.g. movie, show, video)' : 'Channel ID'}
+								</label>
+								<input type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeValue} placeholder={newRuleScope === 'type' ? 'movie' : 'channel-id'} />
+							</div>
+							<div>
+								<label class="block text-xs text-[var(--color-muted)] mb-1">Display Name</label>
+								<input type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeName} placeholder="Optional label" />
+							</div>
+						{/if}
+
+						<div>
+							<label class="block text-xs text-[var(--color-muted)] mb-1">Speed</label>
+							<input type="number" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-24" bind:value={newRuleSpeed} min="0.1" max="16" step="0.05" />
+						</div>
+
+						<button
+							class="rounded-md bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+							onclick={saveSpeedRule}
+							disabled={speedSaving || (newRuleScope !== 'default' && !newRuleScopeValue)}
+						>
+							{speedSaving ? 'Saving...' : 'Save Rule'}
+						</button>
+					</div>
+				</div>
+			{/if}
+		</section>
+	{/if}
+
 	{#if activeTab === 'notifications'}
 		<section class="mb-8">
 			<h2 class="text-display mb-1 text-base font-semibold">Notification Preferences</h2>
