@@ -1,5 +1,10 @@
 import { getServiceConfig } from '$lib/server/services';
+import { getUserCredentialForService } from '$lib/server/auth';
+import { registry } from '$lib/adapters/registry';
 import type { RequestHandler } from './$types';
+
+/** Cache resolved Jellyfin userIds to avoid extra lookups */
+const userIdCache = new Map<string, string>();
 
 /**
  * GET /api/stream/{serviceId}/subtitles?itemId={id}
@@ -20,20 +25,66 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		return new Response('Service not found', { status: 404 });
 	}
 
-	const token = config.apiKey ?? '';
+	const adapter = registry.get(config.type);
+	const userCred =
+		locals.user?.id && adapter?.userLinkable
+			? getUserCredentialForService(locals.user.id, serviceId) ?? undefined
+			: undefined;
+
+	const token = userCred?.accessToken ?? config.apiKey ?? '';
 	const baseUrl = config.url.replace(/\/+$/, '');
 
-	try {
-		const res = await fetch(
-			`${baseUrl}/Items/${itemId}?Fields=MediaStreams&EnableImages=false`,
-			{
-				headers: {
-					Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${serviceId}", Version="1.0.0", Token="${token}"`,
-					'X-Emby-Token': token
-				},
-				signal: AbortSignal.timeout(8000)
+	// Resolve Jellyfin userId — required for /Users/{id}/Items/{id} endpoint
+	let jellyfinUserId = userCred?.externalUserId ?? '';
+	if (!jellyfinUserId) {
+		const cached = userIdCache.get(serviceId);
+		if (cached) {
+			jellyfinUserId = cached;
+		} else if (token) {
+			try {
+				const meRes = await fetch(`${baseUrl}/Users/Me`, {
+					headers: { 'X-Emby-Token': token },
+					signal: AbortSignal.timeout(5000)
+				});
+				if (meRes.ok) {
+					const me = await meRes.json();
+					jellyfinUserId = me.Id ?? '';
+				}
+			} catch { /* silent */ }
+
+			if (!jellyfinUserId) {
+				try {
+					const usersRes = await fetch(`${baseUrl}/Users`, {
+						headers: { 'X-Emby-Token': token },
+						signal: AbortSignal.timeout(5000)
+					});
+					if (usersRes.ok) {
+						const users = await usersRes.json();
+						const list = Array.isArray(users) ? users : (users.Items ?? []);
+						const admin = list.find((u: any) => u.Policy?.IsAdministrator);
+						jellyfinUserId = (admin ?? list[0])?.Id ?? '';
+					}
+				} catch { /* silent */ }
 			}
-		);
+
+			if (jellyfinUserId) userIdCache.set(serviceId, jellyfinUserId);
+		}
+	}
+
+	// Use /Users/{userId}/Items/{itemId} when we have a userId (avoids "Guid can't be empty" error),
+	// fall back to /Items/{itemId} otherwise
+	const itemUrl = jellyfinUserId
+		? `${baseUrl}/Users/${jellyfinUserId}/Items/${itemId}?Fields=MediaStreams&EnableImages=false`
+		: `${baseUrl}/Items/${itemId}?Fields=MediaStreams&EnableImages=false`;
+
+	try {
+		const res = await fetch(itemUrl, {
+			headers: {
+				Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${serviceId}", Version="1.0.0", Token="${token}"`,
+				'X-Emby-Token': token
+			},
+			signal: AbortSignal.timeout(8000)
+		});
 
 		if (!res.ok) return new Response('Upstream error', { status: res.status });
 

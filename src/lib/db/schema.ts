@@ -533,3 +533,17 @@ export const gameNotes = sqliteTable('game_notes', {
 });
 
 export type GameNote = typeof gameNotes.$inferSelect;
+
+// Local metadata for cloud saves/states (labels, pins — not in RomM)
+export const saveMetadata = sqliteTable('save_metadata', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	entryId: integer('entry_id').notNull(), // RomM save/state ID
+	entryType: text('entry_type').notNull(), // 'save' | 'state'
+	label: text('label'),
+	pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type SaveMetadata = typeof saveMetadata.$inferSelect;

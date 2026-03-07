@@ -80,10 +80,17 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		}
 	}
 
-	// Sort by resolution descending
-	allVideoFormats.sort(
-		(a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0)
-	);
+	// Sort: muxed first (reliable audio), then by resolution descending
+	allVideoFormats.sort((a, b) => {
+		// Muxed formats first at each resolution
+		const resA = parseInt(a.quality) || 0;
+		const resB = parseInt(b.quality) || 0;
+		if (resA !== resB) return resB - resA;
+		// Same resolution: prefer muxed
+		if (a.muxed && !b.muxed) return -1;
+		if (!a.muxed && b.muxed) return 1;
+		return 0;
+	});
 
 	// Audio formats for synced playback
 	const audioFormats = (meta.adaptiveFormats ?? [])

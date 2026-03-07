@@ -244,6 +244,15 @@ function onUserDisconnected(userId: string): void {
 
 // ── Cleanup ──────────────────────────────────────────────────────────────
 
+export function broadcastToAll(msg: WsMessage): void {
+	const payload = JSON.stringify(msg);
+	for (const entry of connectedUsers.values()) {
+		for (const ws of entry.sockets) {
+			if (ws.readyState === 1) ws.send(payload);
+		}
+	}
+}
+
 export function shutdownWs(): void {
 	if (heartbeatInterval) clearInterval(heartbeatInterval);
 	if (wss) wss.close();

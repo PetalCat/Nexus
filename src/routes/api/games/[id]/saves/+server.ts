@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getRomSaves, uploadRomState } from '$lib/adapters/romm';
+import { getRomSaves, uploadRomSave } from '$lib/adapters/romm';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
@@ -12,7 +12,13 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 	if (!config || config.type !== 'romm') throw error(404);
 	const userCred = getUserCredentialForService(locals.user.id, serviceId) ?? undefined;
 	const saves = await getRomSaves(config, params.id, userCred);
-	return json(saves);
+	const proxied = saves.map(s => ({
+		...s,
+		screenshot_url: s.screenshot_url
+			? `/api/media/image?service=${serviceId}&path=${encodeURIComponent(new URL(s.screenshot_url).pathname)}`
+			: undefined
+	}));
+	return json(proxied);
 };
 
 export const POST: RequestHandler = async ({ params, request, locals, url }) => {
@@ -26,9 +32,12 @@ export const POST: RequestHandler = async ({ params, request, locals, url }) => 
 	const formData = await request.formData();
 	const file = formData.get('file') as File | null;
 	if (!file) throw error(400, 'file required');
+	const screenshot = formData.get('screenshot') as File | null;
 
-	const ok = await uploadRomState(config, params.id, file, file.name, userCred);
-	if (!ok) throw error(500, 'Failed to upload save');
+	const ok = await uploadRomSave(config, params.id, file, file.name, userCred, screenshot ?? undefined);
+	if (!ok) {
+		return json({ ok: false, error: 'RomM rejected the upload' }, { status: 502 });
+	}
 
 	return json({ ok: true });
 };

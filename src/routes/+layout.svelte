@@ -5,7 +5,7 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
-	import { onNavigate, afterNavigate } from '$app/navigation';
+	import { onNavigate, afterNavigate, invalidateAll } from '$app/navigation';
 	import { initAnalytics, trackPageView, destroyAnalytics } from '$lib/stores/analytics';
 	import { connectWs, disconnectWs, onMessage } from '$lib/stores/ws';
 	import { setNavigating } from '$lib/transition';
@@ -53,8 +53,9 @@
 	}
 
 	let unsubWs: (() => void) | null = null;
+	let unsubRecovery: (() => void) | null = null;
 
-	const noLayoutPaths = ['/setup', '/login', '/register', '/pending-approval', '/reset-password', '/books/read'];
+	const noLayoutPaths = ['/setup', '/login', '/register', '/pending-approval', '/reset-password', '/books/read', '/play'];
 	const noLayout = $derived(noLayoutPaths.some((p) => $page.url.pathname === p || $page.url.pathname.startsWith(p + '/')));
 
 	let sidebarCollapsed = $state(false);
@@ -68,12 +69,18 @@
 				// Re-fetch notifications when a new one arrives
 				fetchNotifications();
 			});
+			// When backend services recover from an outage, reload all page data
+			unsubRecovery = onMessage('services:recovered', () => {
+				console.log('[Nexus] Backend service(s) recovered — refreshing data');
+				invalidateAll();
+			});
 		}
 	});
 	onDestroy(() => {
 		destroyAnalytics();
 		disconnectWs();
 		unsubWs?.();
+		unsubRecovery?.();
 	});
 	afterNavigate(({ to }) => {
 		if (to?.url) trackPageView(to.url.pathname);

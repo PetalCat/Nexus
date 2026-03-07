@@ -123,6 +123,7 @@ async function pollJellyfinSessions() {
 	const configs = getEnabledConfigs().filter((c) => c.type === 'jellyfin');
 	const now = Date.now();
 	const seenKeys = new Set<string>();
+	const failedServiceIds = new Set<string>();
 
 	for (const config of configs) {
 		try {
@@ -134,7 +135,11 @@ async function pollJellyfinSessions() {
 				},
 				signal: AbortSignal.timeout(5000)
 			});
-			if (!res.ok) continue;
+			if (!res.ok) {
+				// Server responded but with an error — don't treat sessions as ended
+				failedServiceIds.add(config.id);
+				continue;
+			}
 
 			const sessions: JfSession[] = await res.json();
 
@@ -268,12 +273,17 @@ async function pollJellyfinSessions() {
 				}
 			}
 		} catch (e) {
+			// Service unreachable — don't end sessions from this service
+			failedServiceIds.add(config.id);
 			console.error(`[poller] Failed to poll ${config.name}:`, e instanceof Error ? e.message : e);
 		}
 	}
 
-	// Detect ended sessions
+	// Detect ended sessions — but only for services we successfully polled.
+	// If a service was unreachable, preserve its sessions so they resume
+	// when the service comes back online.
 	for (const [key, session] of activeSessions) {
+		if (failedServiceIds.has(session.serviceId)) continue; // skip — server was down
 		if (!seenKeys.has(key)) {
 			emitMediaEvent({
 				userId: session.userId,

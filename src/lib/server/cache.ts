@@ -35,3 +35,8 @@ export function invalidatePrefix(prefix: string) {
 		if (key.startsWith(prefix)) store.delete(key);
 	}
 }
+
+/** Invalidate every cached entry. */
+export function invalidateAll() {
+	store.clear();
+}

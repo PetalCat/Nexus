@@ -38,6 +38,9 @@ cookies.txt
 npm-debug.log*
 pnpm-debug.log*
 
+# Rust / Cargo build artefacts
+stream-proxy/target/
+
 # Editor / IDE
 .idea/
 *.swp

@@ -8,7 +8,7 @@
 	import BookListRow from '$lib/components/books/BookListRow.svelte';
 	import SeriesCard from '$lib/components/books/SeriesCard.svelte';
 	import AuthorCard from '$lib/components/books/AuthorCard.svelte';
-	import ReadingStatsWidget from '$lib/components/books/ReadingStatsWidget.svelte';
+	// ReadingStatsWidget imported lazily only when there's reading data
 
 	let { data }: { data: PageData } = $props();
 
@@ -57,15 +57,10 @@
 </svelte:head>
 
 <div class="flex min-w-0 flex-col">
-	<!-- Hero -->
-	{#if data.featuredBook}
+	<!-- Hero (only for libraries with 5+ books) -->
+	{#if data.featuredBook && data.total >= 5}
 		<BookHero book={data.featuredBook} />
 	{/if}
-
-	<!-- Reading Stats -->
-	<div class="mt-4 px-3 sm:px-4 lg:px-6">
-		<ReadingStatsWidget />
-	</div>
 
 	<!-- Continue Reading Row -->
 	{#if data.continueReading.length > 0}
@@ -74,31 +69,35 @@
 		</div>
 	{/if}
 
-	<!-- Recently Added Row -->
-	{#if data.recentlyAdded.length > 0}
+	<!-- Recently Added Row (only if 10+ books — avoids duplicating the grid) -->
+	{#if data.recentlyAdded.length > 0 && data.total >= 10}
 		<div class="mt-6">
 			<MediaRow row={{ id: 'recently-added', title: 'Recently Added', subtitle: 'Latest additions to your library', items: data.recentlyAdded }} />
 		</div>
 	{/if}
 
-	<!-- Tab Navigation -->
-	<div class="mt-8 border-b border-[var(--color-surface)] px-3 sm:px-4 lg:px-6">
-		<nav class="flex gap-0">
-			{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t}
-				<a
-					href={buildUrl({ tab: t.id })}
-					class="relative px-4 py-2.5 text-sm font-medium transition-colors {activeTab === t.id
-						? 'text-[var(--color-cream)]'
-						: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-				>
-					{t.label}
-					{#if activeTab === t.id}
-						<div class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-[var(--color-accent)]"></div>
+	<!-- Tab Navigation (only show when series or multiple authors exist) -->
+	{#if data.series.length > 0 || data.authors.length > 1}
+		<div class="{data.total >= 5 ? 'mt-8' : 'mt-4'} border-b border-[var(--color-surface)] px-3 sm:px-4 lg:px-6">
+			<nav class="flex gap-0">
+				{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t}
+					{#if t.id === 'all' || (t.id === 'series' && data.series.length > 0) || (t.id === 'authors' && data.authors.length > 1)}
+						<a
+							href={buildUrl({ tab: t.id })}
+							class="relative px-4 py-2.5 text-sm font-medium transition-colors {activeTab === t.id
+								? 'text-[var(--color-cream)]'
+								: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
+						>
+							{t.label}
+							{#if activeTab === t.id}
+								<div class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-[var(--color-accent)]"></div>
+							{/if}
+						</a>
 					{/if}
-				</a>
-			{/each}
-		</nav>
-	</div>
+				{/each}
+			</nav>
+		</div>
+	{/if}
 
 	<!-- Tab Content -->
 	{#if activeTab === 'series'}
@@ -133,6 +132,7 @@
 			<!-- Filter Bar -->
 			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
 				<div>
+					<h1 class="text-lg font-semibold text-[var(--color-cream)]">Books</h1>
 					<p class="text-xs text-[var(--color-muted)]">
 						{data.total} book{data.total === 1 ? '' : 's'}
 						{#if data.category}· {data.category}{/if}
@@ -140,8 +140,8 @@
 					</p>
 				</div>
 
-				<!-- Category chips (scrollable) -->
-				{#if data.categories.length > 0}
+				<!-- Category chips (only show when 5+ books and multiple categories) -->
+				{#if data.categories.length > 1 && data.total >= 5}
 					<div class="flex gap-1.5 overflow-x-auto scrollbar-none sm:ml-auto">
 						<a
 							href={buildUrl({ category: '' })}
@@ -161,7 +161,8 @@
 				{/if}
 			</div>
 
-			<!-- Controls Row -->
+			<!-- Controls Row (hide for tiny libraries) -->
+			{#if data.total > 1}
 			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
 				<!-- Sort -->
 				<div class="flex items-center gap-2">
@@ -234,6 +235,7 @@
 					placeholder="Filter..."
 				/>
 			</div>
+			{/if}
 
 			<!-- Library Display -->
 			{#if filtered.length === 0}
