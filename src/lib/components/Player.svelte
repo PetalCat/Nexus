@@ -102,6 +102,8 @@
 	type Panel = 'none' | 'quality' | 'audio' | 'subtitles' | 'speed';
 	let activePanel: Panel = $state('none');
 	let playbackRate = $state(1);
+	let customSpeedInput = $state('');
+	let speedSliderDragging = $state(false);
 	const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 	/* ── PiP ── */
@@ -234,11 +236,51 @@
 		if (e) e.currentTime = frac * totalDuration;
 	}
 
-	function setRate(r: number) {
-		playbackRate = r;
+	function setRate(r: number, closePanel = true) {
+		playbackRate = Math.round(r * 100) / 100;
+		customSpeedInput = '';
 		const e = activeEl();
-		if (e) e.playbackRate = r;
-		activePanel = 'none';
+		if (e) e.playbackRate = playbackRate;
+		if (closePanel) activePanel = 'none';
+		persistSpeed(playbackRate);
+	}
+
+	function applyCustomSpeed() {
+		const v = parseFloat(customSpeedInput);
+		if (!isNaN(v) && v > 0 && v <= 16) {
+			setRate(v);
+		}
+	}
+
+	/** Persist speed: save to localStorage keyed by media context, and fire-and-forget to server */
+	function persistSpeed(speed: number) {
+		if (typeof localStorage === 'undefined') return;
+		// Per-video key
+		const vidKey = videoId || itemId;
+		if (vidKey) localStorage.setItem(`nexus:speed:video:${vidKey}`, String(speed));
+		// Also save as last-used default
+		localStorage.setItem('nexus:speed:default', String(speed));
+		// Fire-and-forget to API for cross-device sync
+		if (vidKey) {
+			fetch('/api/speed', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ scope: 'video', scopeValue: vidKey, speed })
+			}).catch(() => {});
+		}
+	}
+
+	/** Load speed for current media context: video > channel > type > default */
+	function loadPersistedSpeed(): number {
+		if (typeof localStorage === 'undefined') return 1;
+		const vidKey = videoId || itemId;
+		if (vidKey) {
+			const vs = localStorage.getItem(`nexus:speed:video:${vidKey}`);
+			if (vs) return parseFloat(vs);
+		}
+		const ds = localStorage.getItem('nexus:speed:default');
+		if (ds) return parseFloat(ds);
+		return 1;
 	}
 
 	/* ── Scrub bar interactions ── */
@@ -1066,8 +1108,49 @@
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 		window.addEventListener('beforeunload', handleBeforeUnload);
 		progressInterval = setInterval(reportProgress, 5_000);
+
+		// Load persisted playback speed (localStorage first, then server)
+		const savedSpeed = loadPersistedSpeed();
+		if (savedSpeed !== 1) {
+			playbackRate = savedSpeed;
+			const e = activeEl();
+			if (e) e.playbackRate = savedSpeed;
+		}
+		// Also fetch server-side rules (async, may override localStorage)
+		loadSpeedRulesFromServer();
+
 		if (autoplay) { hasStarted = true; startPlayback(); }
 	});
+
+	/** Fetch speed rules from server and apply the best match */
+	async function loadSpeedRulesFromServer() {
+		try {
+			const vidKey = videoId || itemId;
+			const res = await fetch('/api/speed');
+			if (!res.ok) return;
+			const { rules } = await res.json() as { rules: Array<{ scope: string; scopeValue: string | null; speed: number }> };
+			if (!rules || rules.length === 0) return;
+
+			// Priority: video > channel > type > default
+			let best: number | null = null;
+			for (const r of rules) {
+				if (r.scope === 'video' && r.scopeValue === vidKey) { best = r.speed; break; }
+			}
+			if (best === null) {
+				const typeRule = rules.find((r) => r.scope === 'type' && r.scopeValue === type);
+				if (typeRule) best = typeRule.speed;
+			}
+			if (best === null) {
+				const def = rules.find((r) => r.scope === 'default');
+				if (def) best = def.speed;
+			}
+			if (best !== null && best !== playbackRate) {
+				playbackRate = best;
+				const e = activeEl();
+				if (e) e.playbackRate = best;
+			}
+		} catch { /* silent */ }
+	}
 
 	onDestroy(() => {
 		reportStop();
@@ -1334,13 +1417,47 @@
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
 							</button>
 							{#if activePanel === 'speed'}
-								<div class="panel panel--narrow">
-									<div class="panel__head">Speed</div>
-									{#each speeds as s}
-										<button class="panel__item" class:panel__item--on={playbackRate === s} onclick={() => setRate(s)}>
-											{s}x {#if playbackRate === s}<span class="panel__ck">&#10003;</span>{/if}
-										</button>
-									{/each}
+								<div class="panel panel--speed">
+									<div class="panel__head">Speed · <span class="speed-val">{playbackRate}x</span></div>
+
+									<!-- Slider -->
+									<div class="speed-slider-wrap">
+										<span class="speed-slider-label">0.25</span>
+										<input
+											type="range"
+											class="speed-slider"
+											min="0.25"
+											max="4"
+											step="0.05"
+											value={playbackRate}
+											oninput={(e) => { const v = parseFloat(e.currentTarget.value); setRate(v, false); }}
+											onchange={() => { persistSpeed(playbackRate); }}
+										/>
+										<span class="speed-slider-label">4x</span>
+									</div>
+
+									<!-- Presets -->
+									<div class="speed-presets">
+										{#each speeds as s}
+											<button class="speed-chip" class:speed-chip--on={playbackRate === s} onclick={() => setRate(s)}>
+												{s}x
+											</button>
+										{/each}
+									</div>
+
+									<!-- Custom input -->
+									<form class="speed-custom" onsubmit={(e) => { e.preventDefault(); applyCustomSpeed(); }}>
+										<input
+											type="number"
+											class="speed-input"
+											placeholder="Custom"
+											min="0.1"
+											max="16"
+											step="0.01"
+											bind:value={customSpeedInput}
+										/>
+										<button type="submit" class="speed-apply" disabled={!customSpeedInput}>Set</button>
+									</form>
 								</div>
 							{/if}
 						</div>
@@ -1654,6 +1771,59 @@
 	.panel__item--on { color: var(--color-accent); }
 	.panel__ck { color: var(--color-accent); font-weight: 700; margin-left: 0.5rem; }
 	.panel__meta { font-size: 0.62rem; color: rgba(255,255,255,0.3); margin-left: 0.5rem; }
+
+	/* Speed panel */
+	.panel--speed { min-width: 14rem; }
+	.speed-val { color: var(--color-accent); font-variant-numeric: tabular-nums; }
+	.speed-slider-wrap {
+		display: flex; align-items: center; gap: 0.4rem;
+		padding: 0.35rem 0.75rem 0.2rem;
+	}
+	.speed-slider-label { font-size: 0.6rem; color: rgba(255,255,255,0.35); flex-shrink: 0; }
+	.speed-slider {
+		flex: 1; -webkit-appearance: none; appearance: none;
+		height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12);
+		outline: none; cursor: pointer;
+	}
+	.speed-slider::-webkit-slider-thumb {
+		-webkit-appearance: none; appearance: none;
+		width: 14px; height: 14px; border-radius: 50%;
+		background: var(--color-accent); border: none; cursor: pointer;
+	}
+	.speed-slider::-moz-range-thumb {
+		width: 14px; height: 14px; border-radius: 50%;
+		background: var(--color-accent); border: none; cursor: pointer;
+	}
+	.speed-presets {
+		display: flex; flex-wrap: wrap; gap: 0.3rem;
+		padding: 0.35rem 0.75rem;
+	}
+	.speed-chip {
+		font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 6px;
+		border: 1px solid rgba(255,255,255,0.1); background: transparent;
+		color: rgba(255,255,255,0.6); cursor: pointer; transition: all 0.15s;
+	}
+	.speed-chip:hover { background: rgba(255,255,255,0.06); color: #fff; }
+	.speed-chip--on { border-color: var(--color-accent); color: var(--color-accent); background: rgba(var(--color-accent-rgb, 255,255,255),0.08); }
+	.speed-custom {
+		display: flex; gap: 0.35rem; padding: 0.35rem 0.75rem 0.6rem;
+	}
+	.speed-input {
+		flex: 1; font-size: 0.75rem; padding: 0.3rem 0.5rem; border-radius: 6px;
+		border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+		color: #fff; outline: none; min-width: 0;
+	}
+	.speed-input:focus { border-color: var(--color-accent); }
+	.speed-input::-webkit-inner-spin-button,
+	.speed-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+	.speed-input { -moz-appearance: textfield; }
+	.speed-apply {
+		font-size: 0.7rem; padding: 0.3rem 0.6rem; border-radius: 6px;
+		border: 1px solid var(--color-accent); background: transparent;
+		color: var(--color-accent); cursor: pointer; transition: all 0.15s;
+	}
+	.speed-apply:hover:not(:disabled) { background: var(--color-accent); color: #000; }
+	.speed-apply:disabled { opacity: 0.3; cursor: default; }
 
 	.ap {
 		display: flex; align-items: center; gap: 0.875rem;

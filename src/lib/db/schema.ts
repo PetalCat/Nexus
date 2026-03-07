@@ -547,3 +547,18 @@ export const saveMetadata = sqliteTable('save_metadata', {
 });
 
 export type SaveMetadata = typeof saveMetadata.$inferSelect;
+
+// ── Playback Speed Rules ─────────────────────────────────────────
+export const playbackSpeedRules = sqliteTable('playback_speed_rules', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	/** Match scope: 'default' | 'type' | 'channel' | 'video' */
+	scope: text('scope').notNull().default('default'),
+	/** Match value: e.g. 'movie', 'show', channelId, or videoId/mediaId */
+	scopeValue: text('scope_value'),
+	scopeName: text('scope_name'),       // human-readable label (channel name, etc.)
+	speed: real('speed').notNull().default(1),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type PlaybackSpeedRule = typeof playbackSpeedRules.$inferSelect;
