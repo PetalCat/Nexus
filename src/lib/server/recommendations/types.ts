@@ -43,6 +43,7 @@ export interface RecProfileConfig {
 	yearRange?: { min?: number; max?: number };
 	minRating?: number;
 	disabledProviders?: string[];
+	rowOrder?: string[];
 }
 
 export const DEFAULT_PROFILE: RecProfileConfig = {
