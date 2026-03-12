@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getRawDb } from '$lib/db';
 import { invalidatePrefix } from '$lib/server/cache';
+import { invalidateHomepageCache } from '$lib/server/homepage-cache';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
@@ -27,6 +28,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	// Invalidate cached recommendations for this user
 	invalidatePrefix(`rec-rows:${user.id}`);
+	invalidateHomepageCache(user.id);
 
 	return json({ ok: true });
 };
