@@ -47,3 +47,4 @@ stream-proxy/target/
 *.swo
 *~
 .superpowers/
+.worktrees/
