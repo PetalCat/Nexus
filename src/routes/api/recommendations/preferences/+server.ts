@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { getRawDb } from '$lib/db';
 import { DEFAULT_PROFILE } from '$lib/server/recommendations/types';
 import { invalidatePrefix } from '$lib/server/cache';
+import { invalidateHomepageCache } from '$lib/server/homepage-cache';
 import type { RequestHandler } from '@sveltejs/kit';
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -37,6 +38,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 	).run(`default:${user.id}`, user.id, JSON.stringify(body), now, now);
 
 	invalidatePrefix(`rec-rows:${user.id}`);
+	invalidateHomepageCache(user.id);
 
 	return json({ ok: true });
 };
