@@ -25,7 +25,7 @@
 
 <a
 	{href}
-	class="group relative flex w-40 flex-col gap-1.5 sm:w-48 md:w-56"
+	class="group relative flex w-40 shrink-0 flex-col gap-1.5 sm:w-48 md:w-56"
 >
 	<!-- Thumbnail -->
 	<div

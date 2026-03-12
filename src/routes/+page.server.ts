@@ -1,6 +1,7 @@
 import { getDashboardFast } from '$lib/server/services';
-import { getHomepageCache, applyRowOrder, cwToItem } from '$lib/server/homepage-cache';
-import type { HomepageRow, HomepageItem, HeroItem } from '$lib/server/homepage-cache';
+import { getHomepageCache, buildHomepageCache, applyRowOrder, cwToItem } from '$lib/server/homepage-cache';
+import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/server/homepage-cache';
+import { withCache } from '$lib/server/cache';
 import { getRawDb } from '$lib/db';
 import type { PageServerLoad } from './$types';
 
@@ -62,7 +63,27 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	// Cold start — no recommendation cache
+	// No cache — try an eager build (fast, reads existing recommendation_cache from DB)
+	if (userId) {
+		const eagerCache = buildHomepageCache(userId);
+		if (eagerCache && eagerCache.rows.length > 0) {
+			// Store it so subsequent loads are instant
+			withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => eagerCache);
+
+			const allRows = [...eagerCache.rows];
+			if (newRow) allRows.push(newRow);
+			const orderedRows = applyRowOrder(allRows);
+			if (continueRow) orderedRows.unshift(continueRow);
+
+			return {
+				hero: eagerCache.hero,
+				rows: orderedRows,
+				personalized: true
+			};
+		}
+	}
+
+	// True cold start — no recommendation data at all
 	const coldRows: HomepageRow[] = [];
 	if (continueRow) coldRows.push(continueRow);
 	if (newRow) coldRows.push(newRow);
