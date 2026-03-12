@@ -8,7 +8,8 @@ import { socialProvider } from './recommendations/providers/social';
 import { trendingProvider } from './recommendations/providers/trending';
 import { timeAwareProvider } from './recommendations/providers/time-aware';
 import { getRecommendations } from './recommendations/aggregator';
-import { invalidatePrefix } from './cache';
+import { invalidatePrefix, withCache } from './cache';
+import { buildHomepageCache, invalidateHomepageCache } from './homepage-cache';
 
 // ---------------------------------------------------------------------------
 // Recommendation Scheduler
@@ -75,10 +76,18 @@ function runScheduledRebuilds() {
 				rebuildAffinities(userId);
 			}
 
-			// Every 12th tick (60 min) — pre-compute recommendations
+			// Every 12th tick (60 min) — pre-compute recommendations, then build homepage cache
 			if (tickCount % 12 === 0) {
 				invalidatePrefix(`rec-rows:${userId}`);
-				precomputeRecs(userId).catch((e) =>
+				invalidateHomepageCache(userId);
+				precomputeRecs(userId).then(() => {
+					// Build homepage cache AFTER recs are computed so we read fresh data
+					const cache = buildHomepageCache(userId);
+					if (cache) {
+						withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => cache);
+					}
+					console.log(`[rec-scheduler] Homepage cache built for ${userId}`);
+				}).catch((e) =>
 					console.error(`[rec-scheduler] Precompute error for ${userId}:`, e)
 				);
 			}
