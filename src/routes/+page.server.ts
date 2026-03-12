@@ -2,6 +2,7 @@ import { getDashboardFast } from '$lib/server/services';
 import { getHomepageCache, buildHomepageCache, applyRowOrder, cwToItem } from '$lib/server/homepage-cache';
 import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/server/homepage-cache';
 import { withCache } from '$lib/server/cache';
+import { getRecommendations } from '$lib/server/recommendations/aggregator';
 import { getRawDb } from '$lib/db';
 import type { PageServerLoad } from './$types';
 
@@ -63,9 +64,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	// No cache — try an eager build (fast, reads existing recommendation_cache from DB)
+	// No cache — try an eager build
 	if (userId) {
-		const eagerCache = buildHomepageCache(userId);
+		// First try: read from existing recommendation_cache DB entries
+		let eagerCache = buildHomepageCache(userId);
+
+		// If DB cache is also empty, trigger a fresh recommendation compute
+		// This is a one-time cost on first load; subsequent loads use the cache
+		if (!eagerCache || eagerCache.rows.length === 0) {
+			try {
+				await Promise.allSettled([
+					getRecommendations(userId, 'movie', 30),
+					getRecommendations(userId, 'show', 30)
+				]);
+				eagerCache = buildHomepageCache(userId);
+			} catch { /* fall through to cold start */ }
+		}
+
 		if (eagerCache && eagerCache.rows.length > 0) {
 			// Store it so subsequent loads are instant
 			withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => eagerCache);
