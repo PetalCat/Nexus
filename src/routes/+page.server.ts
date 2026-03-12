@@ -1,21 +1,99 @@
-import { getDashboardFast, getDashboardPersonalized } from '$lib/server/services';
+import { getDashboardFast } from '$lib/server/services';
+import { getHomepageCache, applyRowOrder, cwToItem } from '$lib/server/homepage-cache';
+import type { HomepageRow, HomepageItem, HeroItem } from '$lib/server/homepage-cache';
+import { getRawDb } from '$lib/db';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
 
-	// Fast: continue watching + new in library (Jellyfin, local)
-	const rows = await getDashboardFast(userId);
+	// Parallel: live Continue Watching + pre-computed homepage cache
+	const [dashboardRows, homepageCache] = await Promise.all([
+		getDashboardFast(userId),
+		userId ? getHomepageCache(userId) : Promise.resolve(null)
+	]);
 
-	const hero =
-		rows.find((r) => r.id === 'continue')?.items[0] ??
-		rows.find((r) => r.id === 'new-in-library')?.items[0] ??
-		null;
+	// Build Continue Watching row from live data
+	const cwDashRow = dashboardRows.find((r) => r.id === 'continue');
+	const cwItems: HomepageItem[] = (cwDashRow?.items ?? []).map(cwToItem);
+	const continueRow: HomepageRow | null = cwItems.length > 0
+		? { id: 'continue', title: 'Continue Watching', type: 'system', items: cwItems }
+		: null;
+
+	// New in Library from live data (used in both cache-hit and cold-start paths)
+	const newDashRow = dashboardRows.find((r) => r.id === 'new-in-library');
+	const newRow: HomepageRow | null = newDashRow
+		? {
+				id: 'new',
+				title: 'New in Your Library',
+				subtitle: 'Recently added across your media servers',
+				type: 'system',
+				items: newDashRow.items.map(cwToItem)
+			}
+		: null;
+
+	if (homepageCache) {
+		// Cache hit — full personalized homepage
+		let rowOrder: string[] | undefined;
+		if (userId) {
+			const raw = getRawDb();
+			const profileRow = raw.prepare(
+				`SELECT config FROM user_rec_profiles WHERE user_id = ? AND is_default = 1 LIMIT 1`
+			).get(userId) as { config: string } | undefined;
+			if (profileRow?.config) {
+				try {
+					const config = JSON.parse(profileRow.config);
+					rowOrder = config.rowOrder;
+				} catch { /* use default */ }
+			}
+		}
+
+		// Inject New in Library into the cached rows
+		const allRows = [...homepageCache.rows];
+		if (newRow) allRows.push(newRow);
+
+		const orderedRows = applyRowOrder(allRows, rowOrder);
+		if (continueRow) orderedRows.unshift(continueRow);
+
+		return {
+			hero: homepageCache.hero,
+			rows: orderedRows,
+			personalized: true
+		};
+	}
+
+	// Cold start — no recommendation cache
+	const coldRows: HomepageRow[] = [];
+	if (continueRow) coldRows.push(continueRow);
+	if (newRow) coldRows.push(newRow);
+
+	const heroSource = cwDashRow?.items[0] ?? newDashRow?.items[0];
+	const coldHero: HeroItem[] = heroSource?.backdrop
+		? [{
+				id: heroSource.id,
+				sourceId: heroSource.sourceId,
+				serviceId: heroSource.serviceId,
+				serviceType: heroSource.serviceType,
+				title: heroSource.title,
+				year: heroSource.year,
+				runtime: heroSource.duration
+					? `${Math.floor(heroSource.duration / 3600)}h ${Math.floor((heroSource.duration % 3600) / 60)}m`
+					: undefined,
+				rating: heroSource.rating,
+				overview: heroSource.description,
+				backdrop: heroSource.backdrop,
+				poster: heroSource.poster,
+				mediaType: heroSource.type,
+				genres: heroSource.genres,
+				reason: '',
+				provider: '',
+				streamUrl: heroSource.streamUrl
+			}]
+		: [];
 
 	return {
-		rows,
-		hero,
-		// Slow: StreamyStats personalized recs — streamed, renders when ready
-		personalizedRows: getDashboardPersonalized(userId)
+		hero: coldHero,
+		rows: coldRows,
+		personalized: false
 	};
 };
