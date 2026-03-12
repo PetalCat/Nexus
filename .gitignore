@@ -46,3 +46,4 @@ stream-proxy/target/
 *.swp
 *.swo
 *~
+.superpowers/
