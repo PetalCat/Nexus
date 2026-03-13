@@ -596,3 +596,28 @@ export const sponsorblockPreferences = sqliteTable('sponsorblock_preferences', {
 });
 
 export type SponsorBlockPreference = typeof sponsorblockPreferences.$inferSelect;
+
+// ── Recommendation Preferences & Feedback ────────────────────────────
+
+export const recommendationPreferences = sqliteTable('recommendation_preferences', {
+	userId: text('user_id').primaryKey(),
+	mediaTypeWeights: text('media_type_weights').notNull().default(JSON.stringify({
+		movie: 50, show: 50, book: 50, game: 50, music: 50, video: 50
+	})),
+	genrePreferences: text('genre_preferences').notNull().default('{}'),
+	similarityThreshold: real('similarity_threshold').notNull().default(0.5),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const recommendationFeedback = sqliteTable('recommendation_feedback', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	userId: text('user_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	mediaTitle: text('media_title'),
+	feedback: text('feedback').notNull(),
+	reason: text('reason'),
+	createdAt: integer('created_at').notNull()
+});
+
+export type RecommendationPreference = typeof recommendationPreferences.$inferSelect;
+export type RecommendationFeedbackEntry = typeof recommendationFeedback.$inferSelect;
