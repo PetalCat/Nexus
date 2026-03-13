@@ -1,4 +1,4 @@
-import { getDb, schema } from '../db';
+import { getDb, getRawDb, schema } from '../db';
 import { eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -21,8 +21,8 @@ export const MEDIA_EVENTS = {
 	LIKE: 'like',
 	UNLIKE: 'unlike',
 	RATE: 'rate',
-	FAVORITE: 'favorite',
-	UNFAVORITE: 'unfavorite',
+	WATCHLIST_ADD: 'watchlist_add',
+	WATCHLIST_REMOVE: 'watchlist_remove',
 
 	// Library management
 	ADD_TO_WATCHLIST: 'add_to_watchlist',
@@ -73,7 +73,7 @@ export const INTERACTION_EVENTS = {
 	LOGOUT: 'logout',
 	LIKE_BUTTON: 'like_button',
 	RATE_BUTTON: 'rate_button',
-	FAVORITE_BUTTON: 'favorite_button',
+	WATCHLIST_BUTTON: 'watchlist_button',
 	SHARE_BUTTON: 'share_button',
 	PLAYER_ACTION: 'player_action', // play, pause, seek, volume, fullscreen, subtitle change
 	NOTIFICATION_CLICK: 'notification_click',
@@ -231,100 +231,61 @@ export function channelsToLabel(channels: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Media event ingestion
+// Media action ingestion (non-playback events)
 // ---------------------------------------------------------------------------
 
-export interface MediaEventInput {
+export interface MediaActionInput {
 	userId: string;
 	serviceId: string;
 	serviceType: string;
-	eventType: string;
+	actionType: string;
 	mediaId: string;
 	mediaType: string;
 	mediaTitle?: string;
-	mediaYear?: number;
-	mediaGenres?: string[];
-	parentId?: string;
-	parentTitle?: string;
-	positionTicks?: number;
-	durationTicks?: number;
-	playDurationMs?: number;
-	deviceName?: string;
-	clientName?: string;
 	metadata?: Record<string, unknown>;
 	timestamp?: number;
 }
 
-/**
- * Insert a single media event. Fire-and-forget — never throws.
- */
-export function emitMediaEvent(input: MediaEventInput): void {
+/** Insert a single media action (rating, mark_watched, etc.). Fire-and-forget. */
+export function emitMediaAction(input: MediaActionInput): void {
 	try {
 		const db = getDb();
-		const now = Date.now();
-		db.insert(schema.mediaEvents)
+		db.insert(schema.mediaActions)
 			.values({
 				userId: input.userId,
 				serviceId: input.serviceId,
 				serviceType: input.serviceType,
-				eventType: input.eventType,
+				actionType: input.actionType,
 				mediaId: input.mediaId,
 				mediaType: input.mediaType,
 				mediaTitle: input.mediaTitle ?? null,
-				mediaYear: input.mediaYear ?? null,
-				mediaGenres: input.mediaGenres ? JSON.stringify(input.mediaGenres) : null,
-				parentId: input.parentId ?? null,
-				parentTitle: input.parentTitle ?? null,
-				positionTicks: input.positionTicks ?? null,
-				durationTicks: input.durationTicks ?? null,
-				playDurationMs: input.playDurationMs ?? null,
-				deviceName: input.deviceName ?? null,
-				clientName: input.clientName ?? null,
 				metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-				timestamp: input.timestamp ?? now,
-				ingestedAt: now
+				timestamp: input.timestamp ?? Date.now()
 			})
 			.run();
 	} catch (e) {
-		console.error('[analytics] Failed to emit media event:', e);
+		console.error('[analytics] Failed to emit media action:', e);
 	}
 }
 
-/**
- * Batch insert media events (for backfills / sync).
- */
-export function emitMediaEventsBatch(events: MediaEventInput[]): number {
-	if (events.length === 0) return 0;
-	try {
-		const db = getDb();
-		const now = Date.now();
-		const rows = events.map((input) => ({
-			userId: input.userId,
-			serviceId: input.serviceId,
-			serviceType: input.serviceType,
-			eventType: input.eventType,
-			mediaId: input.mediaId,
-			mediaType: input.mediaType,
-			mediaTitle: input.mediaTitle ?? null,
-			mediaYear: input.mediaYear ?? null,
-			mediaGenres: input.mediaGenres ? JSON.stringify(input.mediaGenres) : null,
-			parentId: input.parentId ?? null,
-			parentTitle: input.parentTitle ?? null,
-			positionTicks: input.positionTicks ?? null,
-			durationTicks: input.durationTicks ?? null,
-			playDurationMs: input.playDurationMs ?? null,
-			deviceName: input.deviceName ?? null,
-			clientName: input.clientName ?? null,
-			metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-			timestamp: input.timestamp ?? now,
-			ingestedAt: now
-		}));
-		db.insert(schema.mediaEvents).values(rows).run();
-		return rows.length;
-	} catch (e) {
-		console.error('[analytics] Batch insert failed:', e);
-		return 0;
-	}
+// ---------------------------------------------------------------------------
+// Play session helpers (used by poller + progress endpoints)
+// ---------------------------------------------------------------------------
+
+/** Find an open (not ended) session by session_key. */
+export function findOpenSessionByKey(sessionKey: string) {
+	const db = getRawDb();
+	return db.prepare(
+		`SELECT * FROM play_sessions WHERE session_key = ? AND ended_at IS NULL`
+	).get(sessionKey) as any | undefined;
+}
+
+/** Find an open session for a user + media combination. */
+export function findOpenSession(userId: string, mediaId: string, serviceId: string) {
+	const db = getRawDb();
+	return db.prepare(
+		`SELECT * FROM play_sessions WHERE user_id = ? AND media_id = ? AND service_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
+	).get(userId, mediaId, serviceId) as any | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,99 +363,3 @@ export function emitInteractionEventsBatch(events: InteractionEventInput[]): num
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Query helpers — raw event reads for the stats engine + API
-// ---------------------------------------------------------------------------
-
-export interface EventQueryOpts {
-	userId: string;
-	mediaType?: string;
-	eventType?: string;
-	from?: number; // unix ms
-	to?: number; // unix ms
-	serviceId?: string;
-	titleSearch?: string;
-	limit?: number;
-	offset?: number;
-}
-
-/**
- * Query raw media events with filters. Returns newest-first.
- */
-export function queryMediaEvents(opts: EventQueryOpts) {
-	const db = getDb();
-	const conditions: string[] = ['user_id = ?'];
-	const params: (string | number)[] = [opts.userId];
-
-	if (opts.mediaType) {
-		conditions.push('media_type = ?');
-		params.push(opts.mediaType);
-	}
-	if (opts.eventType) {
-		conditions.push('event_type = ?');
-		params.push(opts.eventType);
-	}
-	if (opts.from) {
-		conditions.push('timestamp >= ?');
-		params.push(opts.from);
-	}
-	if (opts.to) {
-		conditions.push('timestamp <= ?');
-		params.push(opts.to);
-	}
-	if (opts.serviceId) {
-		conditions.push('service_id = ?');
-		params.push(opts.serviceId);
-	}
-	if (opts.titleSearch) {
-		conditions.push('media_title LIKE ?');
-		params.push(`%${opts.titleSearch}%`);
-	}
-
-	const where = conditions.join(' AND ');
-	const limit = opts.limit ?? 1000;
-	const offset = opts.offset ?? 0;
-
-	const sqlQuery = `SELECT * FROM media_events WHERE ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
-	params.push(limit, offset);
-
-	return db.all(sqlQuery, ...params) as (typeof schema.mediaEvents.$inferSelect)[];
-}
-
-/**
- * Count media events matching filters.
- */
-export function countMediaEvents(opts: Omit<EventQueryOpts, 'limit' | 'offset'>): number {
-	const db = getDb();
-	const conditions: string[] = ['user_id = ?'];
-	const params: (string | number)[] = [opts.userId];
-
-	if (opts.mediaType) {
-		conditions.push('media_type = ?');
-		params.push(opts.mediaType);
-	}
-	if (opts.eventType) {
-		conditions.push('event_type = ?');
-		params.push(opts.eventType);
-	}
-	if (opts.from) {
-		conditions.push('timestamp >= ?');
-		params.push(opts.from);
-	}
-	if (opts.to) {
-		conditions.push('timestamp <= ?');
-		params.push(opts.to);
-	}
-	if (opts.serviceId) {
-		conditions.push('service_id = ?');
-		params.push(opts.serviceId);
-	}
-	if (opts.titleSearch) {
-		conditions.push('media_title LIKE ?');
-		params.push(`%${opts.titleSearch}%`);
-	}
-
-	const where = conditions.join(' AND ');
-	const row = db.get(`SELECT COUNT(*) as count FROM media_events WHERE ${where}`, ...params) as { count: number };
-	return row.count;
-}
