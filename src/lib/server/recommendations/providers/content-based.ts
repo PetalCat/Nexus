@@ -9,7 +9,7 @@ import type {
 // ---------------------------------------------------------------------------
 // Content-Based Recommendation Provider
 //
-// Uses genre affinity vectors computed from media_events to score candidate
+// Uses genre affinity vectors computed from play_sessions to score candidate
 // items the user hasn't consumed yet.
 // ---------------------------------------------------------------------------
 
@@ -28,27 +28,79 @@ export function computeGenreAffinity(
 	const now = Date.now();
 	const ln2 = Math.LN2;
 
-	const conditions = [`user_id = ?`, `event_type IN ('play_start', 'play_stop', 'complete', 'like', 'favorite', 'detail_view')`];
-	const params: (string | number)[] = [userId];
+	// Gather play sessions
+	const psCond = [`user_id = ?`];
+	const psParams: (string | number)[] = [userId];
 	if (mediaType) {
-		conditions.push(`media_type = ?`);
-		params.push(mediaType);
+		psCond.push(`media_type = ?`);
+		psParams.push(mediaType);
 	}
 
-	const rows = raw.prepare(
-		`SELECT media_genres, event_type, play_duration_ms, position_ticks, duration_ticks, timestamp
-		 FROM media_events
-		 WHERE ${conditions.join(' AND ')}
+	const sessionRows = raw.prepare(
+		`SELECT media_genres, duration_ms, progress, media_duration_ms, started_at, completed
+		 FROM play_sessions
+		 WHERE ${psCond.join(' AND ')}
+		 ORDER BY started_at DESC
+		 LIMIT 4000`
+	).all(...psParams) as Array<{
+		media_genres: string | null;
+		duration_ms: number | null;
+		progress: number | null;
+		media_duration_ms: number | null;
+		started_at: number;
+		completed: number | null;
+	}>;
+
+	// Gather media actions (like, watchlist_add, complete, detail_view)
+	const actCond = [`user_id = ?`, `action_type IN ('complete', 'like', 'watchlist_add', 'detail_view')`];
+	const actParams: (string | number)[] = [userId];
+	if (mediaType) {
+		actCond.push(`media_type = ?`);
+		actParams.push(mediaType);
+	}
+
+	const actionRows = raw.prepare(
+		`SELECT action_type, timestamp
+		 FROM media_actions
+		 WHERE ${actCond.join(' AND ')}
 		 ORDER BY timestamp DESC
-		 LIMIT 5000`
-	).all(...params) as Array<{
+		 LIMIT 1000`
+	).all(...actParams) as Array<{
+		action_type: string;
+		timestamp: number;
+	}>;
+
+	// Combine into a unified row format for scoring
+	const rows: Array<{
 		media_genres: string | null;
 		event_type: string;
 		play_duration_ms: number | null;
-		position_ticks: number | null;
-		duration_ticks: number | null;
+		progress: number | null;
+		media_duration_ms: number | null;
 		timestamp: number;
-	}>;
+	}> = [];
+
+	for (const s of sessionRows) {
+		rows.push({
+			media_genres: s.media_genres,
+			event_type: s.completed ? 'complete' : 'play_stop',
+			play_duration_ms: s.duration_ms,
+			progress: s.progress,
+			media_duration_ms: s.media_duration_ms,
+			timestamp: s.started_at
+		});
+	}
+
+	for (const a of actionRows) {
+		rows.push({
+			media_genres: null, // actions don't carry genres; scored via social bonus only
+			event_type: a.action_type,
+			play_duration_ms: null,
+			progress: null,
+			media_duration_ms: null,
+			timestamp: a.timestamp
+		});
+	}
 
 	const genreScores = new Map<string, number>();
 
@@ -73,16 +125,14 @@ export function computeGenreAffinity(
 		if (row.event_type === 'complete') {
 			completionBonus = 1.5;
 		} else if (
-			row.position_ticks &&
-			row.duration_ticks &&
-			row.duration_ticks > 0 &&
-			row.position_ticks / row.duration_ticks > 0.7
+			row.progress != null &&
+			row.progress > 0.7
 		) {
 			completionBonus = 1.2;
 		}
 
 		let socialBonus = 0;
-		if (row.event_type === 'like' || row.event_type === 'favorite') {
+		if (row.event_type === 'like' || row.event_type === 'watchlist_add') {
 			socialBonus = 0.3;
 		}
 
@@ -151,7 +201,7 @@ function getConsumedMediaIds(userId: string, mediaType?: string): Set<string> {
 	}
 
 	const rows = raw.prepare(
-		`SELECT DISTINCT media_id FROM media_events WHERE ${conditions.join(' AND ')}`
+		`SELECT DISTINCT media_id FROM play_sessions WHERE ${conditions.join(' AND ')}`
 	).all(...params) as Array<{ media_id: string }>;
 
 	return new Set(rows.map((r) => r.media_id));
@@ -165,7 +215,7 @@ export const contentBasedProvider: RecommendationProvider = {
 	isReady(ctx: RecommendationContext): boolean {
 		const raw = getRawDb();
 		const count = raw.prepare(
-			`SELECT COUNT(*) as c FROM media_events WHERE user_id = ? LIMIT 1`
+			`SELECT COUNT(*) as c FROM play_sessions WHERE user_id = ? LIMIT 1`
 		).get(ctx.userId) as { c: number } | undefined;
 		return (count?.c ?? 0) > 0;
 	},
@@ -213,10 +263,10 @@ export const contentBasedProvider: RecommendationProvider = {
 		const yearParams: (string | number)[] = [ctx.userId];
 		if (ctx.mediaType) yearParams.push(ctx.mediaType);
 		const recentYears = raw.prepare(
-			`SELECT media_year FROM media_events
+			`SELECT media_year FROM play_sessions
 			 WHERE user_id = ? AND media_year IS NOT NULL
 			 ${ctx.mediaType ? 'AND media_type = ?' : ''}
-			 ORDER BY timestamp DESC LIMIT 50`
+			 ORDER BY started_at DESC LIMIT 50`
 		).all(...yearParams) as Array<{ media_year: number }>;
 		const avgYear =
 			recentYears.length > 0

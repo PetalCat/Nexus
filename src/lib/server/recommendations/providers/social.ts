@@ -38,7 +38,7 @@ export const socialProvider: RecommendationProvider = {
 		const seen = new Set<string>();
 
 		const consumed = new Set(
-			(raw.prepare(`SELECT DISTINCT media_id FROM media_events WHERE user_id = ?`).all(ctx.userId) as Array<{ media_id: string }>)
+			(raw.prepare(`SELECT DISTINCT media_id FROM play_sessions WHERE user_id = ?`).all(ctx.userId) as Array<{ media_id: string }>)
 				.map((r) => r.media_id)
 		);
 
@@ -89,13 +89,13 @@ export const socialProvider: RecommendationProvider = {
 		friendEventParams.push(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
 		const friendLiked = raw.prepare(
-			`SELECT DISTINCT me.media_id, me.media_type, me.media_title, me.media_year, me.media_genres
-			 FROM media_events me
-			 WHERE me.user_id IN (${placeholders})
-			   AND me.event_type IN ('complete', 'like', 'favorite')
-			   ${typeFilter}
-			   AND me.timestamp > ?
-			 ORDER BY me.timestamp DESC
+			`SELECT DISTINCT ma.media_id, ma.media_type, ma.media_title, NULL as media_year, NULL as media_genres
+			 FROM media_actions ma
+			 WHERE ma.user_id IN (${placeholders})
+			   AND ma.action_type IN ('complete', 'like', 'watchlist_add')
+			   ${typeFilter.replace('me.', 'ma.')}
+			   AND ma.timestamp > ?
+			 ORDER BY ma.timestamp DESC
 			 LIMIT 50`
 		).all(...friendEventParams) as Array<{
 			media_id: string;

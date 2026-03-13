@@ -25,22 +25,21 @@ interface TrendingItem {
 
 /**
  * Aggregate episode events to parent shows for trending.
- * Uses parent_id/parent_title from media_events + show-type events.
+ * Uses parent_id/parent_title from play_sessions + show-type sessions.
  */
 function computeTrendingShows(day: number, week: number): TrendingItem[] {
 	const raw = getRawDb();
 
-	// Get episode events aggregated by parent show
+	// Get episode sessions aggregated by parent show
 	const episodeRows = raw.prepare(
 		`SELECT parent_id as show_id, parent_title as show_title,
 		        MAX(media_genres) as media_genres,
 		        COUNT(*) as total_events,
-		        SUM(CASE WHEN timestamp > ? THEN 1 ELSE 0 END) as events_24h
-		 FROM media_events
-		 WHERE timestamp > ?
+		        SUM(CASE WHEN started_at > ? THEN 1 ELSE 0 END) as events_24h
+		 FROM play_sessions
+		 WHERE started_at > ?
 		   AND media_type = 'episode'
 		   AND parent_id IS NOT NULL AND parent_id != ''
-		   AND event_type IN ('play_start', 'play_stop', 'complete', 'like', 'favorite')
 		 GROUP BY parent_id
 		 HAVING total_events >= 2
 		 ORDER BY events_24h DESC
@@ -53,17 +52,16 @@ function computeTrendingShows(day: number, week: number): TrendingItem[] {
 		events_24h: number;
 	}>;
 
-	// Also get direct show-type events
+	// Also get direct show-type sessions
 	const showRows = raw.prepare(
 		`SELECT media_id as show_id,
 		        MAX(media_title) as show_title,
 		        MAX(media_genres) as media_genres,
 		        COUNT(*) as total_events,
-		        SUM(CASE WHEN timestamp > ? THEN 1 ELSE 0 END) as events_24h
-		 FROM media_events
-		 WHERE timestamp > ?
+		        SUM(CASE WHEN started_at > ? THEN 1 ELSE 0 END) as events_24h
+		 FROM play_sessions
+		 WHERE started_at > ?
 		   AND media_type = 'show'
-		   AND event_type IN ('play_start', 'play_stop', 'complete', 'like', 'favorite')
 		 GROUP BY media_id
 		 HAVING total_events >= 2
 		 ORDER BY events_24h DESC
@@ -139,10 +137,9 @@ function computeTrending(mediaType?: string): TrendingItem[] {
 		        MAX(media_year) as media_year,
 		        MAX(media_genres) as media_genres,
 		        COUNT(*) as total_events,
-		        SUM(CASE WHEN timestamp > ? THEN 1 ELSE 0 END) as events_24h
-		 FROM media_events
-		 WHERE timestamp > ? ${typeFilter}
-		   AND event_type IN ('play_start', 'play_stop', 'complete', 'like', 'favorite')
+		        SUM(CASE WHEN started_at > ? THEN 1 ELSE 0 END) as events_24h
+		 FROM play_sessions
+		 WHERE started_at > ? ${typeFilter}
 		 GROUP BY media_id
 		 HAVING total_events >= 2
 		 ORDER BY events_24h DESC
@@ -182,7 +179,7 @@ export const trendingProvider: RecommendationProvider = {
 		const raw = getRawDb();
 		const week = Date.now() - 7 * 24 * 60 * 60 * 1000;
 		const count = raw.prepare(
-			`SELECT COUNT(*) as c FROM media_events WHERE timestamp > ?`
+			`SELECT COUNT(*) as c FROM play_sessions WHERE started_at > ?`
 		).get(week) as { c: number } | undefined;
 		return (count?.c ?? 0) >= 5;
 	},
@@ -227,7 +224,7 @@ export const trendingProvider: RecommendationProvider = {
 			let poster: string | undefined;
 			let backdrop: string | undefined;
 			const serviceId = raw.prepare(
-				`SELECT service_id FROM media_events WHERE media_id = ? AND service_id != '' LIMIT 1`
+				`SELECT service_id FROM play_sessions WHERE media_id = ? AND service_id != '' LIMIT 1`
 			).get(t.mediaId) as { service_id: string } | undefined;
 			const itemServiceId = serviceId?.service_id ?? jfServiceId;
 
