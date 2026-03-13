@@ -25,8 +25,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 	}
 
-	// Fast: user's own requests + admin pending (small API calls, cached)
-	const [myRequests, adminPending] = await Promise.all([
+	// Fast: user's own requests + admin all requests (small API calls, cached)
+	const [myRequests, allRequests] = await Promise.all([
 		hasLinkedOverseerr
 			? withCache(`requests:user:${userId}`, 30_000, async () => {
 					const reqs: NexusRequest[] = [];
@@ -46,17 +46,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 			: Promise.resolve([] as NexusRequest[]),
 
 		isAdmin
-			? withCache('requests:admin-pending', 30_000, async () => {
-					const pending: NexusRequest[] = [];
+			? withCache('requests:admin-all', 30_000, async () => {
+					const all: NexusRequest[] = [];
 					await Promise.allSettled(
 						overseerrConfigs.map(async (config) => {
 							const adapter = registry.get('overseerr');
 							if (!adapter?.getRequests) return;
-							const p = await adapter.getRequests(config, { filter: 'pending', take: 100 });
-							pending.push(...p);
+							const r = await adapter.getRequests(config, { filter: 'all', take: 100 });
+							all.push(...r);
 						})
 					);
-					return pending;
+					return all;
 				})
 			: Promise.resolve([] as NexusRequest[])
 	]);
@@ -93,8 +93,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	return {
 		myRequests: myRequests.sort(byDate),
-		adminPending: adminPending.sort(byDate),
-		// Streamed — page renders immediately, discover fills in
+		allRequests: allRequests.sort(byDate),
 		initialDiscover: fetchDiscover(),
 		hasLinkedOverseerr,
 		isAdmin,
