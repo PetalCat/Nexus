@@ -180,7 +180,7 @@
 
 	const filteredMyRequests = $derived(data.myRequests.filter((r) => {
 		if (myFilter === 'active') return r.status === 'pending' || r.status === 'approved';
-		if (myFilter === 'available') return r.status === 'available';
+		if (myFilter === 'available') return r.status === 'available' || r.status === 'partial';
 		if (myFilter === 'declined') return r.status === 'declined';
 		return true;
 	}));
@@ -188,7 +188,7 @@
 	const myCounts = $derived({
 		all: data.myRequests.length,
 		active: data.myRequests.filter(r => r.status === 'pending' || r.status === 'approved').length,
-		available: data.myRequests.filter(r => r.status === 'available').length,
+		available: data.myRequests.filter(r => r.status === 'available' || r.status === 'partial').length,
 		declined: data.myRequests.filter(r => r.status === 'declined').length,
 	});
 
@@ -312,7 +312,8 @@
 
 	function statusStep(status: NexusRequest['status']): number {
 		switch (status) {
-			case 'available': return 2;
+			case 'available':
+			case 'partial':   return 2;
 			case 'approved':  return 1;
 			default:          return 0;
 		}
@@ -322,7 +323,8 @@
 		switch (status) {
 			case 'pending':   return 'Awaiting Approval';
 			case 'approved':  return 'Processing';
-			case 'available': return 'Ready to Watch';
+			case 'available': return 'In Library';
+			case 'partial':   return 'Partially Available';
 			case 'declined':  return 'Not Approved';
 		}
 	}
