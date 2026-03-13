@@ -412,6 +412,8 @@ export interface EventQueryOpts {
 	eventType?: string;
 	from?: number; // unix ms
 	to?: number; // unix ms
+	serviceId?: string;
+	titleSearch?: string;
 	limit?: number;
 	offset?: number;
 }
@@ -439,6 +441,14 @@ export function queryMediaEvents(opts: EventQueryOpts) {
 	if (opts.to) {
 		conditions.push('timestamp <= ?');
 		params.push(opts.to);
+	}
+	if (opts.serviceId) {
+		conditions.push('service_id = ?');
+		params.push(opts.serviceId);
+	}
+	if (opts.titleSearch) {
+		conditions.push('media_title LIKE ?');
+		params.push(`%${opts.titleSearch}%`);
 	}
 
 	const where = conditions.join(' AND ');
@@ -474,6 +484,14 @@ export function countMediaEvents(opts: Omit<EventQueryOpts, 'limit' | 'offset'>)
 	if (opts.to) {
 		conditions.push('timestamp <= ?');
 		params.push(opts.to);
+	}
+	if (opts.serviceId) {
+		conditions.push('service_id = ?');
+		params.push(opts.serviceId);
+	}
+	if (opts.titleSearch) {
+		conditions.push('media_title LIKE ?');
+		params.push(`%${opts.titleSearch}%`);
 	}
 
 	const where = conditions.join(' AND ');
