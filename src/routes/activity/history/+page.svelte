@@ -92,7 +92,7 @@
 	</div>
 
 	{#if viewMode === 'feed'}
-		<HistoryFeed events={filteredEvents} />
+		<HistoryFeed events={filteredEvents} serviceUrls={data.serviceUrls} />
 	{:else}
 		<HistoryTable events={filteredEvents} services={data.services} />
 	{/if}

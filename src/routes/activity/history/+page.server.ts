@@ -1,5 +1,6 @@
 import { queryMediaEvents, countMediaEvents } from '$lib/server/analytics';
 import { getDb, schema } from '$lib/db';
+import { getServiceConfig } from '$lib/server/services';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -20,5 +21,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.all();
 	const services = serviceRows.map((s) => ({ id: s.id, name: s.name, type: s.type }));
 
-	return { events, total, services };
+	// Build service URL map for poster thumbnails (Jellyfin images are public)
+	const serviceUrls: Record<string, string> = {};
+	for (const s of serviceRows) {
+		const config = getServiceConfig(s.id);
+		if (config?.url) serviceUrls[s.id] = config.url;
+	}
+
+	return { events, total, services, serviceUrls };
 };

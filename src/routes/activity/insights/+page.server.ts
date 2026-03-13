@@ -1,4 +1,5 @@
 import { computeStats } from '$lib/server/stats-engine';
+import { getRawDb } from '$lib/db';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -21,10 +22,42 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const prevTo = from;
 	const prevStats = computeStats(userId, prevFrom, prevTo);
 
+	// Compute daily timeline data for the bar chart
+	const raw = getRawDb();
+	const dailyRows = raw.prepare(`
+		SELECT date(timestamp / 1000, 'unixepoch', 'localtime') as day,
+		       SUM(play_duration_ms) as total_ms,
+		       COUNT(*) as sessions
+		FROM media_events
+		WHERE user_id = ? AND event_type = 'play_stop' AND timestamp >= ? AND timestamp <= ?
+		GROUP BY day
+		ORDER BY day ASC
+	`).all(userId, from, to) as { day: string; total_ms: number; sessions: number }[];
+
+	// Compute per-day activity for the calendar grid
+	const calendarRows = raw.prepare(`
+		SELECT date(timestamp / 1000, 'unixepoch', 'localtime') as day,
+		       SUM(play_duration_ms) as total_ms
+		FROM media_events
+		WHERE user_id = ? AND event_type = 'play_stop' AND timestamp >= ? AND timestamp <= ?
+		GROUP BY day
+		ORDER BY day ASC
+	`).all(userId, from - 365 * 86400000, to) as { day: string; total_ms: number }[];
+
+	const dailyTimeline = dailyRows.map((r) => ({
+		day: r.day,
+		totalMs: r.total_ms ?? 0,
+		sessions: r.sessions ?? 0
+	}));
+
+	const calendarData = Object.fromEntries(calendarRows.map((r) => [r.day, r.total_ms ?? 0]));
+
 	return {
 		from,
 		to,
 		stats,
-		prevStats
+		prevStats,
+		dailyTimeline,
+		calendarData
 	};
 };

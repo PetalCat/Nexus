@@ -168,7 +168,7 @@
 		<div class="lg:col-span-2">
 			<div class="rounded-xl border border-cream/[0.06] bg-raised p-4">
 				<h3 class="mb-3 text-sm font-semibold text-cream">Watch Time</h3>
-				<WatchTimeChart stats={data.stats} from={data.from} to={data.to} />
+				<WatchTimeChart dailyTimeline={data.dailyTimeline} />
 			</div>
 		</div>
 		<div>
@@ -199,7 +199,7 @@
 	<div class="grid gap-4 sm:grid-cols-2">
 		<div class="rounded-xl border border-cream/[0.06] bg-raised p-4">
 			<h3 class="mb-3 text-sm font-semibold text-cream">Activity & Streaks</h3>
-			<ActivityCalendar stats={data.stats} />
+			<ActivityCalendar stats={data.stats} calendarData={data.calendarData} />
 		</div>
 		<div class="rounded-xl border border-cream/[0.06] bg-raised p-4">
 			<h3 class="mb-3 text-sm font-semibold text-cream">Playback Details</h3>
