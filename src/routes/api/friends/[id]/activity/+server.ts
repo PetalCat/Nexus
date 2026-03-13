@@ -10,20 +10,11 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const limit = parseInt(url.searchParams.get('limit') ?? '50');
 	const offset = parseInt(url.searchParams.get('offset') ?? '0');
 
-	// getFriendActivity filters by friend IDs; we pass a single-friend subset
-	const { getFriendIds: _, ...rest } = await import('$lib/server/social');
-	const { getDb, schema } = await import('$lib/db');
-	const { eq, desc } = await import('drizzle-orm');
-
-	const db = getDb();
-	const events = db
-		.select()
-		.from(schema.mediaEvents)
-		.where(eq(schema.mediaEvents.userId, params.id))
-		.orderBy(desc(schema.mediaEvents.timestamp))
-		.limit(limit)
-		.offset(offset)
-		.all();
+	const { getRawDb } = await import('$lib/db');
+	const raw = getRawDb();
+	const events = raw.prepare(
+		`SELECT * FROM play_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?`
+	).all(params.id, limit, offset) as any[];
 
 	return json({ activity: events });
 };

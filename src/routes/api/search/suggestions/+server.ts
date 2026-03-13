@@ -3,8 +3,8 @@ import type { RequestHandler } from './$types';
 import { getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSearchSuggestions } from '$lib/adapters/invidious';
-import { getDb, schema } from '$lib/db';
-import { eq, desc, like } from 'drizzle-orm';
+import { getDb, getRawDb, schema } from '$lib/db';
+import { eq, desc } from 'drizzle-orm';
 
 // GET /api/search/suggestions?q=xxx
 // Returns suggestions from multiple sources (deduped, max 10)
@@ -48,18 +48,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		}
 	}
 
-	// 3. Title prefix matches from recent media_events
-	const recentMedia = db
-		.select({ title: schema.mediaEvents.mediaTitle })
-		.from(schema.mediaEvents)
-		.where(like(schema.mediaEvents.mediaTitle, `${query}%`))
-		.orderBy(desc(schema.mediaEvents.timestamp))
-		.limit(20)
-		.all();
+	// 3. Title prefix matches from recent play_sessions
+	const raw = getRawDb();
+	const recentMedia = raw.prepare(
+		`SELECT DISTINCT media_title FROM play_sessions
+		 WHERE media_title LIKE ? || '%'
+		 ORDER BY started_at DESC LIMIT 20`
+	).all(query) as Array<{ media_title: string | null }>;
 
 	for (const row of recentMedia) {
-		if (row.title) {
-			allSuggestions.push(row.title);
+		if (row.media_title) {
+			allSuggestions.push(row.media_title);
 		}
 	}
 

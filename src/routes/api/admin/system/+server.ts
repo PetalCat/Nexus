@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	} catch { /* ignore */ }
 
 	// Row counts for key tables
-	const tables = ['users', 'media_items', 'media_events', 'interaction_events', 'services', 'sessions', 'user_stats_cache', 'activity'];
+	const tables = ['users', 'media_items', 'play_sessions', 'media_actions', 'interaction_events', 'services', 'sessions', 'stats_rollups', 'activity'];
 	const rowCounts: Record<string, number> = {};
 	for (const t of tables) {
 		try {

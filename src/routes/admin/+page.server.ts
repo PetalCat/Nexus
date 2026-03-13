@@ -113,20 +113,20 @@ export const load: PageServerLoad = async () => {
 	const todayStart = new Date();
 	todayStart.setHours(0, 0, 0, 0);
 	const playTimeToday = (db.prepare(`
-		SELECT COALESCE(SUM(play_duration_ms), 0) as total
-		FROM media_events
-		WHERE event_type = 'play_stop' AND timestamp >= ?
+		SELECT COALESCE(SUM(duration_ms), 0) as total
+		FROM play_sessions
+		WHERE started_at >= ?
 	`).get(todayStart.getTime()) as any)?.total ?? 0;
 
-	// Recent media events (last 10)
+	// Recent play sessions (last 10)
 	const recentEvents = db.prepare(`
-		SELECT me.user_id, u.display_name as userName, me.event_type as eventType,
-		       me.media_title as mediaTitle, me.media_type as mediaType, me.timestamp,
-		       me.play_duration_ms as playDurationMs
-		FROM media_events me
-		LEFT JOIN users u ON u.id = me.user_id
-		WHERE me.event_type IN ('play_start', 'play_stop', 'complete')
-		ORDER BY me.timestamp DESC
+		SELECT ps.user_id, u.display_name as userName,
+		       CASE WHEN ps.ended_at IS NOT NULL THEN 'play_stop' ELSE 'play_start' END as eventType,
+		       ps.media_title as mediaTitle, ps.media_type as mediaType, ps.started_at as timestamp,
+		       ps.duration_ms as playDurationMs
+		FROM play_sessions ps
+		LEFT JOIN users u ON u.id = ps.user_id
+		ORDER BY ps.started_at DESC
 		LIMIT 10
 	`).all() as any[];
 

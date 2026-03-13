@@ -34,10 +34,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const missingDescription = (db.prepare(`SELECT COUNT(*) as count FROM media_items WHERE description IS NULL OR description = ''`).get() as any)?.count ?? 0;
 	const totalItems = (db.prepare(`SELECT COUNT(*) as count FROM media_items`).get() as any)?.count ?? 0;
 
-	// Per-type play time from media_events
+	// Per-type play time from play_sessions
 	const playTimeByType = db.prepare(`
-		SELECT media_type as type, COALESCE(SUM(play_duration_ms), 0) as playTimeMs
-		FROM media_events WHERE event_type = 'play_stop'
+		SELECT media_type as type, COALESCE(SUM(duration_ms), 0) as playTimeMs
+		FROM play_sessions
 		GROUP BY media_type
 	`).all() as { type: string; playTimeMs: number }[];
 

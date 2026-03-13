@@ -25,21 +25,21 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	// Compute daily timeline data for the bar chart
 	const raw = getRawDb();
 	const dailyRows = raw.prepare(`
-		SELECT date(timestamp / 1000, 'unixepoch', 'localtime') as day,
-		       SUM(play_duration_ms) as total_ms,
+		SELECT date(started_at / 1000, 'unixepoch', 'localtime') as day,
+		       SUM(duration_ms) as total_ms,
 		       COUNT(*) as sessions
-		FROM media_events
-		WHERE user_id = ? AND event_type = 'play_stop' AND timestamp >= ? AND timestamp <= ?
+		FROM play_sessions
+		WHERE user_id = ? AND started_at >= ? AND started_at <= ?
 		GROUP BY day
 		ORDER BY day ASC
 	`).all(userId, from, to) as { day: string; total_ms: number; sessions: number }[];
 
 	// Compute per-day activity for the calendar grid
 	const calendarRows = raw.prepare(`
-		SELECT date(timestamp / 1000, 'unixepoch', 'localtime') as day,
-		       SUM(play_duration_ms) as total_ms
-		FROM media_events
-		WHERE user_id = ? AND event_type = 'play_stop' AND timestamp >= ? AND timestamp <= ?
+		SELECT date(started_at / 1000, 'unixepoch', 'localtime') as day,
+		       SUM(duration_ms) as total_ms
+		FROM play_sessions
+		WHERE user_id = ? AND started_at >= ? AND started_at <= ?
 		GROUP BY day
 		ORDER BY day ASC
 	`).all(userId, from - 365 * 86400000, to) as { day: string; total_ms: number }[];

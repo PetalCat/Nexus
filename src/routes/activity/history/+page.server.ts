@@ -1,18 +1,19 @@
-import { queryMediaEvents, countMediaEvents } from '$lib/server/analytics';
-import { getDb, schema } from '$lib/db';
+import { getRawDb, getDb, schema } from '$lib/db';
 import { getServiceConfig } from '$lib/server/services';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
 
-	const events = queryMediaEvents({
-		userId,
-		limit: 50,
-		offset: 0
-	});
+	const raw = getRawDb();
+	const events = raw.prepare(
+		`SELECT * FROM play_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT 50 OFFSET 0`
+	).all(userId) as any[];
 
-	const total = countMediaEvents({ userId });
+	const totalRow = raw.prepare(
+		`SELECT COUNT(*) as count FROM play_sessions WHERE user_id = ?`
+	).get(userId) as { count: number };
+	const total = totalRow.count;
 
 	const db = getDb();
 	const serviceRows = db
