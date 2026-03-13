@@ -69,6 +69,16 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
  * object (just IDs + status). Pass the `detail` object fetched from
  * /movie/{tmdbId} or /tv/{tmdbId} to populate title, poster, description, etc.
  */
+/** Derive the true request status by checking both request status and media availability.
+ *  Media status 5 = fully available, 4 = partially available (some seasons). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveRequestStatus(req: any): NexusRequest['status'] {
+	const mediaStatus = req.media?.status;
+	if (mediaStatus === 5) return 'available';
+	if (mediaStatus === 4) return 'partial';
+	return mapRequestStatus(req.status);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeRequest(config: ServiceConfig, req: any, detail?: any): NexusRequest {
 	const m = req.media ?? {};
@@ -101,7 +111,7 @@ function normalizeRequest(config: ServiceConfig, req: any, detail?: any): NexusR
 		type: isMovie ? 'movie' : 'show',
 		poster,
 		year,
-		status: mapRequestStatus(req.status),
+		status: resolveRequestStatus(req),
 		requestedByName: req.requestedBy?.displayName ?? req.requestedBy?.email ?? 'Unknown',
 		requestedByExternalId: String(req.requestedBy?.id ?? ''),
 		requestedAt: req.createdAt ?? new Date().toISOString(),
@@ -193,11 +203,12 @@ function normalizeDetail(config: ServiceConfig, d: any, mediaType: 'movie' | 'tv
 	};
 }
 
+/** Map Overseerr request status (1=pending, 2=approved, 3=declined).
+ *  Availability is determined from media.status, not request status. */
 function mapRequestStatus(s?: number): NexusRequest['status'] {
 	switch (s) {
 		case 2: return 'approved';
 		case 3: return 'declined';
-		case 4: return 'available';
 		default: return 'pending';
 	}
 }
