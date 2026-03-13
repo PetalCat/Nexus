@@ -7,8 +7,9 @@ import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr'
 import { getRomSaves, getRomStates, getRomScreenshots } from '$lib/adapters/romm';
 import { isPlayableInBrowser } from '$lib/emulator/cores';
 import { getRelatedBooks, getCalibreBookFormats } from '$lib/adapters/calibre';
-import { emitMediaEvent } from '$lib/server/analytics';
-import { getUserFavorites } from '$lib/server/social';
+import { emitMediaAction } from '$lib/server/analytics';
+import { getUserWatchlist } from '$lib/server/social';
+import { getUserRating, getMediaRatingStats } from '$lib/server/ratings';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { JellyfinSeason } from '$lib/adapters/jellyfin';
 import type { PageServerLoad } from './$types';
@@ -185,17 +186,14 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		if (item.metadata?.retroAchievements) meta.hasRetroAchievements = true;
 		if (item.metadata?.hltb) meta.hasHltb = true;
 
-		emitMediaEvent({
+		emitMediaAction({
 			userId,
 			serviceId,
 			serviceType: resolvedServiceType,
-			eventType: 'detail_view',
+			actionType: 'detail_view',
 			mediaId: params.id,
 			mediaType: item.type,
 			mediaTitle: item.title,
-			mediaYear: item.year,
-			mediaGenres: item.genres,
-			parentTitle: item.metadata?.platform as string ?? item.metadata?.seriesName as string,
 			metadata: Object.keys(meta).length > 0 ? meta : undefined
 		});
 	}
@@ -365,12 +363,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	}
 
 	// ── Watchlist check ─────────────────────────────────────────────────
-	const favorites = userId ? getUserFavorites(userId) : [];
-	const watchlistEntry = favorites.find(
+	const watchlistItems = userId ? getUserWatchlist(userId) : [];
+	const watchlistEntry = watchlistItems.find(
 		(f) => f.mediaId === params.id && f.serviceId === serviceId
 	);
 	const inWatchlist = !!watchlistEntry;
-	const favoriteId = watchlistEntry?.id ?? null;
+	const watchlistItemId = watchlistEntry?.id ?? null;
+
+	// ── User rating ────────────────────────────────────────────────────
+	const userRating = userId ? getUserRating(userId, params.id, serviceId) : null;
+	const ratingStats = await getMediaRatingStats(params.id, serviceId);
 
 	return {
 		item,
@@ -400,6 +402,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		supportsEmulation: item.type === 'game' && isPlayableInBrowser(item.metadata?.platformSlug as string | undefined),
 		gameNoteContent,
 		inWatchlist,
-		favoriteId
+		watchlistItemId,
+		userRating,
+		ratingStats
 	};
 };
