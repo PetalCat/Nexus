@@ -28,7 +28,7 @@ function getActiveUserIds(): string[] {
 	const raw = getRawDb();
 	const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
 	const rows = raw.prepare(
-		`SELECT DISTINCT user_id FROM media_events WHERE timestamp > ? LIMIT 100`
+		`SELECT DISTINCT user_id FROM play_sessions WHERE started_at > ? LIMIT 100`
 	).all(cutoff) as Array<{ user_id: string }>;
 	return rows.map((r) => r.user_id);
 }

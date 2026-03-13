@@ -447,25 +447,24 @@ export function removeCollaborator(playlistId: string, ownerId: string, collabor
 }
 
 // ---------------------------------------------------------------------------
-// Recently Played (from media_events)
+// Recently Played (from play_sessions)
 // ---------------------------------------------------------------------------
 
 export function getRecentlyPlayed(userId: string, limit = 50): Array<{ mediaId: string; mediaTitle: string | null; serviceId: string; timestamp: number }> {
 	const db = getDb();
-	const rows = db.all<{ media_id: string; media_title: string | null; service_id: string; timestamp: number }>(
-		sql`SELECT media_id, media_title, service_id, MAX(timestamp) as timestamp
-			FROM media_events
+	const rows = db.all<{ media_id: string; media_title: string | null; service_id: string; started_at: number }>(
+		sql`SELECT DISTINCT media_id, media_title, service_id, MAX(started_at) as started_at
+			FROM play_sessions
 			WHERE user_id = ${userId}
 			  AND media_type = 'music'
-			  AND event_type IN ('play_start', 'play_resume')
 			GROUP BY media_id, service_id
-			ORDER BY timestamp DESC
+			ORDER BY started_at DESC
 			LIMIT ${limit}`
 	);
 	return rows.map((r) => ({
 		mediaId: r.media_id,
 		mediaTitle: r.media_title,
 		serviceId: r.service_id,
-		timestamp: r.timestamp
+		timestamp: r.started_at
 	}));
 }

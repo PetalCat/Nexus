@@ -30,7 +30,7 @@ function getGenreVector(userId: string): Map<string, number> {
 function getWatchedSet(userId: string): Set<string> {
 	const raw = getRawDb();
 	const rows = raw.prepare(
-		`SELECT DISTINCT media_id FROM media_events WHERE user_id = ?`
+		`SELECT DISTINCT media_id FROM play_sessions WHERE user_id = ?`
 	).all(userId) as Array<{ media_id: string }>;
 	return new Set(rows.map((r) => r.media_id));
 }
@@ -61,8 +61,7 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 function getEligibleUserIds(minEvents: number): string[] {
 	const raw = getRawDb();
 	const rows = raw.prepare(
-		`SELECT user_id, COUNT(*) as c FROM media_events
-		 WHERE event_type IN ('play_stop', 'complete', 'like', 'favorite')
+		`SELECT user_id, COUNT(*) as c FROM play_sessions
 		 GROUP BY user_id HAVING c >= ?`
 	).all(minEvents) as Array<{ user_id: string; c: number }>;
 	return rows.map((r) => r.user_id);
@@ -121,11 +120,11 @@ export const collaborativeProvider: RecommendationProvider = {
 			if (ctx.mediaType) params.push(ctx.mediaType);
 
 			const items = raw.prepare(
-				`SELECT DISTINCT media_id, media_type, media_title, media_year, media_genres
-				 FROM media_events
-				 WHERE user_id = ? AND event_type IN ('complete', 'like', 'favorite')
+				`SELECT DISTINCT media_id, media_type, media_title, NULL as media_year, media_genres
+				 FROM play_sessions
+				 WHERE user_id = ? AND completed = 1
 				 ${typeFilter}
-				 ORDER BY timestamp DESC
+				 ORDER BY started_at DESC
 				 LIMIT 50`
 			).all(...params) as Array<{
 				media_id: string;

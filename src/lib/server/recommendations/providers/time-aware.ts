@@ -13,10 +13,9 @@ import type {
 function buildTimeModel(userId: string): Map<number, Map<string, number>> {
 	const raw = getRawDb();
 	const rows = raw.prepare(
-		`SELECT timestamp, media_genres FROM media_events
+		`SELECT started_at as timestamp, media_genres FROM play_sessions
 		 WHERE user_id = ? AND media_genres IS NOT NULL
-		   AND event_type IN ('play_start', 'play_stop', 'complete')
-		 ORDER BY timestamp DESC LIMIT 2000`
+		 ORDER BY started_at DESC LIMIT 2000`
 	).all(userId) as Array<{ timestamp: number; media_genres: string }>;
 
 	const model = new Map<number, Map<string, number>>();
@@ -72,7 +71,7 @@ export const timeAwareProvider: RecommendationProvider = {
 	isReady(ctx: RecommendationContext): boolean {
 		const raw = getRawDb();
 		const count = raw.prepare(
-			`SELECT COUNT(*) as c FROM media_events WHERE user_id = ? AND media_genres IS NOT NULL LIMIT 1`
+			`SELECT COUNT(*) as c FROM play_sessions WHERE user_id = ? AND media_genres IS NOT NULL LIMIT 1`
 		).get(ctx.userId) as { c: number } | undefined;
 		return (count?.c ?? 0) >= 20;
 	},
@@ -96,7 +95,7 @@ export const timeAwareProvider: RecommendationProvider = {
 		if (topGenres.length === 0) return [];
 
 		const consumed = new Set(
-			(raw.prepare(`SELECT DISTINCT media_id FROM media_events WHERE user_id = ?`).all(ctx.userId) as Array<{ media_id: string }>)
+			(raw.prepare(`SELECT DISTINCT media_id FROM play_sessions WHERE user_id = ?`).all(ctx.userId) as Array<{ media_id: string }>)
 				.map((r) => r.media_id)
 		);
 
