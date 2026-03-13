@@ -1,13 +1,15 @@
 import { getEnabledConfigs } from './services';
 import {
-	emitMediaEvent,
 	resolveNexusUserId,
 	getCredsForService,
 	heightToResolution,
-	channelsToLabel
+	channelsToLabel,
+	emitMediaAction
 } from './analytics';
 import { updatePresence, isGhostMode, getFriendIds } from './social';
 import { broadcastToFriends } from './ws';
+import { getRawDb } from '../db';
+import { randomBytes } from 'crypto';
 
 function updateActivityPresence(userId: string, activity: Record<string, unknown> | null) {
 	updatePresence(userId, { currentActivity: activity, lastSeen: Date.now() });
@@ -53,6 +55,8 @@ interface JfSession {
 
 interface TrackedSession {
 	sessionId: string;
+	dbId: string;
+	sessionKey: string;
 	serviceId: string;
 	userId: string;
 	mediaId: string;
@@ -60,16 +64,55 @@ interface TrackedSession {
 	mediaTitle: string;
 	isPaused: boolean;
 	startedAt: number;
+	lastTickAt: number;
 	lastSeenAt: number;
-	pausedSinceAt: number | null; // timestamp when pause began, null if playing
-	totalPausedMs: number; // accumulated paused time
-	durationMs: number | null; // media runtime in ms (from RunTimeTicks), used to cap play duration
+	pausedSinceAt: number | null;
+	totalPausedMs: number;
+	durationMs: number;
+	mediaDurationMs: number | null;
 }
 
 /** Cap play duration at media runtime + 10% tolerance (for credits, buffering) */
 function capDuration(rawMs: number, mediaDurationMs: number | null): number {
 	if (mediaDurationMs && rawMs > mediaDurationMs * 1.1) return mediaDurationMs;
 	return Math.max(0, rawMs);
+}
+
+function genId(): string {
+	return randomBytes(12).toString('hex');
+}
+
+function insertSession(tracker: TrackedSession, metadata: Record<string, unknown>, genres?: string[], year?: number, parentId?: string, parentTitle?: string, deviceName?: string, clientName?: string): void {
+	const db = getRawDb();
+	const now = Date.now();
+	db.prepare(`
+		INSERT INTO play_sessions (id, session_key, user_id, service_id, service_type, media_id, media_type, media_title, media_year, media_genres, parent_id, parent_title, started_at, ended_at, duration_ms, media_duration_ms, progress, completed, device_name, client_name, metadata, source, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'jellyfin', ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, 0, 0, ?, ?, ?, 'poller', ?, ?)
+		ON CONFLICT(session_key) DO UPDATE SET
+			ended_at = NULL, duration_ms = 0, progress = 0, completed = 0, updated_at = excluded.updated_at
+	`).run(
+		tracker.dbId, tracker.sessionKey, tracker.userId, tracker.serviceId,
+		tracker.mediaId, tracker.mediaType, tracker.mediaTitle,
+		year ?? null, genres ? JSON.stringify(genres) : null,
+		parentId ?? null, parentTitle ?? null,
+		tracker.startedAt, tracker.mediaDurationMs ?? null,
+		deviceName ?? null, clientName ?? null,
+		Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+		now, now
+	);
+}
+
+function updateSessionTick(dbId: string, durationMs: number, progress: number | null): void {
+	getRawDb().prepare(
+		`UPDATE play_sessions SET duration_ms = ?, progress = ?, updated_at = ? WHERE id = ?`
+	).run(durationMs, progress, Date.now(), dbId);
+}
+
+function closeSession(dbId: string, finalDurationMs: number, progress: number | null, completed: boolean): void {
+	const now = Date.now();
+	getRawDb().prepare(
+		`UPDATE play_sessions SET ended_at = ?, duration_ms = ?, progress = ?, completed = ?, updated_at = ? WHERE id = ?`
+	).run(now, finalDurationMs, progress, completed ? 1 : 0, now, dbId);
 }
 
 const JF_TYPE_MAP: Record<string, string> = {
@@ -145,7 +188,6 @@ async function pollJellyfinSessions() {
 				signal: AbortSignal.timeout(5000)
 			});
 			if (!res.ok) {
-				// Server responded but with an error — don't treat sessions as ended
 				failedServiceIds.add(config.id);
 				continue;
 			}
@@ -166,11 +208,16 @@ async function pollJellyfinSessions() {
 				const mType = JF_TYPE_MAP[item.Type] ?? 'movie';
 
 				const mediaDurationMs = item.RunTimeTicks ? item.RunTimeTicks / 10_000 : null;
+				const positionTicks = session.PlayState?.PositionTicks;
 
 				if (!existing) {
-					// New session — emit play_start
-					activeSessions.set(key, {
+					// New session — insert into play_sessions
+					const dbId = genId();
+					const sessionKey = `${config.id}:${session.Id}`;
+					const tracker: TrackedSession = {
 						sessionId: key,
+						dbId,
+						sessionKey,
 						serviceId: config.id,
 						userId: nexusUserId,
 						mediaId: item.Id,
@@ -178,49 +225,33 @@ async function pollJellyfinSessions() {
 						mediaTitle: item.Name,
 						isPaused,
 						startedAt: now,
+						lastTickAt: now,
 						lastSeenAt: now,
 						pausedSinceAt: isPaused ? now : null,
 						totalPausedMs: 0,
-						durationMs: mediaDurationMs
-					});
-					emitMediaEvent({
-						userId: nexusUserId,
-						serviceId: config.id,
-						serviceType: 'jellyfin',
-						eventType: 'play_start',
-						mediaId: item.Id,
-						mediaType: mType,
-						mediaTitle: item.Name,
-						mediaYear: item.ProductionYear,
-						mediaGenres: item.Genres,
-						parentId: item.SeriesId,
-						parentTitle: item.SeriesName,
-						positionTicks: session.PlayState?.PositionTicks,
-						durationTicks: item.RunTimeTicks,
-						deviceName: session.DeviceName,
-						clientName: session.Client,
-						metadata: extractMetadata(session)
-					});
+						durationMs: 0,
+						mediaDurationMs
+					};
+					activeSessions.set(key, tracker);
+					insertSession(tracker, extractMetadata(session), item.Genres, item.ProductionYear, item.SeriesId, item.SeriesName, session.DeviceName, session.Client);
 					updateActivityPresence(nexusUserId, {
 						mediaId: item.Id, mediaType: mType, mediaTitle: item.Name,
 						serviceId: config.id, deviceName: session.DeviceName, clientName: session.Client
 					});
 				} else if (existing.mediaId !== item.Id) {
-					// Media changed — stop old, start new
+					// Media changed — close old session, start new one
 					const finalPaused = existing.totalPausedMs + (existing.pausedSinceAt ? now - existing.pausedSinceAt : 0);
-					emitMediaEvent({
-						userId: nexusUserId,
-						serviceId: config.id,
-						serviceType: 'jellyfin',
-						eventType: 'play_stop',
-						mediaId: existing.mediaId,
-						mediaType: existing.mediaType,
-						mediaTitle: existing.mediaTitle,
-						playDurationMs: capDuration((now - existing.startedAt) - finalPaused, existing.durationMs),
-						timestamp: now
-					});
-					activeSessions.set(key, {
+					const oldDuration = capDuration(existing.durationMs, existing.mediaDurationMs);
+					const oldProgress = existing.mediaDurationMs ? Math.min(1, existing.durationMs / existing.mediaDurationMs) : null;
+					const oldCompleted = oldProgress !== null && oldProgress >= 0.9;
+					closeSession(existing.dbId, oldDuration, oldProgress, oldCompleted);
+
+					const dbId = genId();
+					const sessionKey = `${config.id}:${session.Id}`;
+					const tracker: TrackedSession = {
 						sessionId: key,
+						dbId,
+						sessionKey,
 						serviceId: config.id,
 						userId: nexusUserId,
 						mediaId: item.Id,
@@ -228,100 +259,82 @@ async function pollJellyfinSessions() {
 						mediaTitle: item.Name,
 						isPaused,
 						startedAt: now,
+						lastTickAt: now,
 						lastSeenAt: now,
 						pausedSinceAt: isPaused ? now : null,
 						totalPausedMs: 0,
-						durationMs: mediaDurationMs
-					});
-					emitMediaEvent({
-						userId: nexusUserId,
-						serviceId: config.id,
-						serviceType: 'jellyfin',
-						eventType: 'play_start',
-						mediaId: item.Id,
-						mediaType: mType,
-						mediaTitle: item.Name,
-						mediaYear: item.ProductionYear,
-						mediaGenres: item.Genres,
-						parentId: item.SeriesId,
-						parentTitle: item.SeriesName,
-						positionTicks: session.PlayState?.PositionTicks,
-						durationTicks: item.RunTimeTicks,
-						deviceName: session.DeviceName,
-						clientName: session.Client,
-						metadata: extractMetadata(session)
-					});
+						durationMs: 0,
+						mediaDurationMs
+					};
+					activeSessions.set(key, tracker);
+					insertSession(tracker, extractMetadata(session), item.Genres, item.ProductionYear, item.SeriesId, item.SeriesName, session.DeviceName, session.Client);
 					updateActivityPresence(nexusUserId, {
 						mediaId: item.Id, mediaType: mType, mediaTitle: item.Name,
 						serviceId: config.id, deviceName: session.DeviceName, clientName: session.Client
 					});
 				} else {
-					// Same media — detect pause/resume and track paused time
+					// Same media — handle pause/resume and accumulate duration
 					if (isPaused && !existing.isPaused) {
 						existing.pausedSinceAt = now;
-						emitMediaEvent({
-							userId: nexusUserId,
-							serviceId: config.id,
-							serviceType: 'jellyfin',
-							eventType: 'play_pause',
-							mediaId: item.Id,
-							mediaType: mType,
-							mediaTitle: item.Name,
-							positionTicks: session.PlayState?.PositionTicks,
-							durationTicks: item.RunTimeTicks,
-							deviceName: session.DeviceName,
-							clientName: session.Client
-						});
 					} else if (!isPaused && existing.isPaused) {
 						if (existing.pausedSinceAt) {
 							existing.totalPausedMs += now - existing.pausedSinceAt;
 						}
 						existing.pausedSinceAt = null;
-						emitMediaEvent({
-							userId: nexusUserId,
-							serviceId: config.id,
-							serviceType: 'jellyfin',
-							eventType: 'play_resume',
-							mediaId: item.Id,
-							mediaType: mType,
-							mediaTitle: item.Name,
-							positionTicks: session.PlayState?.PositionTicks,
-							durationTicks: item.RunTimeTicks,
-							deviceName: session.DeviceName,
-							clientName: session.Client
-						});
 					}
 					existing.isPaused = isPaused;
+
+					// Accumulate active play time (only when not paused)
+					if (!isPaused) {
+						existing.durationMs += (now - existing.lastTickAt);
+						// Cap at mediaDurationMs * 1.1 if available
+						if (existing.mediaDurationMs && existing.durationMs > existing.mediaDurationMs * 1.1) {
+							existing.durationMs = existing.mediaDurationMs;
+						}
+					}
+
+					existing.lastTickAt = now;
 					existing.lastSeenAt = now;
+
+					// Calculate progress from position ticks or from accumulated duration
+					let progress: number | null = null;
+					if (positionTicks && existing.mediaDurationMs) {
+						const positionMs = positionTicks / 10_000;
+						progress = Math.min(1, positionMs / existing.mediaDurationMs);
+					} else if (existing.mediaDurationMs) {
+						progress = Math.min(1, existing.durationMs / existing.mediaDurationMs);
+					}
+
+					updateSessionTick(existing.dbId, existing.durationMs, progress);
 				}
 			}
 		} catch (e) {
-			// Service unreachable — don't end sessions from this service
 			failedServiceIds.add(config.id);
 			console.error(`[poller] Failed to poll ${config.name}:`, e instanceof Error ? e.message : e);
 		}
 	}
 
 	// Detect ended sessions — but only for services we successfully polled.
-	// If a service was unreachable, preserve its sessions so they resume
-	// when the service comes back online.
 	for (const [key, session] of activeSessions) {
-		if (failedServiceIds.has(session.serviceId)) continue; // skip — server was down
+		if (failedServiceIds.has(session.serviceId)) continue;
 		if (!seenKeys.has(key)) {
-			const finalPaused = session.totalPausedMs + (session.pausedSinceAt ? now - session.pausedSinceAt : 0);
-			emitMediaEvent({
-				userId: session.userId,
-				serviceId: session.serviceId,
-				serviceType: 'jellyfin',
-				eventType: 'play_stop',
-				mediaId: session.mediaId,
-				mediaType: session.mediaType,
-				mediaTitle: session.mediaTitle,
-				playDurationMs: capDuration((now - session.startedAt) - finalPaused, session.durationMs),
-				timestamp: now
-			});
+			const progress = session.mediaDurationMs ? Math.min(1, session.durationMs / session.mediaDurationMs) : null;
+			const completed = progress !== null && progress >= 0.9;
+			closeSession(session.dbId, capDuration(session.durationMs, session.mediaDurationMs), progress, completed);
 			updateActivityPresence(session.userId, null);
 			activeSessions.delete(key);
+		}
+	}
+
+	// Stale session cleanup
+	const STALE_FLOOR_MS = 4 * 60 * 60 * 1000;
+	for (const [key, session] of activeSessions) {
+		const staleThreshold = Math.max((session.mediaDurationMs ?? 0) * 1.5, STALE_FLOOR_MS);
+		if (now - session.lastSeenAt > staleThreshold) {
+			closeSession(session.dbId, capDuration(session.durationMs, session.mediaDurationMs), null, false);
+			updateActivityPresence(session.userId, null);
+			activeSessions.delete(key);
+			console.log(`[poller] Auto-closed stale session for ${session.mediaTitle} (${key})`);
 		}
 	}
 }
@@ -330,8 +343,7 @@ async function pollJellyfinSessions() {
 // RomM status poller — checks for game status changes (every 60s)
 // ---------------------------------------------------------------------------
 
-// Track last known status per user+game to detect changes
-const rommStatusCache = new Map<string, string>(); // key: userId:gameId -> status
+const rommStatusCache = new Map<string, string>();
 let rommPollCount = 0;
 
 async function pollRommStatuses() {
@@ -339,7 +351,6 @@ async function pollRommStatuses() {
 	if (configs.length === 0) return;
 
 	rommPollCount++;
-	// Only poll every 6th tick (60s) to avoid hammering the RomM API
 	if (rommPollCount % 6 !== 0) return;
 
 	for (const config of configs) {
@@ -371,38 +382,78 @@ async function pollRommStatuses() {
 					if (prevStatus !== userStatus) {
 						rommStatusCache.set(cacheKey, userStatus);
 
-						// Don't emit on first load (prevStatus undefined) to avoid flooding
 						if (prevStatus !== undefined) {
-							const statusEventMap: Record<string, string> = {
-								playing: 'play_start',
-								finished: 'complete',
-								completed: 'complete',
-								retired: 'mark_watched',
-								wishlist: 'add_to_watchlist'
-							};
-
 							const genres = (rom.metadatum?.genres ?? rom.genres ?? [])
 								.map((g: { name?: string } | string) => typeof g === 'string' ? g : g.name)
 								.filter(Boolean) as string[];
 
-							emitMediaEvent({
-								userId: cred.userId,
-								serviceId: config.id,
-								serviceType: 'romm',
-								eventType: statusEventMap[userStatus] ?? 'mark_watched',
-								mediaId: String(rom.id),
-								mediaType: 'game',
-								mediaTitle: rom.name || rom.fs_name_no_ext,
-								mediaGenres: genres.length > 0 ? genres : undefined,
-								parentTitle: rom.platform_display_name,
-								metadata: {
-									platform: rom.platform_display_name,
-									platformSlug: rom.platform_slug,
-									userStatus,
-									previousStatus: prevStatus,
-									lastPlayed: rom.rom_user?.last_played
+							const mediaTitle = rom.name || rom.fs_name_no_ext;
+							const mediaId = String(rom.id);
+
+							if (userStatus === 'playing') {
+								// Insert a play session for game start
+								const dbId = genId();
+								const sessionKey = `romm:${config.id}:${cred.userId}:${rom.id}`;
+								const now = Date.now();
+								getRawDb().prepare(`
+									INSERT INTO play_sessions (id, session_key, user_id, service_id, service_type, media_id, media_type, media_title, media_genres, parent_title, started_at, duration_ms, source, created_at, updated_at)
+									VALUES (?, ?, ?, ?, 'romm', ?, 'game', ?, ?, ?, ?, 0, 'poller', ?, ?)
+									ON CONFLICT(session_key) DO UPDATE SET
+										ended_at = NULL, duration_ms = 0, updated_at = excluded.updated_at
+								`).run(
+									dbId, sessionKey, cred.userId, config.id,
+									mediaId, mediaTitle,
+									genres.length > 0 ? JSON.stringify(genres) : null,
+									rom.platform_display_name ?? null,
+									now, now, now
+								);
+							} else if (userStatus === 'finished' || userStatus === 'completed' || userStatus === 'retired') {
+								// Close any open session for this game
+								const openSession = getRawDb().prepare(
+									`SELECT id, duration_ms, media_duration_ms FROM play_sessions WHERE user_id = ? AND media_id = ? AND service_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
+								).get(cred.userId, mediaId, config.id) as any;
+								if (openSession) {
+									closeSession(openSession.id, capDuration(openSession.duration_ms ?? 0, openSession.media_duration_ms), null, userStatus === 'finished' || userStatus === 'completed');
 								}
-							});
+								// Also emit a media action
+								emitMediaAction({
+									userId: cred.userId,
+									serviceId: config.id,
+									serviceType: 'romm',
+									actionType: userStatus === 'finished' || userStatus === 'completed' ? 'complete' : 'mark_watched',
+									mediaId,
+									mediaType: 'game',
+									mediaTitle,
+									metadata: {
+										platform: rom.platform_display_name,
+										platformSlug: rom.platform_slug,
+										userStatus,
+										previousStatus: prevStatus,
+										lastPlayed: rom.rom_user?.last_played
+									}
+								});
+							} else {
+								// Other status changes (wishlist, etc.) — emit as media action
+								const actionMap: Record<string, string> = {
+									wishlist: 'add_to_watchlist'
+								};
+								emitMediaAction({
+									userId: cred.userId,
+									serviceId: config.id,
+									serviceType: 'romm',
+									actionType: actionMap[userStatus] ?? 'status_change',
+									mediaId,
+									mediaType: 'game',
+									mediaTitle,
+									metadata: {
+										platform: rom.platform_display_name,
+										platformSlug: rom.platform_slug,
+										userStatus,
+										previousStatus: prevStatus,
+										lastPlayed: rom.rom_user?.last_played
+									}
+								});
+							}
 						}
 					}
 				}
