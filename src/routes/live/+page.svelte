@@ -52,7 +52,7 @@
 			<p class="mt-1 max-w-xs text-sm text-[var(--color-muted)]">
 				Connect a Jellyfin server with Live TV configured to watch live channels here.
 			</p>
-			<a href="/settings" class="btn btn-primary mt-4 text-sm">Manage Services</a>
+			<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Manage Services</a>
 		</div>
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-3">

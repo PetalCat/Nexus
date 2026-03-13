@@ -370,7 +370,7 @@
 		</div>
 		<h2 class="text-display text-xl font-bold">No request service connected</h2>
 		<p class="mt-2 max-w-sm text-sm text-[var(--color-muted)]">Connect Overseerr in Settings to allow users to request movies and shows.</p>
-		<a href="/settings" class="btn btn-primary mt-5">Open Settings</a>
+		<a href="/settings/accounts" class="btn btn-primary mt-5">Open Settings</a>
 	</div>
 {:else}
 
@@ -763,7 +763,7 @@
 					</div>
 					<p class="font-semibold">Link your account to track requests</p>
 					<p class="mt-1.5 text-sm text-[var(--color-muted)]">Connect your Overseerr account in Settings → My Accounts to see your request history here.</p>
-					<a href="/settings" class="btn btn-ghost mt-5 border border-[rgba(240,235,227,0.06)] text-sm">Go to Settings</a>
+					<a href="/settings/accounts" class="btn btn-ghost mt-5 border border-[rgba(240,235,227,0.06)] text-sm">Go to Settings</a>
 				</div>
 			{:else if data.myRequests.length === 0}
 				<div class="rounded-2xl border border-dashed border-[rgba(240,235,227,0.06)] px-6 py-12 text-center">

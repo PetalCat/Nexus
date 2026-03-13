@@ -28,7 +28,7 @@
 			</div>
 			<h2 class="text-display text-xl font-semibold">No services connected</h2>
 			<p class="mt-2 text-sm text-[var(--color-muted)]">Add your media services to populate your dashboard.</p>
-			<a href="/settings" class="btn btn-primary mt-6">Configure Services</a>
+			<a href="/settings/accounts" class="btn btn-primary mt-6">Configure Services</a>
 		</div>
 	{:else}
 		<div class="mt-6 flex flex-col gap-10 pb-8">
