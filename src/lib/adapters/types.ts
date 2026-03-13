@@ -88,7 +88,7 @@ export interface NexusRequest {
 	type: 'movie' | 'show' | 'book' | 'game' | 'music' | 'other';
 	poster?: string;
 	year?: number;
-	status: 'pending' | 'approved' | 'declined' | 'available';
+	status: 'pending' | 'approved' | 'declined' | 'available' | 'partial';
 	requestedByName: string;
 	requestedByExternalId: string;
 	requestedAt: string;
