@@ -103,6 +103,9 @@
 	const activeId = $derived.by(() => {
 		const path = $page.url.pathname;
 		if (path === '/') return 'home';
+		if (path.startsWith('/library/watchlist')) return 'watchlist';
+		if (path.startsWith('/library/collections')) return 'collections';
+		if (path.startsWith('/library/shared')) return 'shared';
 		const segment = path.split('/')[1];
 		const map: Record<string, string> = {
 			movies: 'movies',
@@ -160,6 +163,7 @@
 			bind:collapsed={sidebarCollapsed}
 			bind:mobileOpen
 			{pendingRequests}
+			unseenShares={0}
 			isAdmin={data.user?.isAdmin ?? false}
 		/>
 

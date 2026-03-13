@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { HeroItem } from '$lib/server/homepage-cache';
+	import type { HeroItem } from '$lib/types/homepage';
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
 
 	interface Props {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { HomepageItem } from '$lib/server/homepage-cache';
+	import type { HomepageItem } from '$lib/types/homepage';
 	import { goto } from '$app/navigation';
 
 	interface Props {

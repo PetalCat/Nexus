@@ -8,6 +8,7 @@ import { getRomSaves, getRomStates, getRomScreenshots } from '$lib/adapters/romm
 import { isPlayableInBrowser } from '$lib/emulator/cores';
 import { getRelatedBooks, getCalibreBookFormats } from '$lib/adapters/calibre';
 import { emitMediaEvent } from '$lib/server/analytics';
+import { getUserFavorites } from '$lib/server/social';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { JellyfinSeason } from '$lib/adapters/jellyfin';
 import type { PageServerLoad } from './$types';
@@ -204,6 +205,36 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let hasLinkedInvidious = false;
 	let videoNotifyEnabled = false;
 
+	// Local resume fallback for Jellyfin.
+	// Jellyfin user progress is the source of truth, but if sync is delayed we use the
+	// latest Nexus activity row so the Resume button still lands near the correct position.
+	if (userId && resolvedServiceType === 'jellyfin' && (item.type === 'movie' || item.type === 'episode')) {
+		try {
+			const { getDb } = await import('$lib/db');
+			const { activity } = await import('$lib/db/schema');
+			const { eq, and, desc, inArray } = await import('drizzle-orm');
+			const db = getDb();
+			const mediaIds = Array.from(new Set([params.id, item.sourceId].filter((v): v is string => !!v)));
+			const record = db.select().from(activity)
+				.where(
+					and(
+						eq(activity.userId, userId),
+						eq(activity.serviceId, serviceId),
+						inArray(activity.mediaId, mediaIds),
+						eq(activity.type, 'watch')
+					)
+				)
+				.orderBy(desc(activity.lastActivity))
+				.get();
+			if (record && !record.completed && record.progress > 0) {
+				item.progress = Math.max(item.progress ?? 0, record.progress);
+				if (!item.duration && record.positionTicks && record.progress > 0) {
+					item.duration = record.positionTicks / 10_000_000 / record.progress;
+				}
+			}
+		} catch { /* silent */ }
+	}
+
 	if (resolvedServiceType === 'invidious' && userId) {
 		hasLinkedInvidious = !!userCred?.accessToken;
 		if (hasLinkedInvidious && userCred && item.metadata?.authorId) {
@@ -333,6 +364,14 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		});
 	}
 
+	// ── Watchlist check ─────────────────────────────────────────────────
+	const favorites = userId ? getUserFavorites(userId) : [];
+	const watchlistEntry = favorites.find(
+		(f) => f.mediaId === params.id && f.serviceId === serviceId
+	);
+	const inWatchlist = !!watchlistEntry;
+	const favoriteId = watchlistEntry?.id ?? null;
+
 	return {
 		item,
 		serviceType: resolvedServiceType,
@@ -359,6 +398,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		bookHighlights,
 		bookBookmarks,
 		supportsEmulation: item.type === 'game' && isPlayableInBrowser(item.metadata?.platformSlug as string | undefined),
-		gameNoteContent
+		gameNoteContent,
+		inWatchlist,
+		favoriteId
 	};
 };

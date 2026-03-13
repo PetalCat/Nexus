@@ -49,11 +49,14 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		const cached = userIdCache.get(serviceId);
 		if (cached) {
 			jellyfinUserId = cached;
-		} else if (config.apiKey) {
-			// With an API key we need a userId — try to get it from /Users/Me or first admin
+		} else if (token) {
+			// Prefer resolving via the same token used for playback so we keep user context.
 			try {
 				const meRes = await fetch(`${config.url}/Users/Me`, {
-					headers: { 'X-Emby-Token': config.apiKey },
+					headers: {
+						Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${token}"`,
+						'X-Emby-Token': token
+					},
 					signal: AbortSignal.timeout(5000)
 				});
 				if (meRes.ok) {
@@ -61,7 +64,10 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 					jellyfinUserId = me.Id ?? '';
 				}
 			} catch { /* silent */ }
+		}
 
+		if (!jellyfinUserId && config.apiKey) {
+			// Last resort for server API key setups with no per-user token.
 			if (!jellyfinUserId) {
 				try {
 					const usersRes = await fetch(`${config.url}/Users`, {
@@ -115,7 +121,7 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		// Prefer direct stream — only transcode when the browser can't play the codec natively.
 		// Allow both H.264 and H.265/HEVC so compatible content isn't needlessly re-encoded.
 		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264,h265,hevc,av1');
-		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus,flac,vorbis,ac3,eac3');
+		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus,flac,vorbis');
 		if (!url.searchParams.has('TranscodingMaxAudioChannels'))
 			upstream.searchParams.set('TranscodingMaxAudioChannels', '6'); // preserve 5.1 surround
 		if (!url.searchParams.has('MaxStreamingBitrate'))

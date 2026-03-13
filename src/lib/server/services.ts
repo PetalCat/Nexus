@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { registry } from '../adapters/registry';
 import type { DashboardRow, ServiceConfig, ServiceHealth, UnifiedMedia, UserCredential } from '../adapters/types';
 import { getStreamyStatsRecommendations } from '../adapters/streamystats';
@@ -286,8 +286,54 @@ async function aggregateContinueWatching(configs: ServiceConfig[], userId?: stri
 			return adapter?.getContinueWatching?.(config, cred) ?? [];
 		})
 	);
-	return results
+	const items = results
 		.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+		.sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
+
+	if (!userId || items.length > 0) return items;
+
+	// Fallback for cases where upstream resume APIs lag: build from local watch activity.
+	const db = getDb();
+	const recent = db
+		.select({
+			mediaId: schema.activity.mediaId,
+			serviceId: schema.activity.serviceId,
+			progress: schema.activity.progress
+		})
+		.from(schema.activity)
+		.where(
+			and(
+				eq(schema.activity.userId, userId),
+				eq(schema.activity.type, 'watch'),
+				eq(schema.activity.completed, false)
+			)
+		)
+		.orderBy(desc(schema.activity.lastActivity))
+		.limit(25)
+		.all();
+
+	if (recent.length === 0) return items;
+
+	const seen = new Set<string>();
+	const fallbackItems = await Promise.allSettled(
+		recent.map(async (row) => {
+			const config = configs.find((c) => c.id === row.serviceId && c.type === 'jellyfin');
+			if (!config) return null;
+			const key = `${row.serviceId}:${row.mediaId}`;
+			if (seen.has(key)) return null;
+			seen.add(key);
+			const adapter = registry.get(config.type);
+			if (!adapter?.getItem) return null;
+			const cred = resolveUserCred(config, userId);
+			const item = await adapter.getItem(config, row.mediaId, cred);
+			if (!item) return null;
+			item.progress = Math.max(item.progress ?? 0, row.progress ?? 0);
+			return item;
+		})
+	);
+
+	return fallbackItems
+		.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : []))
 		.sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
 }
 
