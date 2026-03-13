@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import AdminOverview from '$lib/components/admin/AdminOverview.svelte';
+	import AdminServices from '$lib/components/admin/AdminServices.svelte';
 
 	let { data }: { data: PageData } = $props();
 </script>
 
-<AdminOverview {data} />
+<AdminServices {data} />
