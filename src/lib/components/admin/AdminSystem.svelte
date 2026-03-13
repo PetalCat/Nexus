@@ -75,11 +75,12 @@
 	const tableNames: Record<string, string> = {
 		users: 'Users',
 		media_items: 'Media Items',
-		media_events: 'Media Events',
+		play_sessions: 'Play Sessions',
+		media_actions: 'Media Actions',
 		interaction_events: 'Interaction Events',
 		services: 'Services',
 		sessions: 'Sessions',
-		user_stats_cache: 'Stats Cache',
+		stats_rollups: 'Stats Rollups',
 		activity: 'Activity'
 	};
 </script>

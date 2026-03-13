@@ -15,11 +15,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	const rows = db.prepare(`
 		SELECT
-			date(timestamp / 1000, 'unixepoch', 'localtime') as date,
-			COALESCE(SUM(play_duration_ms), 0) as playTimeMs,
+			date(started_at / 1000, 'unixepoch', 'localtime') as date,
+			COALESCE(SUM(duration_ms), 0) as playTimeMs,
 			COUNT(*) as sessions
-		FROM media_events
-		WHERE event_type = 'play_stop' AND timestamp >= ?
+		FROM play_sessions
+		WHERE started_at >= ?
 		GROUP BY date
 		ORDER BY date ASC
 	`).all(since) as { date: string; playTimeMs: number; sessions: number }[];

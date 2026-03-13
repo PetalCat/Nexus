@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { and, eq, or, sql, desc, inArray } from 'drizzle-orm';
-import { getDb, schema } from '../db';
+import { getDb, getRawDb, schema } from '../db';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -451,28 +451,29 @@ export function getFriendActivity(userId: string, opts?: { limit?: number; offse
 	const limit = opts?.limit ?? 50;
 	const offset = opts?.offset ?? 0;
 
-	const conditions = [inArray(schema.mediaEvents.userId, visibleFriends)];
+	const conds = ['user_id IN (' + visibleFriends.map(() => '?').join(',') + ')'];
+	const sqlParams: (string | number)[] = [...visibleFriends];
 	if (opts?.mediaId) {
-		conditions.push(eq(schema.mediaEvents.mediaId, opts.mediaId));
+		conds.push('media_id = ?');
+		sqlParams.push(opts.mediaId);
 	}
 	if (opts?.serviceId) {
-		conditions.push(eq(schema.mediaEvents.serviceId, opts.serviceId));
+		conds.push('service_id = ?');
+		sqlParams.push(opts.serviceId);
 	}
+	sqlParams.push(limit, offset);
 
-	const events = db
-		.select()
-		.from(schema.mediaEvents)
-		.where(and(...conditions))
-		.orderBy(desc(schema.mediaEvents.timestamp))
-		.limit(limit)
-		.offset(offset)
-		.all();
+	const raw = getRawDb();
+	const events = raw.prepare(
+		`SELECT * FROM play_sessions WHERE ${conds.join(' AND ')} ORDER BY started_at DESC LIMIT ? OFFSET ?`
+	).all(...sqlParams) as any[];
 
 	// Enrich with user info
-	return events.map((e) => {
+	return events.map((e: any) => {
+		const uid = e.user_id ?? e.userId;
 		const user = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, e.userId)).get();
-		return { ...e, username: user?.username, displayName: user?.displayName, avatar: user?.avatar ?? null };
+			.from(schema.users).where(eq(schema.users.id, uid)).get();
+		return { ...e, userId: uid, username: user?.username, displayName: user?.displayName, avatar: user?.avatar ?? null };
 	});
 }
 
@@ -484,17 +485,11 @@ export function getMediaFriendActivity(userId: string, mediaId: string, serviceI
 	const visibleFriends = friendIds.filter((f) => !isGhostMode(f));
 
 	// Who completed this media
-	const watched = db
-		.select()
-		.from(schema.mediaEvents)
-		.where(
-			and(
-				inArray(schema.mediaEvents.userId, visibleFriends),
-				eq(schema.mediaEvents.mediaId, mediaId),
-				eq(schema.mediaEvents.eventType, 'complete')
-			)
-		)
-		.all();
+	const raw = getRawDb();
+	const placeholders = visibleFriends.map(() => '?').join(',');
+	const watched = raw.prepare(
+		`SELECT * FROM media_actions WHERE user_id IN (${placeholders}) AND media_id = ? AND action_type = 'complete'`
+	).all(...visibleFriends, mediaId) as any[];
 
 	// Who is currently watching (has play_start without play_stop after)
 	const watching: typeof watched = []; // Simplified: derived from presence
@@ -517,11 +512,11 @@ export function getMediaFriendActivity(userId: string, mediaId: string, serviceI
 	// Who has this in their watchlist
 	const watchlisted = db
 		.select()
-		.from(schema.userFavorites)
+		.from(schema.userWatchlist)
 		.where(
 			and(
-				inArray(schema.userFavorites.userId, visibleFriends),
-				eq(schema.userFavorites.mediaId, mediaId)
+				inArray(schema.userWatchlist.userId, visibleFriends),
+				eq(schema.userWatchlist.mediaId, mediaId)
 			)
 		)
 		.all();
@@ -1021,19 +1016,19 @@ export function updateVoiceActive(sessionId: string, userId: string, active: boo
 	return result.changes > 0;
 }
 
-// ── User Favorites ───────────────────────────────────────────────────
+// ── User Watchlist ───────────────────────────────────────────────────
 
-export function getUserFavorites(userId: string) {
+export function getUserWatchlist(userId: string) {
 	const db = getDb();
 	return db
 		.select()
-		.from(schema.userFavorites)
-		.where(eq(schema.userFavorites.userId, userId))
-		.orderBy(schema.userFavorites.position)
+		.from(schema.userWatchlist)
+		.where(eq(schema.userWatchlist.userId, userId))
+		.orderBy(schema.userWatchlist.position)
 		.all();
 }
 
-export function addUserFavorite(userId: string, item: {
+export function addToWatchlist(userId: string, item: {
 	mediaId: string;
 	serviceId: string;
 	mediaType: string;
@@ -1042,22 +1037,22 @@ export function addUserFavorite(userId: string, item: {
 }): string | null {
 	const db = getDb();
 
-	// Check if already favorited
-	const existing = db.select().from(schema.userFavorites)
+	// Check if already in watchlist
+	const existing = db.select().from(schema.userWatchlist)
 		.where(and(
-			eq(schema.userFavorites.userId, userId),
-			eq(schema.userFavorites.mediaId, item.mediaId),
-			eq(schema.userFavorites.serviceId, item.serviceId)
+			eq(schema.userWatchlist.userId, userId),
+			eq(schema.userWatchlist.mediaId, item.mediaId),
+			eq(schema.userWatchlist.serviceId, item.serviceId)
 		))
 		.get();
 	if (existing) return existing.id;
 
 	const maxPos = db.get<{ m: number }>(
-		sql`SELECT COALESCE(MAX(position), -1) as m FROM user_favorites WHERE user_id = ${userId}`
+		sql`SELECT COALESCE(MAX(position), -1) as m FROM user_watchlist WHERE user_id = ${userId}`
 	);
 
 	const id = genId();
-	db.insert(schema.userFavorites).values({
+	db.insert(schema.userWatchlist).values({
 		id,
 		userId,
 		mediaId: item.mediaId,
@@ -1071,21 +1066,21 @@ export function addUserFavorite(userId: string, item: {
 	return id;
 }
 
-export function removeUserFavorite(userId: string, favoriteId: string): boolean {
+export function removeFromWatchlist(userId: string, watchlistItemId: string): boolean {
 	const db = getDb();
 	const result = db
-		.delete(schema.userFavorites)
-		.where(and(eq(schema.userFavorites.id, favoriteId), eq(schema.userFavorites.userId, userId)))
+		.delete(schema.userWatchlist)
+		.where(and(eq(schema.userWatchlist.id, watchlistItemId), eq(schema.userWatchlist.userId, userId)))
 		.run();
 	return result.changes > 0;
 }
 
-export function reorderUserFavorites(userId: string, orderedIds: string[]): void {
+export function reorderWatchlist(userId: string, orderedIds: string[]): void {
 	const db = getDb();
 	for (let i = 0; i < orderedIds.length; i++) {
-		db.update(schema.userFavorites)
+		db.update(schema.userWatchlist)
 			.set({ position: i })
-			.where(and(eq(schema.userFavorites.id, orderedIds[i]), eq(schema.userFavorites.userId, userId)))
+			.where(and(eq(schema.userWatchlist.id, orderedIds[i]), eq(schema.userWatchlist.userId, userId)))
 			.run();
 	}
 }

@@ -1,23 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { getDb } from '$lib/db';
+import { getRawDb } from '$lib/db';
 import type { RequestHandler } from './$types';
-
-export interface PlaySession {
-	id: number;
-	date: string;
-	duration: number; // minutes
-	durationMs: number;
-	progressBefore: number | null;
-	progressAfter: number | null;
-	deviceName: string | null;
-	clientName: string | null;
-}
 
 /**
  * GET /api/user/play-history?mediaId=xxx&mediaType=game&limit=50&offset=0
  *
- * Returns per-item play sessions built from play_start/play_stop event pairs.
- * Each session = one play_start matched with its next play_stop for the same media.
+ * Returns per-item play sessions from the play_sessions table.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
@@ -27,10 +15,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const limit = Math.min(200, parseInt(url.searchParams.get('limit') ?? '50'));
 	const offset = parseInt(url.searchParams.get('offset') ?? '0');
 
-	const db = getDb();
+	const db = getRawDb();
 
-	// Build play sessions from play_stop events (which carry duration info)
-	const conditions = ['user_id = ?', "event_type = 'play_stop'"];
+	const conditions = ['user_id = ?', 'ended_at IS NOT NULL'];
 	const params: (string | number)[] = [locals.user.id];
 
 	if (mediaId) {
@@ -44,57 +31,41 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	const where = conditions.join(' AND ');
 
-	const sessions = db.all(
-		`SELECT id, timestamp, play_duration_ms, position_ticks, duration_ticks,
-		        device_name, client_name, media_id, media_title, media_type, service_type
-		 FROM media_events
+	const sessions = db.prepare(
+		`SELECT id, media_id, media_title, media_type, service_type,
+		        duration_ms, media_duration_ms, device_name, client_name,
+		        started_at, ended_at, progress, completed
+		 FROM play_sessions
 		 WHERE ${where}
-		 ORDER BY timestamp DESC
-		 LIMIT ? OFFSET ?`,
-		...params,
-		limit,
-		offset
-	) as Array<{
-		id: number;
-		timestamp: number;
-		play_duration_ms: number | null;
-		position_ticks: number | null;
-		duration_ticks: number | null;
-		device_name: string | null;
-		client_name: string | null;
+		 ORDER BY started_at DESC
+		 LIMIT ? OFFSET ?`
+	).all(...params, limit, offset) as Array<{
+		id: string;
 		media_id: string;
 		media_title: string | null;
 		media_type: string;
 		service_type: string;
+		duration_ms: number | null;
+		media_duration_ms: number | null;
+		device_name: string | null;
+		client_name: string | null;
+		started_at: number;
+		ended_at: number | null;
+		progress: number | null;
+		completed: number | null;
 	}>;
 
-	const countRow = db.get(
-		`SELECT COUNT(*) as count FROM media_events WHERE ${where}`,
-		...params
-	) as { count: number };
+	const countRow = db.prepare(
+		`SELECT COUNT(*) as count FROM play_sessions WHERE ${where}`
+	).get(...params) as { count: number };
 
-	const result: Array<{
-		id: number;
-		date: string;
-		durationMinutes: number;
-		durationMs: number;
-		progressPercent: number | null;
-		deviceName: string | null;
-		clientName: string | null;
-		mediaId: string;
-		mediaTitle: string | null;
-		mediaType: string;
-		serviceType: string;
-	}> = sessions.map((s) => {
-		const durationMs = s.play_duration_ms ?? 0;
-		const progressPercent =
-			s.position_ticks && s.duration_ticks
-				? Math.round((s.position_ticks / s.duration_ticks) * 100)
-				: null;
+	const result = sessions.map((s) => {
+		const durationMs = s.duration_ms ?? 0;
+		const progressPercent = s.progress != null ? Math.round(s.progress * 100) : null;
 
 		return {
 			id: s.id,
-			date: new Date(s.timestamp).toISOString(),
+			date: new Date(s.started_at).toISOString(),
 			durationMinutes: Math.round(durationMs / 60_000),
 			durationMs,
 			progressPercent,

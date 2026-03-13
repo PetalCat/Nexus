@@ -13,16 +13,15 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	const rows = db.prepare(`
 		SELECT
-			me.user_id as userId,
+			ps.user_id as userId,
 			u.display_name as displayName,
 			u.username,
-			COALESCE(SUM(me.play_duration_ms), 0) as totalPlayTimeMs,
+			COALESCE(SUM(ps.duration_ms), 0) as totalPlayTimeMs,
 			COUNT(*) as totalSessions,
-			MAX(me.timestamp) as lastActive
-		FROM media_events me
-		LEFT JOIN users u ON u.id = me.user_id
-		WHERE me.event_type = 'play_stop'
-		GROUP BY me.user_id
+			MAX(ps.started_at) as lastActive
+		FROM play_sessions ps
+		LEFT JOIN users u ON u.id = ps.user_id
+		GROUP BY ps.user_id
 		ORDER BY totalPlayTimeMs DESC
 	`).all() as { userId: string; displayName: string; username: string; totalPlayTimeMs: number; totalSessions: number; lastActive: number }[];
 
