@@ -9,14 +9,6 @@ function runScheduledRebuilds() {
 
 	for (const userId of userIds) {
 		try {
-			// Always rebuild current day (5 min cycle)
-			buildAndCacheStats(userId, 'day', 'all');
-
-			// Every 6th tick (30 min) — rebuild week
-			if (tickCount % 6 === 0) {
-				buildAndCacheStats(userId, 'week', 'all');
-			}
-
 			// Every 24th tick (2 hours) — rebuild month
 			if (tickCount % 24 === 0) {
 				buildAndCacheStats(userId, 'month', 'all');
