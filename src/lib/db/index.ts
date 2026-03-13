@@ -140,13 +140,13 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// activity table — added user_id for per-user tracking
 	safeAddColumn('activity', 'user_id', 'TEXT');
 
-	// ── Analytics engine tables ──────────────────────────────────
-	db.run(`CREATE TABLE IF NOT EXISTS media_events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+	// ── Play Sessions (replaces media_events) ──────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS play_sessions (
+		id TEXT PRIMARY KEY,
+		session_key TEXT UNIQUE,
 		user_id TEXT NOT NULL,
 		service_id TEXT NOT NULL,
 		service_type TEXT NOT NULL,
-		event_type TEXT NOT NULL,
 		media_id TEXT NOT NULL,
 		media_type TEXT NOT NULL,
 		media_title TEXT,
@@ -154,22 +154,39 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		media_genres TEXT,
 		parent_id TEXT,
 		parent_title TEXT,
-		position_ticks INTEGER,
-		duration_ticks INTEGER,
-		play_duration_ms INTEGER,
+		started_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		duration_ms INTEGER DEFAULT 0,
+		media_duration_ms INTEGER,
+		progress REAL,
+		completed INTEGER DEFAULT 0,
 		device_name TEXT,
 		client_name TEXT,
 		metadata TEXT,
-		timestamp INTEGER NOT NULL,
-		ingested_at INTEGER NOT NULL
+		source TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
 	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_user_started ON play_sessions(user_id, started_at)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_user_media ON play_sessions(user_id, media_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_user_type ON play_sessions(user_id, media_type)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_active ON play_sessions(ended_at) WHERE ended_at IS NULL`);
 
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_user_ts ON media_events(user_id, timestamp)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_user_type_ts ON media_events(user_id, media_type, timestamp)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_user_event_ts ON media_events(user_id, event_type, timestamp)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_user_media ON media_events(user_id, media_id)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_service_ts ON media_events(service_id, media_id, timestamp)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_media_events_ts ON media_events(timestamp)`);
+	// ── Media Actions ──────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS media_actions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		service_type TEXT NOT NULL,
+		action_type TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		media_title TEXT,
+		metadata TEXT,
+		timestamp INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ma_user ON media_actions(user_id, timestamp)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ma_user_action ON media_actions(user_id, action_type, timestamp)`);
 
 	db.run(`CREATE TABLE IF NOT EXISTS interaction_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,16 +210,20 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	db.run(`CREATE INDEX IF NOT EXISTS idx_interaction_target_ts ON interaction_events(target, timestamp)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_interaction_session_ts ON interaction_events(session_token, timestamp)`);
 
-	db.run(`CREATE TABLE IF NOT EXISTS user_stats_cache (
+	// ── Stats Rollups ──────────────────────────────────────────────
+	db.run(`CREATE TABLE IF NOT EXISTS stats_rollups (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		user_id TEXT NOT NULL,
 		period TEXT NOT NULL,
 		media_type TEXT NOT NULL,
 		stats TEXT NOT NULL,
-		computed_at INTEGER NOT NULL
+		computed_at INTEGER NOT NULL,
+		UNIQUE(user_id, period, media_type)
 	)`);
 
-	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_stats_cache_key ON user_stats_cache(user_id, period, media_type)`);
+	// ── Migration: drop old tracking tables ────────────────────────
+	db.run(`DROP TABLE IF EXISTS media_events`);
+	db.run(`DROP TABLE IF EXISTS user_stats_cache`);
 
 	// ── Social features tables ──────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS friendships (
@@ -320,8 +341,10 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_collection_activity_cid_ts ON collection_activity(collection_id, created_at DESC)`);
 
-	// ── User favorites ──────────────────────────────────────────
-	db.run(`CREATE TABLE IF NOT EXISTS user_favorites (
+	// ── User watchlist (migration from user_favorites) ──────────
+	try { db.run(`ALTER TABLE user_favorites RENAME TO user_watchlist`); } catch { /* table doesn't exist yet or already renamed */ }
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_watchlist (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
 		media_id TEXT NOT NULL,
@@ -332,8 +355,8 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		position INTEGER NOT NULL DEFAULT 0,
 		created_at INTEGER NOT NULL
 	)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_id, position)`);
-	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_favorites_unique ON user_favorites(user_id, media_id, service_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id, position)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_watchlist_unique ON user_watchlist(user_id, media_id, service_id)`);
 
 	// Watch sessions migrations
 	safeAddColumn('watch_sessions', 'invited_ids', 'TEXT');
