@@ -125,36 +125,59 @@ export const sessions = sqliteTable('sessions', {
 		.default(sql`(datetime('now'))`)
 });
 
-// Append-only media consumption event log
-export const mediaEvents = sqliteTable('media_events', {
+// ── Play Sessions (replaces media_events) ────────────────────────────
+export const playSessions = sqliteTable('play_sessions', {
+	id: text('id').primaryKey(),
+	sessionKey: text('session_key').unique(),
+	userId: text('user_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	serviceType: text('service_type').notNull(),
+	mediaId: text('media_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	mediaTitle: text('media_title'),
+	mediaYear: integer('media_year'),
+	mediaGenres: text('media_genres'),
+	parentId: text('parent_id'),
+	parentTitle: text('parent_title'),
+	startedAt: integer('started_at').notNull(),
+	endedAt: integer('ended_at'),
+	durationMs: integer('duration_ms').default(0),
+	mediaDurationMs: integer('media_duration_ms'),
+	progress: real('progress'),
+	completed: integer('completed').default(0),
+	deviceName: text('device_name'),
+	clientName: text('client_name'),
+	metadata: text('metadata'),
+	source: text('source').notNull(),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type PlaySession = typeof playSessions.$inferSelect;
+export type NewPlaySession = typeof playSessions.$inferInsert;
+
+// ── Media Actions (non-playback events: ratings, marks, etc.) ────────
+export const mediaActions = sqliteTable('media_actions', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: text('user_id').notNull(),
 	serviceId: text('service_id').notNull(),
 	serviceType: text('service_type').notNull(),
-	eventType: text('event_type').notNull(), // play_start, play_stop, play_pause, play_resume, progress, complete, rate, like, unlike, favorite, unfavorite, add_to_watchlist, remove_from_watchlist, add_to_collection, remove_from_collection, share, mark_watched, mark_unwatched, request
+	actionType: text('action_type').notNull(),
 	mediaId: text('media_id').notNull(),
-	mediaType: text('media_type').notNull(), // movie, show, episode, book, game, music, live, album
+	mediaType: text('media_type').notNull(),
 	mediaTitle: text('media_title'),
-	mediaYear: integer('media_year'),
-	mediaGenres: text('media_genres'), // JSON array
-	parentId: text('parent_id'), // series ID, author, platform
-	parentTitle: text('parent_title'), // series name, author name
-	positionTicks: integer('position_ticks'),
-	durationTicks: integer('duration_ticks'),
-	playDurationMs: integer('play_duration_ms'), // wall clock time spent
-	deviceName: text('device_name'),
-	clientName: text('client_name'),
-	metadata: text('metadata'), // JSON: resolution, codecs, HDR, subtitles, CC, bitrate, transcoding, audio channels, etc.
-	timestamp: integer('timestamp').notNull(), // unix ms
-	ingestedAt: integer('ingested_at').notNull() // unix ms
+	metadata: text('metadata'),
+	timestamp: integer('timestamp').notNull()
 });
+
+export type MediaAction = typeof mediaActions.$inferSelect;
 
 // Append-only UI/behavioral event log
 export const interactionEvents = sqliteTable('interaction_events', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: text('user_id'),
 	sessionToken: text('session_token'),
-	eventType: text('event_type').notNull(), // page_view, click, search, scroll_depth, card_hover, card_click, row_scroll, filter_change, sort_change, detail_view, request_submit, setting_change, login, logout, like_button, rate_button, favorite_button
+	eventType: text('event_type').notNull(), // page_view, click, search, scroll_depth, card_hover, card_click, row_scroll, filter_change, sort_change, detail_view, request_submit, setting_change, login, logout, like_button, rate_button, watchlist_button
 	page: text('page'), // route path
 	target: text('target'), // "media_card:movie:456", "sidebar:movies", "search_bar"
 	targetTitle: text('target_title'),
@@ -166,15 +189,17 @@ export const interactionEvents = sqliteTable('interaction_events', {
 	timestamp: integer('timestamp').notNull()
 });
 
-// Pre-computed stats rollups
-export const userStatsCache = sqliteTable('user_stats_cache', {
+// ── Stats Rollups (pre-computed for monthly/yearly/alltime) ──────────
+export const statsRollups = sqliteTable('stats_rollups', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: text('user_id').notNull(),
-	period: text('period').notNull(), // "day:2026-03-04", "week:2026-W10", "month:2026-03", "year:2026", "alltime"
-	mediaType: text('media_type').notNull(), // movie, show, episode, book, game, music, all
-	stats: text('stats').notNull(), // JSON blob
-	computedAt: integer('computed_at').notNull() // unix ms
+	period: text('period').notNull(),
+	mediaType: text('media_type').notNull(),
+	stats: text('stats').notNull(),
+	computedAt: integer('computed_at').notNull()
 });
+
+export type StatsRollup = typeof statsRollups.$inferSelect;
 
 export type Service = typeof services.$inferSelect;
 export type NewService = typeof services.$inferInsert;
@@ -186,11 +211,8 @@ export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type UserServiceCredential = typeof userServiceCredentials.$inferSelect;
 export type InviteLink = typeof inviteLinks.$inferSelect;
-export type MediaEvent = typeof mediaEvents.$inferSelect;
-export type NewMediaEvent = typeof mediaEvents.$inferInsert;
 export type InteractionEvent = typeof interactionEvents.$inferSelect;
 export type NewInteractionEvent = typeof interactionEvents.$inferInsert;
-export type UserStatsEntry = typeof userStatsCache.$inferSelect;
 
 // ── Social Features ─────────────────────────────────────────────────────
 
@@ -311,9 +333,9 @@ export type CollectionItem = typeof collectionItems.$inferSelect;
 export type CollectionMember = typeof collectionMembers.$inferSelect;
 export type CollectionActivity = typeof collectionActivity.$inferSelect;
 
-// ── User Favorites ───────────────────────────────────────────────────
+// ── User Watchlist ───────────────────────────────────────────────────
 
-export const userFavorites = sqliteTable('user_favorites', {
+export const userWatchlist = sqliteTable('user_watchlist', {
 	id: text('id').primaryKey(),
 	userId: text('user_id').notNull(),
 	mediaId: text('media_id').notNull(),
@@ -325,7 +347,22 @@ export const userFavorites = sqliteTable('user_favorites', {
 	createdAt: integer('created_at').notNull()
 });
 
-export type UserFavorite = typeof userFavorites.$inferSelect;
+export type UserWatchlistItem = typeof userWatchlist.$inferSelect;
+
+// ── User Ratings ────────────────────────────────────────────────────
+
+export const userRatings = sqliteTable('user_ratings', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull(),
+	mediaId: text('media_id').notNull(),
+	serviceId: text('service_id').notNull(),
+	mediaType: text('media_type').notNull(),
+	rating: integer('rating').notNull(),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export type UserRating = typeof userRatings.$inferSelect;
 
 // ── Music ────────────────────────────────────────────────────────────
 
