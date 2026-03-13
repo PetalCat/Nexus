@@ -6,7 +6,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// ── Active tab ────────────────────────────────────────
-	type Tab = 'discover' | 'mine' | 'pending';
+	type Tab = 'discover' | 'mine' | 'requests';
 	let activeTab = $state<Tab>('discover');
 
 	// ── Search ────────────────────────────────────────────
@@ -161,6 +161,27 @@
 
 	// ── My Requests filter ────────────────────────────────
 	let myFilter = $state<'all' | 'active' | 'available' | 'declined'>('all');
+
+	// ── Admin unified filter ─────────────────────────────
+	let adminFilter = $state<'all' | 'pending' | 'processing' | 'available' | 'declined'>('all');
+
+	const mySourceIds = $derived(new Set(data.myRequests.map(r => r.sourceId)));
+
+	const filteredAllRequests = $derived(data.allRequests.filter((r) => {
+		if (adminFilter === 'pending') return r.status === 'pending';
+		if (adminFilter === 'processing') return r.status === 'approved';
+		if (adminFilter === 'available') return r.status === 'available' || r.status === 'partial';
+		if (adminFilter === 'declined') return r.status === 'declined';
+		return true;
+	}));
+
+	const adminCounts = $derived({
+		all: data.allRequests.length,
+		pending: data.allRequests.filter(r => r.status === 'pending').length,
+		processing: data.allRequests.filter(r => r.status === 'approved').length,
+		available: data.allRequests.filter(r => r.status === 'available' || r.status === 'partial').length,
+		declined: data.allRequests.filter(r => r.status === 'declined').length,
+	});
 
 	// ── Admin queue ───────────────────────────────────────
 	let actioning = $state(false);
@@ -369,35 +390,37 @@
 				{/if}
 			</button>
 
-			<!-- My Requests tab -->
-			<button
-				onclick={() => activeTab = 'mine'}
-				class="flex-shrink-0 relative flex items-center gap-2 px-4 py-3.5 text-sm font-medium transition-colors
-					{activeTab === 'mine' ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}"
-			>
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-				My Requests
-				{#if data.myRequests.length > 0}
-					<span class="rounded-full bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-muted)]">{data.myRequests.length}</span>
-				{/if}
-				{#if activeTab === 'mine'}
-					<span class="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-[var(--color-accent)]"></span>
-				{/if}
-			</button>
-
-			<!-- Pending tab (admin only) -->
+			<!-- Requests tab (admin: unified) / My Requests (non-admin) -->
 			{#if data.isAdmin}
 				<button
-					onclick={() => activeTab = 'pending'}
+					onclick={() => activeTab = 'requests'}
 					class="flex-shrink-0 relative flex items-center gap-2 px-4 py-3.5 text-sm font-medium transition-colors
-						{activeTab === 'pending' ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}"
+						{activeTab === 'requests' ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-					Pending
-					{#if data.adminPending.length > 0}
-						<span class="rounded-full bg-[#f59e0b] px-1.5 py-0.5 text-[10px] font-bold text-black">{data.adminPending.length}</span>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+					Requests
+					{#if data.allRequests.length > 0}
+						<span class="rounded-full bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-muted)]">{data.allRequests.length}</span>
 					{/if}
-					{#if activeTab === 'pending'}
+					{#if adminCounts.pending > 0}
+						<span class="rounded-full bg-[#f59e0b] px-1.5 py-0.5 text-[10px] font-bold text-black">{adminCounts.pending}</span>
+					{/if}
+					{#if activeTab === 'requests'}
+						<span class="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-[var(--color-accent)]"></span>
+					{/if}
+				</button>
+			{:else}
+				<button
+					onclick={() => activeTab = 'mine'}
+					class="flex-shrink-0 relative flex items-center gap-2 px-4 py-3.5 text-sm font-medium transition-colors
+						{activeTab === 'mine' ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}"
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+					My Requests
+					{#if data.myRequests.length > 0}
+						<span class="rounded-full bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-muted)]">{data.myRequests.length}</span>
+					{/if}
+					{#if activeTab === 'mine'}
 						<span class="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-[var(--color-accent)]"></span>
 					{/if}
 				</button>
@@ -730,7 +753,7 @@
 	{/if}
 
 	<!-- ── MY REQUESTS TAB ── -->
-	{#if activeTab === 'mine'}
+	{#if activeTab === 'mine' && !data.isAdmin}
 		<div class="px-3 py-5 sm:px-4 lg:px-6">
 
 			{#if !data.hasLinkedOverseerr}
@@ -757,7 +780,7 @@
 					{#each [
 						{ key: 'all',       label: 'All',         count: myCounts.all },
 						{ key: 'active',    label: 'In Progress', count: myCounts.active },
-						{ key: 'available', label: 'Ready',       count: myCounts.available },
+						{ key: 'available', label: 'In Library',  count: myCounts.available },
 						{ key: 'declined',  label: 'Declined',    count: myCounts.declined },
 					] as tab (tab.key)}
 						<button
@@ -889,30 +912,51 @@
 		</div>
 	{/if}
 
-	<!-- ── PENDING TAB (admin) ── -->
-	{#if activeTab === 'pending' && data.isAdmin}
+	<!-- ── ADMIN UNIFIED REQUESTS TAB ── -->
+	{#if activeTab === 'requests' && data.isAdmin}
 		<div class="px-3 py-5 sm:px-4 lg:px-6">
 
-			{#if actionResult}
-				<div class="mb-4 rounded-xl border px-4 py-2.5 text-sm
-					{actionResult.failed === 0
-						? 'border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] text-[var(--color-steel)]'
-						: 'border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 text-[var(--color-warm)]'}">
-					{actionResult.succeeded} succeeded{actionResult.failed > 0 ? `, ${actionResult.failed} failed` : ''}
-				</div>
-			{/if}
+			<!-- Filter tabs -->
+			<div class="mb-4 flex gap-1 overflow-x-auto scrollbar-none">
+				{#each [
+					{ key: 'all',        label: 'All',        count: adminCounts.all },
+					{ key: 'pending',    label: 'Pending',    count: adminCounts.pending },
+					{ key: 'processing', label: 'Processing', count: adminCounts.processing },
+					{ key: 'available',  label: 'In Library', count: adminCounts.available },
+					{ key: 'declined',   label: 'Declined',   count: adminCounts.declined },
+				] as tab (tab.key)}
+					<button
+						onclick={() => (adminFilter = tab.key as typeof adminFilter)}
+						class="flex-shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all
+							{adminFilter === tab.key ? 'bg-[var(--color-raised)] text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-body)]'}"
+					>
+						{tab.label}
+						{#if tab.count > 0}
+							<span class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold
+								{adminFilter === tab.key ? 'bg-[var(--color-accent)]/30 text-[var(--color-accent)]' : 'bg-[var(--color-surface)] text-[var(--color-muted)]'}
+								{tab.key === 'pending' && adminFilter !== 'pending' && tab.count > 0 ? '!bg-[#f59e0b] !text-black !font-bold' : ''}"
+							>{tab.count}</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
 
-			{#if data.adminPending.length === 0}
-				<div class="rounded-2xl border border-dashed border-[rgba(240,235,227,0.06)] py-14 text-center">
-					<p class="text-sm font-medium text-[var(--color-muted)]">All clear — no pending requests.</p>
-				</div>
+			{#if filteredAllRequests.length === 0}
+				<p class="py-10 text-center text-sm text-[var(--color-muted)]">
+					{adminFilter === 'all' ? 'No requests yet.' : 'Nothing in this category.'}
+				</p>
 			{:else}
-				<p class="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[var(--color-muted)]">{data.adminPending.length} awaiting approval</p>
 				<div class="flex flex-col gap-2">
-					{#each data.adminPending as req (req.id)}
-						<div class="flex items-center gap-3 rounded-xl px-3 py-3" style="background:var(--color-raised)">
+					{#each filteredAllRequests as req (req.id)}
+						{@const isOwn = mySourceIds.has(req.sourceId)}
+						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+						<div
+							class="group flex items-center gap-3 rounded-xl px-3 py-3 cursor-pointer transition-all hover:ring-1 hover:ring-[rgba(240,235,227,0.06)]"
+							style="background:var(--color-raised)"
+							onclick={() => openReq(req)}
+						>
 							<!-- Poster -->
-							<div class="flex-shrink-0 overflow-hidden rounded-lg" style="width:44px;height:66px;background:var(--color-surface)">
+							<div class="flex-shrink-0 overflow-hidden rounded-lg" style="width:40px;height:60px;background:var(--color-surface)">
 								{#if req.poster}
 									<img src={req.poster} alt={req.title} class="h-full w-full object-cover" loading="lazy" />
 								{:else}
@@ -924,34 +968,68 @@
 
 							<!-- Info -->
 							<div class="flex-1 min-w-0">
-								<p class="truncate font-medium text-sm">{req.title}</p>
-								<p class="text-[11px] text-[var(--color-muted)]">{#if req.year}{req.year} · {/if}{typeLabel(req.type)}</p>
-								<div class="mt-1 flex items-center gap-1.5">
+								<div class="flex items-center gap-1.5">
+									<h3 class="truncate font-semibold text-sm">{req.title}</h3>
+									{#if isOwn}
+										<span class="flex-shrink-0 rounded bg-[var(--color-accent)]/15 px-1.5 py-0.5 text-[9px] font-bold text-[var(--color-accent)]">YOU</span>
+									{/if}
+								</div>
+								<p class="mt-0.5 text-[11px] text-[var(--color-muted)]">
+									{#if req.year}{req.year} · {/if}{typeLabel(req.type)}{#if req.rating} · <span class="text-[var(--color-accent)]">★ {req.rating.toFixed(1)}</span>{/if}
+								</p>
+								<div class="mt-1.5 flex items-center gap-1.5">
 									<span class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold" style="background:var(--color-accent)20;color:var(--color-accent)">
 										{req.requestedByName.slice(0, 1).toUpperCase()}
 									</span>
 									<span class="truncate text-[11px] text-[var(--color-muted)]">{req.requestedByName}</span>
 									<span class="flex-shrink-0 text-[10px] text-[var(--color-muted)]">· {relativeTime(req.requestedAt)}</span>
+									<!-- Status badge -->
+									{#if req.status === 'pending'}
+										<span class="flex-shrink-0 rounded-full bg-[#f59e0b]/15 px-2 py-0.5 text-[9px] font-semibold text-[#f59e0b]">Pending</span>
+									{:else if req.status === 'approved'}
+										<span class="flex-shrink-0 rounded-full bg-[var(--color-accent)]/15 px-2 py-0.5 text-[9px] font-semibold text-[var(--color-accent)]">Processing</span>
+									{:else if req.status === 'available' || req.status === 'partial'}
+										<span class="flex-shrink-0 rounded-full bg-[#00d4aa]/15 px-2 py-0.5 text-[9px] font-semibold text-[#00d4aa]">{req.status === 'partial' ? 'Partial' : 'In Library'}</span>
+									{:else if req.status === 'declined'}
+										<span class="flex-shrink-0 rounded-full bg-[var(--color-warm)]/15 px-2 py-0.5 text-[9px] font-semibold text-[var(--color-warm)]">Declined</span>
+									{/if}
 								</div>
 							</div>
 
 							<!-- Actions -->
-							<div class="flex flex-shrink-0 items-center gap-1.5">
-								<button
-									onclick={() => adminAction('approve', req.id)}
-									disabled={actioning}
-									class="rounded-lg bg-[var(--color-steel)]/15 px-3 py-2 text-xs font-semibold text-[var(--color-steel)] transition hover:bg-[var(--color-steel)]/25 active:scale-95"
-									title="Approve"
-								>✓</button>
-								<button
-									onclick={() => adminAction('deny', req.id)}
-									disabled={actioning}
-									class="rounded-lg bg-[var(--color-warm)]/15 px-3 py-2 text-xs font-semibold text-[var(--color-warm)] transition hover:bg-[var(--color-warm)]/25 active:scale-95"
-									title="Deny"
-								>✗</button>
+							<div class="flex flex-shrink-0 items-center gap-1.5" onclick={(e) => e.stopPropagation()}>
+								{#if req.status === 'pending'}
+									<button
+										onclick={() => adminAction('approve', req.id)}
+										disabled={actioning}
+										class="rounded-lg bg-[var(--color-steel)]/15 px-3 py-2 text-xs font-semibold text-[var(--color-steel)] transition hover:bg-[var(--color-steel)]/25 active:scale-95"
+										title="Approve"
+									>✓</button>
+									<button
+										onclick={() => adminAction('deny', req.id)}
+										disabled={actioning}
+										class="rounded-lg bg-[var(--color-warm)]/15 px-3 py-2 text-xs font-semibold text-[var(--color-warm)] transition hover:bg-[var(--color-warm)]/25 active:scale-95"
+										title="Deny"
+									>✗</button>
+								{:else if (req.status === 'available' || req.status === 'partial') && req.mediaUrl}
+									<a
+										href={req.mediaUrl}
+										target="_blank" rel="noopener"
+										class="rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-bold text-black transition hover:bg-white/90 active:scale-95"
+									>Watch</a>
+								{/if}
 							</div>
 						</div>
 					{/each}
+				</div>
+			{/if}
+
+			{#if actionResult}
+				<div class="mt-4 rounded-xl border px-4 py-2.5 text-sm
+					{actionResult.failed === 0
+						? 'border-[var(--color-steel)]/30 bg-[rgba(61,143,132,0.1)] text-[var(--color-steel)]'
+						: 'border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 text-[var(--color-warm)]'}">
+					{actionResult.succeeded} succeeded{actionResult.failed > 0 ? `, ${actionResult.failed} failed` : ''}
 				</div>
 			{/if}
 		</div>
