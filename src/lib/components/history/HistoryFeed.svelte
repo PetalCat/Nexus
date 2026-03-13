@@ -3,9 +3,16 @@
 
 	interface Props {
 		events: MediaEvent[];
+		serviceUrls?: Record<string, string>;
 	}
 
-	let { events }: Props = $props();
+	let { events, serviceUrls = {} }: Props = $props();
+
+	function posterUrl(event: MediaEvent): string | null {
+		const baseUrl = serviceUrls[event.serviceId];
+		if (!baseUrl || !event.mediaId) return null;
+		return `${baseUrl}/Items/${event.mediaId}/Images/Primary?maxHeight=88&quality=80`;
+	}
 
 	const TYPE_COLORS: Record<string, string> = {
 		movie: 'rgba(212,162,83,0.15)',
@@ -82,14 +89,25 @@
 				<div class="flex flex-col gap-1.5">
 					{#each group.events as event (event.id)}
 						{@const progress = progressPct(event.positionTicks, event.durationTicks)}
+						{@const poster = posterUrl(event)}
 						<a
 							href="/media/{event.mediaType}/{event.serviceId}:{event.mediaId}"
 							class="flex items-center gap-3 rounded-lg bg-white/[0.02] p-2.5 transition-colors hover:bg-white/[0.04]"
 						>
-							<div
-								class="h-11 w-8 flex-shrink-0 rounded"
-								style="background: {TYPE_COLORS[event.mediaType] ?? 'rgba(255,255,255,0.03)'};"
-							></div>
+							{#if poster}
+								<img
+									src={poster}
+									alt=""
+									class="h-11 w-8 flex-shrink-0 rounded object-cover"
+									style="background: {TYPE_COLORS[event.mediaType] ?? 'rgba(255,255,255,0.03)'};"
+									onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+								/>
+							{:else}
+								<div
+									class="h-11 w-8 flex-shrink-0 rounded"
+									style="background: {TYPE_COLORS[event.mediaType] ?? 'rgba(255,255,255,0.03)'};"
+								></div>
+							{/if}
 							<div class="min-w-0 flex-1">
 								<p class="truncate text-xs font-medium text-cream/90">{event.mediaTitle ?? 'Untitled'}</p>
 								<p class="text-[10px] text-faint">

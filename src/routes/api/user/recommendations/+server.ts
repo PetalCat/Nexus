@@ -26,8 +26,17 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const ssConfig = getServiceConfig(ssServices[0].id);
 	if (!ssConfig) return json({ recommendations: [] });
 
-	// Get user's Jellyfin credential (StreamyStats authenticates via Jellyfin)
-	const userCred = getUserCredentialForService(userId, ssConfig.id);
+	// StreamyStats authenticates via Jellyfin user tokens (not its own)
+	const jellyfinService = db
+		.select({ id: schema.services.id })
+		.from(schema.services)
+		.where(eq(schema.services.type, 'jellyfin'))
+		.limit(1)
+		.all();
+	if (jellyfinService.length === 0) {
+		return json({ recommendations: [], error: 'No Jellyfin service configured' });
+	}
+	const userCred = getUserCredentialForService(userId, jellyfinService[0].id);
 	if (!userCred?.accessToken) {
 		return json({ recommendations: [], error: 'No Jellyfin credentials linked' });
 	}

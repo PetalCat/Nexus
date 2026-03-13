@@ -24,6 +24,7 @@
 		{ id: 'movie', label: 'Movies' },
 		{ id: 'show', label: 'Shows' },
 		{ id: 'episode', label: 'Episodes' },
+		{ id: 'video', label: 'Videos' },
 		{ id: 'book', label: 'Books' },
 		{ id: 'game', label: 'Games' },
 		{ id: 'music', label: 'Music' }

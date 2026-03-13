@@ -7,25 +7,19 @@
 		BarElement,
 		Tooltip
 	} from 'chart.js';
-	import type { ComputedStats } from '$lib/server/stats-engine';
 
 	ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
 	interface Props {
-		stats: ComputedStats;
-		from: number;
-		to: number;
+		dailyTimeline: { day: string; totalMs: number; sessions: number }[];
 	}
 
-	let { stats, from, to }: Props = $props();
+	let { dailyTimeline }: Props = $props();
 
 	const chartData = $derived.by(() => {
-		const hours = stats.hourlyDistribution;
-		const labels = hours.map((_, i) => {
-			if (i === 0) return '12am';
-			if (i === 12) return '12pm';
-			if (i < 12) return `${i}am`;
-			return `${i - 12}pm`;
+		const labels = dailyTimeline.map((d) => {
+			const date = new Date(d.day + 'T12:00:00');
+			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 		});
 
 		return {
@@ -33,7 +27,7 @@
 			datasets: [
 				{
 					label: 'Minutes',
-					data: hours.map((ms) => Math.round(ms / 60_000)),
+					data: dailyTimeline.map((d) => Math.round(d.totalMs / 60_000)),
 					backgroundColor: 'rgba(212, 162, 83, 0.6)',
 					borderRadius: 4,
 					borderSkipped: false as const
@@ -59,7 +53,13 @@
 		scales: {
 			x: {
 				grid: { display: false },
-				ticks: { color: 'rgba(240, 235, 227, 0.3)', font: { size: 10 } }
+				ticks: {
+					color: 'rgba(240, 235, 227, 0.3)',
+					font: { size: 10 },
+					maxRotation: 45,
+					autoSkip: true,
+					maxTicksLimit: 14
+				}
 			},
 			y: {
 				grid: { color: 'rgba(240, 235, 227, 0.04)' },
@@ -74,5 +74,9 @@
 </script>
 
 <div class="h-48">
-	<Bar data={chartData} options={chartOptions} />
+	{#if dailyTimeline.length === 0}
+		<div class="flex h-full items-center justify-center text-xs text-faint">No activity in this period</div>
+	{:else}
+		<Bar data={chartData} options={chartOptions} />
+	{/if}
 </div>
