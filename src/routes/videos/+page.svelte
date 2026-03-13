@@ -292,7 +292,7 @@
 			</div>
 			<p class="font-medium text-cream">No video service connected</p>
 			<p class="mt-1 text-sm text-muted">Add an Invidious instance in settings to browse videos.</p>
-			<a href="/settings" class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80">
+			<a href="/settings/accounts" class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80">
 				Connect a Service
 			</a>
 		</div>

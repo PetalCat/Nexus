@@ -129,7 +129,7 @@
 					{data.libraryItems.length === 0 ? 'Connect a media service to populate your library.' : 'Try adjusting your filters.'}
 				</p>
 				{#if data.libraryItems.length === 0}
-					<a href="/settings" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
+					<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 				{/if}
 			</div>
 		{:else}

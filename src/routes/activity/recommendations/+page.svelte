@@ -70,7 +70,7 @@
 	{#if !data.hasStreamyStats}
 		<div class="rounded-xl border border-cream/[0.06] bg-raised p-8 text-center">
 			<p class="text-sm text-muted">Connect StreamyStats in Settings to get personalized recommendations.</p>
-			<a href="/settings" class="mt-3 inline-block rounded-lg bg-accent/15 px-4 py-2 text-xs font-medium text-accent hover:bg-accent/25">
+			<a href="/settings/accounts" class="mt-3 inline-block rounded-lg bg-accent/15 px-4 py-2 text-xs font-medium text-accent hover:bg-accent/25">
 				Go to Settings
 			</a>
 		</div>

@@ -69,7 +69,7 @@
 				{data.items.length === 0 ? 'Connect Jellyfin with a music library to see your collection here.' : 'Try adjusting your search.'}
 			</p>
 			{#if data.items.length === 0}
-				<a href="/settings" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
+				<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 			{/if}
 		</div>
 	{:else}

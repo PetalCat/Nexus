@@ -90,7 +90,7 @@
 				Link your Invidious account in settings to manage playlists.
 			</p>
 			<a
-				href="/settings"
+				href="/settings/accounts"
 				class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80"
 			>
 				Go to Settings
