@@ -309,6 +309,17 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		UNIQUE(collection_id, user_id)
 	)`);
 
+	db.run(`CREATE TABLE IF NOT EXISTS collection_activity (
+		id TEXT PRIMARY KEY,
+		collection_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target_title TEXT,
+		target_media_id TEXT,
+		created_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_collection_activity_cid_ts ON collection_activity(collection_id, created_at DESC)`);
+
 	// ── User favorites ──────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS user_favorites (
 		id TEXT PRIMARY KEY,

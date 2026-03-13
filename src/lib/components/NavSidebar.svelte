@@ -15,7 +15,10 @@
 		ChevronsLeft,
 		ChevronsRight,
 		X,
-		Shield
+		Shield,
+		Bookmark,
+		FolderOpen,
+		Share2
 	} from 'lucide-svelte';
 
 	interface NavItem {
@@ -29,6 +32,7 @@
 		collapsed?: boolean;
 		mobileOpen?: boolean;
 		pendingRequests?: number;
+		unseenShares?: number;
 		isAdmin?: boolean;
 	}
 
@@ -37,6 +41,7 @@
 		collapsed = $bindable(false),
 		mobileOpen = $bindable(false),
 		pendingRequests = 0,
+		unseenShares = 0,
 		isAdmin = false
 	}: Props = $props();
 
@@ -58,6 +63,12 @@
 		{ id: 'settings', label: 'Settings', href: '/settings' }
 	];
 
+	const libraryNavItems: NavItem[] = [
+		{ id: 'watchlist', label: 'Watchlist', href: '/library/watchlist' },
+		{ id: 'collections', label: 'Collections', href: '/library/collections' },
+		{ id: 'shared', label: 'Shared', href: '/library/shared' }
+	];
+
 	const iconMap: Record<string, typeof Home> = {
 		home: Home,
 		movies: Film,
@@ -68,6 +79,9 @@
 		live: Radio,
 		videos: PlaySquare,
 		friends: Users,
+		watchlist: Bookmark,
+		collections: FolderOpen,
+		shared: Share2,
 		requests: Plus,
 		activity: Activity,
 		settings: Settings,
@@ -131,7 +145,7 @@
 	<!-- Primary Nav -->
 	<nav class="mt-6 flex-1 space-y-0.5 overflow-y-auto px-2.5" aria-label="Main navigation">
 		<!-- Home -->
-		{#each [navItems[0]] as homeItem}
+		{#each [navItems[0]] as homeItem (homeItem.id)}
 			{@const HomeIcon = getIcon(homeItem.id)}
 			{@const homeActive = homeItem.id === activeId}
 			<a
@@ -169,7 +183,7 @@
 			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
 		{/if}
 
-		{#each navItems.slice(1) as item}
+		{#each navItems.slice(1) as item (item.id)}
 			{@const Icon = getIcon(item.id)}
 			{@const active = item.id === activeId}
 			<a
@@ -205,6 +219,51 @@
 			</a>
 		{/each}
 
+		<!-- My Library section label -->
+		{#if !collapsed || mobileOpen}
+			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-faint/50">My Library</p>
+		{:else}
+			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
+		{/if}
+
+		{#each libraryNavItems as item (item.id)}
+			{@const Icon = getIcon(item.id)}
+			{@const active = item.id === activeId}
+			<a
+				href={item.href}
+				class="group/item relative flex items-center gap-3 rounded-xl px-3 py-2.5 font-body text-[13px] font-medium transition-all duration-300
+					{active
+					? 'bg-accent/[0.08] text-cream'
+					: 'text-muted hover:bg-cream/[0.03] hover:text-cream'}"
+				aria-current={active ? 'page' : undefined}
+				onclick={closeMobile}
+			>
+				{#if active}
+					<div
+						class="absolute left-0 top-1/2 h-6 w-[2.5px] -translate-y-1/2 rounded-r-full bg-accent shadow-[0_0_8px_rgba(212,162,83,0.4)]"
+						aria-hidden="true"
+					></div>
+				{/if}
+
+				<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-300
+					{active
+					? 'bg-accent/15 text-accent'
+					: 'text-muted group-hover/item:bg-cream/[0.04] group-hover/item:text-cream'}"
+				>
+					<Icon size={17} strokeWidth={active ? 2 : 1.5} />
+				</div>
+
+				{#if !collapsed || mobileOpen}
+					<span class="truncate">{item.label}</span>
+					{#if item.id === 'shared' && unseenShares > 0}
+						<span class="ml-auto rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+							{unseenShares > 99 ? '99+' : unseenShares}
+						</span>
+					{/if}
+				{/if}
+			</a>
+		{/each}
+
 		<!-- System section label -->
 		{#if !collapsed || mobileOpen}
 			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-faint/50">System</p>
@@ -212,7 +271,7 @@
 			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
 		{/if}
 
-		{#each secondaryNavItems as item}
+		{#each secondaryNavItems as item (item.id)}
 			{@const Icon = getIcon(item.id)}
 			{@const active = item.id === activeId}
 			<a

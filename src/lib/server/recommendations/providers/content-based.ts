@@ -28,7 +28,7 @@ export function computeGenreAffinity(
 	const now = Date.now();
 	const ln2 = Math.LN2;
 
-	const conditions = [`user_id = ?`, `event_type IN ('play_stop', 'complete', 'like', 'favorite')`];
+	const conditions = [`user_id = ?`, `event_type IN ('play_start', 'play_stop', 'complete', 'like', 'favorite', 'detail_view')`];
 	const params: (string | number)[] = [userId];
 	if (mediaType) {
 		conditions.push(`media_type = ?`);

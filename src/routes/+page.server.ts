@@ -75,7 +75,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			try {
 				await Promise.allSettled([
 					getRecommendations(userId, 'movie', 30),
-					getRecommendations(userId, 'show', 30)
+					getRecommendations(userId, 'show', 30),
+					getRecommendations(userId, 'book', 20),
+					getRecommendations(userId, 'game', 20)
 				]);
 				eagerCache = buildHomepageCache(userId);
 			} catch { /* fall through to cold start */ }

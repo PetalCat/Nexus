@@ -173,19 +173,22 @@ export async function getRecommendations(
 
 	// Dispatch to all active providers in parallel
 	const providers = recRegistry.active(ctx);
+	console.log(`[rec-agg] Active providers for ${mediaType ?? 'all'}: ${providers.map(p => p.id).join(', ') || 'NONE'} (registry has ${recRegistry.all().length} total)`);
 	if (providers.length === 0) return [];
 
 	const providerResults = await Promise.allSettled(
 		providers.map(async (p) => {
 			const recs = await p.getRecommendations(ctx);
+			console.log(`[rec-agg] Provider ${p.id} returned ${recs.length} results for ${mediaType ?? 'all'}`);
 			const weight = profile.weights[p.category] ?? 0.5;
 			return recs.map((r) => ({ ...r, score: r.score * weight }));
 		})
 	);
 
-	let allRecs = providerResults.flatMap((r) =>
-		r.status === 'fulfilled' ? r.value : []
-	);
+	let allRecs = providerResults.flatMap((r) => {
+		if (r.status === 'rejected') console.error(`[rec-agg] Provider failed:`, r.reason);
+		return r.status === 'fulfilled' ? r.value : [];
+	});
 
 	allRecs = deduplicateAndMerge(allRecs);
 

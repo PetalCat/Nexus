@@ -61,6 +61,15 @@ interface TrackedSession {
 	isPaused: boolean;
 	startedAt: number;
 	lastSeenAt: number;
+	pausedSinceAt: number | null; // timestamp when pause began, null if playing
+	totalPausedMs: number; // accumulated paused time
+	durationMs: number | null; // media runtime in ms (from RunTimeTicks), used to cap play duration
+}
+
+/** Cap play duration at media runtime + 10% tolerance (for credits, buffering) */
+function capDuration(rawMs: number, mediaDurationMs: number | null): number {
+	if (mediaDurationMs && rawMs > mediaDurationMs * 1.1) return mediaDurationMs;
+	return Math.max(0, rawMs);
 }
 
 const JF_TYPE_MAP: Record<string, string> = {
@@ -156,6 +165,8 @@ async function pollJellyfinSessions() {
 				const isPaused = session.PlayState?.IsPaused ?? false;
 				const mType = JF_TYPE_MAP[item.Type] ?? 'movie';
 
+				const mediaDurationMs = item.RunTimeTicks ? item.RunTimeTicks / 10_000 : null;
+
 				if (!existing) {
 					// New session — emit play_start
 					activeSessions.set(key, {
@@ -167,7 +178,10 @@ async function pollJellyfinSessions() {
 						mediaTitle: item.Name,
 						isPaused,
 						startedAt: now,
-						lastSeenAt: now
+						lastSeenAt: now,
+						pausedSinceAt: isPaused ? now : null,
+						totalPausedMs: 0,
+						durationMs: mediaDurationMs
 					});
 					emitMediaEvent({
 						userId: nexusUserId,
@@ -193,6 +207,7 @@ async function pollJellyfinSessions() {
 					});
 				} else if (existing.mediaId !== item.Id) {
 					// Media changed — stop old, start new
+					const finalPaused = existing.totalPausedMs + (existing.pausedSinceAt ? now - existing.pausedSinceAt : 0);
 					emitMediaEvent({
 						userId: nexusUserId,
 						serviceId: config.id,
@@ -201,7 +216,7 @@ async function pollJellyfinSessions() {
 						mediaId: existing.mediaId,
 						mediaType: existing.mediaType,
 						mediaTitle: existing.mediaTitle,
-						playDurationMs: now - existing.startedAt,
+						playDurationMs: capDuration((now - existing.startedAt) - finalPaused, existing.durationMs),
 						timestamp: now
 					});
 					activeSessions.set(key, {
@@ -213,7 +228,10 @@ async function pollJellyfinSessions() {
 						mediaTitle: item.Name,
 						isPaused,
 						startedAt: now,
-						lastSeenAt: now
+						lastSeenAt: now,
+						pausedSinceAt: isPaused ? now : null,
+						totalPausedMs: 0,
+						durationMs: mediaDurationMs
 					});
 					emitMediaEvent({
 						userId: nexusUserId,
@@ -238,8 +256,9 @@ async function pollJellyfinSessions() {
 						serviceId: config.id, deviceName: session.DeviceName, clientName: session.Client
 					});
 				} else {
-					// Same media — detect pause/resume
+					// Same media — detect pause/resume and track paused time
 					if (isPaused && !existing.isPaused) {
+						existing.pausedSinceAt = now;
 						emitMediaEvent({
 							userId: nexusUserId,
 							serviceId: config.id,
@@ -254,6 +273,10 @@ async function pollJellyfinSessions() {
 							clientName: session.Client
 						});
 					} else if (!isPaused && existing.isPaused) {
+						if (existing.pausedSinceAt) {
+							existing.totalPausedMs += now - existing.pausedSinceAt;
+						}
+						existing.pausedSinceAt = null;
 						emitMediaEvent({
 							userId: nexusUserId,
 							serviceId: config.id,
@@ -285,6 +308,7 @@ async function pollJellyfinSessions() {
 	for (const [key, session] of activeSessions) {
 		if (failedServiceIds.has(session.serviceId)) continue; // skip — server was down
 		if (!seenKeys.has(key)) {
+			const finalPaused = session.totalPausedMs + (session.pausedSinceAt ? now - session.pausedSinceAt : 0);
 			emitMediaEvent({
 				userId: session.userId,
 				serviceId: session.serviceId,
@@ -293,7 +317,7 @@ async function pollJellyfinSessions() {
 				mediaId: session.mediaId,
 				mediaType: session.mediaType,
 				mediaTitle: session.mediaTitle,
-				playDurationMs: now - session.startedAt,
+				playDurationMs: capDuration((now - session.startedAt) - finalPaused, session.durationMs),
 				timestamp: now
 			});
 			updateActivityPresence(session.userId, null);

@@ -296,9 +296,20 @@ export type SharedItem = typeof sharedItems.$inferSelect;
 export type WatchSession = typeof watchSessions.$inferSelect;
 export type SessionParticipant = typeof sessionParticipants.$inferSelect;
 export type SessionMessage = typeof sessionMessages.$inferSelect;
+export const collectionActivity = sqliteTable('collection_activity', {
+	id: text('id').primaryKey(),
+	collectionId: text('collection_id').notNull(),
+	userId: text('user_id').notNull(),
+	action: text('action').notNull(), // 'add_item' | 'remove_item' | 'join' | 'leave' | 'update'
+	targetTitle: text('target_title'),
+	targetMediaId: text('target_media_id'),
+	createdAt: integer('created_at').notNull()
+});
+
 export type Collection = typeof collections.$inferSelect;
 export type CollectionItem = typeof collectionItems.$inferSelect;
 export type CollectionMember = typeof collectionMembers.$inferSelect;
+export type CollectionActivity = typeof collectionActivity.$inferSelect;
 
 // ── User Favorites ───────────────────────────────────────────────────
 
@@ -362,7 +373,7 @@ export type PlaylistCollaborator = typeof playlistCollaborators.$inferSelect;
 export const notifications = sqliteTable('notifications', {
 	id: text('id').primaryKey(),
 	userId: text('user_id').notNull(),
-	type: text('type').notNull(), // 'friend_request' | 'friend_accept' | 'share_received' | 'session_invite' | 'request_approved' | 'request_available' | 'system'
+	type: text('type').notNull(), // 'friend_request' | 'friend_accept' | 'share_received' | 'session_invite' | 'request_approved' | 'request_available' | 'collection_invite' | 'system'
 	title: text('title').notNull(),
 	message: text('message'),
 	icon: text('icon'), // lucide icon name hint

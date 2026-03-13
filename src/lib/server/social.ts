@@ -514,7 +514,19 @@ export function getMediaFriendActivity(userId: string, mediaId: string, serviceI
 		)
 		.all();
 
-	return { watched, watching, shared };
+	// Who has this in their watchlist
+	const watchlisted = db
+		.select()
+		.from(schema.userFavorites)
+		.where(
+			and(
+				inArray(schema.userFavorites.userId, visibleFriends),
+				eq(schema.userFavorites.mediaId, mediaId)
+			)
+		)
+		.all();
+
+	return { watched, watching, shared, watchlisted };
 }
 
 // ── Watch Sessions ───────────────────────────────────────────────────────
@@ -814,8 +826,20 @@ export function getUserCollections(userId: string) {
 		const itemCount = db.get<{ n: number }>(
 			sql`SELECT COUNT(*) as n FROM collection_items WHERE collection_id = ${c.id}`
 		);
+		const memberCount = db.get<{ n: number }>(
+			sql`SELECT COUNT(*) as n FROM collection_members WHERE collection_id = ${c.id}`
+		);
+		const posters = db
+			.select({ mediaPoster: schema.collectionItems.mediaPoster })
+			.from(schema.collectionItems)
+			.where(eq(schema.collectionItems.collectionId, c.id))
+			.orderBy(schema.collectionItems.position)
+			.limit(4)
+			.all()
+			.map(p => p.mediaPoster)
+			.filter(Boolean);
 		const role = memberships.find((m) => m.collectionId === c.id)?.role;
-		return { ...c, itemCount: itemCount?.n ?? 0, userRole: role };
+		return { ...c, itemCount: itemCount?.n ?? 0, memberCount: memberCount?.n ?? 0, posters, userRole: role };
 	});
 }
 
@@ -825,6 +849,7 @@ export function updateCollection(collectionId: string, userId: string, updates: 
 		.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, userId)))
 		.get();
 	if (!member || member.role === 'viewer') return false;
+	if (updates.visibility !== undefined && member.role !== 'owner') return false;
 
 	const data: Record<string, unknown> = { updatedAt: now() };
 	if (updates.name !== undefined) data.name = updates.name;
@@ -899,6 +924,23 @@ export function removeCollectionItem(collectionId: string, itemId: string, userI
 	return result.changes > 0;
 }
 
+export function reorderCollectionItems(collectionId: string, userId: string, orderedIds: string[]): boolean {
+	const db = getDb();
+	const member = db.select().from(schema.collectionMembers)
+		.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, userId)))
+		.get();
+	if (!member || member.role === 'viewer') return false;
+
+	for (let i = 0; i < orderedIds.length; i++) {
+		db.update(schema.collectionItems)
+			.set({ position: i })
+			.where(and(eq(schema.collectionItems.id, orderedIds[i]), eq(schema.collectionItems.collectionId, collectionId)))
+			.run();
+	}
+	db.update(schema.collections).set({ updatedAt: now() }).where(eq(schema.collections.id, collectionId)).run();
+	return true;
+}
+
 export function addCollectionMember(collectionId: string, ownerId: string, targetUserId: string, role = 'editor'): boolean {
 	const db = getDb();
 	const member = db.select().from(schema.collectionMembers)
@@ -920,12 +962,24 @@ export function addCollectionMember(collectionId: string, ownerId: string, targe
 	}
 }
 
-export function removeCollectionMember(collectionId: string, ownerId: string, targetUserId: string): boolean {
+export function removeCollectionMember(collectionId: string, actingUserId: string, targetUserId: string): boolean {
 	const db = getDb();
-	// Only owner can remove; can't remove self (owner)
-	if (ownerId === targetUserId) return false;
+
+	// Self-leave: any non-owner member can remove themselves
+	if (actingUserId === targetUserId) {
+		const selfMember = db.select().from(schema.collectionMembers)
+			.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, actingUserId)))
+			.get();
+		if (!selfMember || selfMember.role === 'owner') return false; // owner can't leave
+		const result = db.delete(schema.collectionMembers)
+			.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, actingUserId)))
+			.run();
+		return result.changes > 0;
+	}
+
+	// Owner removing others
 	const member = db.select().from(schema.collectionMembers)
-		.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, ownerId)))
+		.where(and(eq(schema.collectionMembers.collectionId, collectionId), eq(schema.collectionMembers.userId, actingUserId)))
 		.get();
 	if (!member || member.role !== 'owner') return false;
 

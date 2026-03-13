@@ -441,8 +441,9 @@ export const jellyfinAdapter: ServiceAdapter = {
 
 	/** Items the user has started but not finished */
 	async getContinueWatching(config, userCred?): Promise<UnifiedMedia[]> {
-		// Requires a linked user account — never fall back to admin credentials
-		if (!userCred?.externalUserId) return [];
+		// Requires user context — never fall back to admin credentials.
+		// Some legacy links only have accessToken (no externalUserId), so allow either.
+		if (!userCred?.externalUserId && !userCred?.accessToken) return [];
 		try {
 			const userId = await getUserId(config, userCred);
 			const data = await jfFetchUser(config, `/Users/${userId}/Items/Resume`, {
@@ -480,7 +481,7 @@ export const jellyfinAdapter: ServiceAdapter = {
 	 */
 	async getTrending(config, userCred?): Promise<UnifiedMedia[]> {
 		// NextUp and Suggestions are personal — skip if no linked account
-		if (!userCred?.externalUserId) return [];
+		if (!userCred?.externalUserId && !userCred?.accessToken) return [];
 		try {
 			const userId = await getUserId(config, userCred);
 			const nextUp = await jfFetchUser(config, '/Shows/NextUp', {

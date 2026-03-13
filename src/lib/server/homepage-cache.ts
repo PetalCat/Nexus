@@ -3,65 +3,16 @@ import { withCache, invalidate } from './cache';
 import type { ScoredRecommendation, ReasonType } from './recommendations/types';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
+// Re-export shared types so existing server imports still work
+export type { HeroItem, HomepageItem, HomepageRow, HomepageCache } from '$lib/types/homepage';
+import type { HeroItem, HomepageItem, HomepageRow, HomepageCache } from '$lib/types/homepage';
+
 // ---------------------------------------------------------------------------
 // Homepage Cache
 //
 // Assembles pre-computed recommendations into homepage-ready rows.
 // Called by the rec scheduler after recommendations are rebuilt.
 // ---------------------------------------------------------------------------
-
-export interface HeroItem {
-	id: string;
-	sourceId: string;
-	serviceId: string;
-	serviceType: string;
-	title: string;
-	year?: number;
-	runtime?: string;
-	rating?: number;
-	overview?: string;
-	backdrop?: string;
-	poster?: string;
-	mediaType: string;
-	genres?: string[];
-	reason: string;
-	provider: string;
-	streamUrl?: string;
-}
-
-export interface HomepageItem {
-	id: string;
-	sourceId: string;
-	serviceId: string;
-	serviceType: string;
-	title: string;
-	poster?: string;
-	backdrop?: string;
-	year?: number;
-	mediaType: string;
-	genres?: string[];
-	rating?: number;
-	context?: string;
-	progress?: number;
-	timeRemaining?: string;
-	episodeInfo?: string;
-	streamUrl?: string;
-	description?: string;
-}
-
-export interface HomepageRow {
-	id: string;
-	title: string;
-	subtitle?: string;
-	type: 'reason' | 'genre' | 'system';
-	items: HomepageItem[];
-}
-
-export interface HomepageCache {
-	hero: HeroItem[];
-	rows: HomepageRow[];
-	computedAt: number;
-}
 
 const MIN_ROW_ITEMS = 3;
 
@@ -216,8 +167,36 @@ export function buildHomepageCache(userId: string): HomepageCache | null {
 
 	const resultRows: HomepageRow[] = [];
 
-	// Trending Now
-	if (trending.length >= MIN_ROW_ITEMS) {
+	// Trending — split by media type for cleaner rows
+	const trendingByType = new Map<string, ScoredRecommendation[]>();
+	for (const r of trending) {
+		const t = r.item.type;
+		if (!trendingByType.has(t)) trendingByType.set(t, []);
+		trendingByType.get(t)!.push(r);
+	}
+
+	const trendingLabels: Record<string, { title: string; subtitle: string }> = {
+		movie: { title: 'Trending Movies', subtitle: 'Popular films this week' },
+		show: { title: 'Trending Shows', subtitle: 'Popular series this week' },
+		video: { title: 'Trending Videos', subtitle: 'Popular videos this week' },
+		book: { title: 'Trending Books', subtitle: 'Popular reads this week' },
+		game: { title: 'Trending Games', subtitle: 'Popular games this week' }
+	};
+
+	for (const [mediaType, recs] of trendingByType) {
+		if (recs.length < MIN_ROW_ITEMS) continue;
+		const label = trendingLabels[mediaType] ?? { title: `Trending ${mediaType}`, subtitle: `Popular ${mediaType} this week` };
+		resultRows.push({
+			id: `trending-${mediaType}`,
+			title: label.title,
+			subtitle: label.subtitle,
+			type: 'reason',
+			items: recs.slice(0, 20).map((r) => recToItem(r))
+		});
+	}
+
+	// Single combined trending row as fallback if no type has enough items
+	if (resultRows.length === 0 && trending.length >= MIN_ROW_ITEMS) {
 		resultRows.push({
 			id: 'trending',
 			title: 'Trending Now',
@@ -254,8 +233,34 @@ export function buildHomepageCache(userId: string): HomepageCache | null {
 		});
 	}
 
-	// Recommended for You (catch-all)
-	if (catchAll.length >= MIN_ROW_ITEMS) {
+	// Recommended for You — split by type for variety
+	const recByType = new Map<string, ScoredRecommendation[]>();
+	for (const r of catchAll) {
+		const t = r.item.type;
+		if (!recByType.has(t)) recByType.set(t, []);
+		recByType.get(t)!.push(r);
+	}
+
+	const recLabels: Record<string, string> = {
+		movie: 'Recommended Movies',
+		show: 'Recommended Shows',
+		video: 'Recommended Videos',
+		book: 'Recommended Books',
+		game: 'Recommended Games'
+	};
+
+	for (const [mediaType, recs] of recByType) {
+		if (recs.length < MIN_ROW_ITEMS) continue;
+		resultRows.push({
+			id: `recommended-${mediaType}`,
+			title: recLabels[mediaType] ?? 'Recommended for You',
+			type: 'reason',
+			items: recs.slice(0, 20).map((r) => recToItem(r))
+		});
+	}
+
+	// Fallback combined row
+	if (!recByType.size && catchAll.length >= MIN_ROW_ITEMS) {
 		resultRows.push({
 			id: 'recommended',
 			title: 'Recommended for You',
@@ -312,8 +317,11 @@ const HOMEPAGE_CACHE_TTL = 60 * 60 * 1000; // 60 min
 /** Get cached homepage data for a user. Returns null on cache miss. */
 export async function getHomepageCache(userId: string): Promise<HomepageCache | null> {
 	return withCache(`homepage:${userId}`, HOMEPAGE_CACHE_TTL, async () => {
-		return buildHomepageCache(userId);
-	});
+		const result = buildHomepageCache(userId);
+		// Don't cache null/empty results — let the eager build path fill the DB
+		if (!result || result.rows.length === 0) throw new Error('no-cache');
+		return result;
+	}).catch(() => null);
 }
 
 /** Invalidate homepage cache for a user (e.g., after profile change) */
@@ -323,7 +331,16 @@ export function invalidateHomepageCache(userId: string) {
 
 /** Default row order */
 export const DEFAULT_ROW_ORDER = [
-	'continue', 'trending', 'friends', 'time-aware', 'recommended', 'new', 'genre:*'
+	'continue',
+	'trending-movie', 'trending-show',
+	'friends', 'time-aware',
+	'recommended-movie', 'recommended-show',
+	'new',
+	'trending-book', 'trending-game',
+	'recommended-book', 'recommended-game',
+	'genre:*',
+	// Fallback combined rows
+	'trending', 'recommended'
 ];
 
 /**

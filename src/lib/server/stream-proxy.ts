@@ -11,7 +11,9 @@ import path from 'node:path';
 
 let proxyProcess: ChildProcess | null = null;
 let restarting = false;
+let restartAttempts = 0;
 const PORT = 3939;
+const MAX_RESTART_DELAY = 30_000;
 
 export function startStreamProxy(invidiousUrl: string) {
 	if (proxyProcess) return;
@@ -37,12 +39,15 @@ export function startStreamProxy(invidiousUrl: string) {
 				STREAM_PORT: String(PORT),
 				INVIDIOUS_URL: invidiousUrl,
 			},
-			stdio: ['ignore', 'pipe', 'pipe'],
+			stdio: ['pipe', 'pipe', 'pipe'],
 		});
 
 		proxyProcess.stdout?.on('data', (data: Buffer) => {
 			const msg = data.toString().trim();
-			if (msg) console.log(msg);
+			if (msg) {
+				console.log(msg);
+				if (msg.includes('Rust video proxy on port')) restartAttempts = 0;
+			}
 		});
 
 		proxyProcess.stderr?.on('data', (data: Buffer) => {
@@ -53,8 +58,10 @@ export function startStreamProxy(invidiousUrl: string) {
 		proxyProcess.on('exit', (code, signal) => {
 			proxyProcess = null;
 			if (!restarting) {
-				console.warn(`[stream-proxy] Process exited (code=${code}, signal=${signal}), restarting in 2s...`);
-				setTimeout(launch, 2000);
+				const delay = Math.min(2000 * 2 ** restartAttempts, MAX_RESTART_DELAY);
+				restartAttempts++;
+				console.warn(`[stream-proxy] Process exited (code=${code}, signal=${signal}), restarting in ${delay / 1000}s...`);
+				setTimeout(launch, delay);
 			}
 		});
 	}

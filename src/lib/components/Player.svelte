@@ -119,6 +119,7 @@
 	let sbSkippedUUIDs = $state<Set<string>>(new Set());
 	let sbMutedSegment = $state<string | null>(null); // UUID of currently muted segment
 	let sbAskPrompt = $state<{ seg: SBSeg; action: SBAction } | null>(null); // "ask before skip" prompt
+	let sbSeeking = $state(false); // guard to prevent re-entry while seeking
 
 	const SB_COLORS: Record<string, string> = {
 		sponsor: '#00d400', selfpromo: '#ffff00', interaction: '#cc00ff',
@@ -133,23 +134,31 @@
 
 	/** Load SponsorBlock preferences then segments */
 	async function loadSponsorBlock() {
-		if (!videoId) return;
+		console.log('[SB] loadSponsorBlock called, videoId:', videoId);
+		if (!videoId) { console.log('[SB] No videoId, skipping'); return; }
 		try {
 			const prefRes = await fetch('/api/sponsorblock/preferences');
-			if (!prefRes.ok) return;
+			console.log('[SB] Preferences response:', prefRes.status);
+			if (!prefRes.ok) { console.warn('[SB] Preferences fetch failed:', prefRes.status); return; }
 			sbPrefs = await prefRes.json();
-			if (!sbPrefs?.enabled) return;
+			console.log('[SB] Preferences:', JSON.stringify(sbPrefs));
+			if (!sbPrefs?.enabled) { console.log('[SB] SponsorBlock disabled in preferences'); return; }
 
 			const segRes = await fetch(`/api/sponsorblock/segments?videoId=${encodeURIComponent(videoId)}`);
-			if (!segRes.ok) return;
-			const { segments } = await segRes.json();
-			sbSegments = segments ?? [];
-		} catch { /* silent */ }
+			console.log('[SB] Segments response:', segRes.status);
+			if (!segRes.ok) { console.warn('[SB] Segments fetch failed:', segRes.status); return; }
+			const data = await segRes.json();
+			console.log('[SB] Segments data:', JSON.stringify(data));
+			sbSegments = data.segments ?? [];
+			console.log('[SB] Loaded', sbSegments.length, 'segments');
+		} catch (err) {
+			console.error('[SB] Error loading SponsorBlock:', err);
+		}
 	}
 
 	/** Called on every timeupdate — handles auto-skip and mute */
 	function sbHandleTimeUpdate(time: number) {
-		if (!sbPrefs?.enabled || sbSegments.length === 0) return;
+		if (!sbPrefs?.enabled || sbSegments.length === 0 || sbSeeking) return;
 		const cats = sbPrefs.categorySettings;
 
 		for (const seg of sbSegments) {
@@ -159,9 +168,22 @@
 
 			// Only act when in range and haven't already skipped this one
 			if (time >= start && time < end - 0.3) {
+				console.log(`[SB] In segment ${seg.category} (${start}-${end}), action: ${action}, time: ${time.toFixed(1)}`);
 				if (action === 'skip' && !sbSkippedUUIDs.has(seg.UUID)) {
+					console.log(`[SB] Skipping ${seg.category} segment, seeking to ${end}s`);
 					sbSkippedUUIDs = new Set([...sbSkippedUUIDs, seg.UUID]);
-					seekTo(end / totalDuration);
+					// Set seeking guard to prevent timeupdate re-entry during async seek
+					sbSeeking = true;
+					const el = activeEl();
+					if (el) {
+						el.currentTime = end;
+						// Listen for seeked event to clear the guard
+						el.addEventListener('seeked', () => { sbSeeking = false; }, { once: true });
+						// Fallback: clear guard after 2s in case seeked never fires
+						setTimeout(() => { sbSeeking = false; }, 2000);
+					} else {
+						sbSeeking = false;
+					}
 					showSBSkipNotice(seg.category);
 					break;
 				}
@@ -193,18 +215,21 @@
 	}
 
 	function showSBSkipNotice(category: string) {
+		console.log('[SB] showSBSkipNotice called, category:', category, 'showSkipNotice:', sbPrefs?.showSkipNotice);
 		if (!sbPrefs?.showSkipNotice) return;
 		if (sbSkipNotice?.timeout) clearTimeout(sbSkipNotice.timeout);
 		const dur = sbPrefs.skipNoticeDuration || 3000;
 		const timeout = dur > 0 ? setTimeout(() => { sbSkipNotice = null; }, dur) : undefined;
 		sbSkipNotice = { category, timeout };
+		console.log('[SB] Skip notice set:', sbSkipNotice);
 	}
 
 	function sbAcceptAsk() {
 		if (!sbAskPrompt) return;
 		const { seg } = sbAskPrompt;
 		sbSkippedUUIDs = new Set([...sbSkippedUUIDs, seg.UUID]);
-		seekTo(seg.segment[1] / totalDuration);
+		const el = activeEl();
+		if (el) el.currentTime = seg.segment[1];
 		showSBSkipNotice(seg.category);
 		sbAskPrompt = null;
 	}
@@ -229,6 +254,10 @@
 				}))
 			: []
 	);
+
+	$effect(() => {
+		console.log('[SB] Timeline segments updated:', sbTimelineSegments.length, 'segments, totalDuration:', totalDuration, 'sbSegments:', sbSegments.length, 'showOnTimeline:', sbPrefs?.showOnTimeline);
+	});
 
 	/* ── Scrub hover tooltip ── */
 	let scrubHover = $state(false);
@@ -689,10 +718,22 @@
 			}).catch(() => {});
 		} else {
 			const ticks = e ? Math.round(e.currentTime * 10_000_000) : 0;
+			const durationTicks = Math.round((totalDuration || duration || 0) * 10_000_000);
 			fetch('/api/stream/' + serviceId + '/progress', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: false, isStopped: false, isStart: true, isMuted: muted, volumeLevel: Math.round(volume * 100) })
+				body: JSON.stringify({
+					itemId,
+					positionTicks: ticks,
+					durationTicks,
+					mediaType: type,
+					mediaTitle: title,
+					isPaused: false,
+					isStopped: false,
+					isStart: true,
+					isMuted: muted,
+					volumeLevel: Math.round(volume * 100)
+				})
 			}).catch(() => {});
 		}
 	}
@@ -716,10 +757,21 @@
 				})
 			}).catch(() => {});
 		} else {
+			const durationTicks = Math.round((totalDuration || duration || 0) * 10_000_000);
 			fetch('/api/stream/' + serviceId + '/progress', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: false, isStopped: false, isMuted: muted, volumeLevel: Math.round(volume * 100) })
+				body: JSON.stringify({
+					itemId,
+					positionTicks: ticks,
+					durationTicks,
+					mediaType: type,
+					mediaTitle: title,
+					isPaused: false,
+					isStopped: false,
+					isMuted: muted,
+					volumeLevel: Math.round(volume * 100)
+				})
 			}).catch(() => {});
 		}
 	}
@@ -742,7 +794,18 @@
 			}
 		} else {
 			const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
-			const body = JSON.stringify({ itemId, positionTicks: ticks, isPaused: true, isStopped: true, isMuted: muted, volumeLevel: Math.round(volume * 100) });
+			const durationTicks = Math.round((totalDuration || duration || 0) * 10_000_000);
+			const body = JSON.stringify({
+				itemId,
+				positionTicks: ticks,
+				durationTicks,
+				mediaType: type,
+				mediaTitle: title,
+				isPaused: true,
+				isStopped: true,
+				isMuted: muted,
+				volumeLevel: Math.round(volume * 100)
+			});
 			if (navigator.sendBeacon) {
 				navigator.sendBeacon('/api/stream/' + serviceId + '/progress', new Blob([body], { type: 'application/json' }));
 			} else {
@@ -767,10 +830,21 @@
 			}).catch(() => {});
 		} else {
 			const ticks = e ? Math.round(e.currentTime * 10_000_000) : lastReportedTicks;
+			const durationTicks = Math.round((totalDuration || duration || 0) * 10_000_000);
 			fetch('/api/stream/' + serviceId + '/progress', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ itemId, positionTicks: ticks, isPaused: true, isStopped: false, isMuted: muted, volumeLevel: Math.round(volume * 100) })
+				body: JSON.stringify({
+					itemId,
+					positionTicks: ticks,
+					durationTicks,
+					mediaType: type,
+					mediaTitle: title,
+					isPaused: true,
+					isStopped: false,
+					isMuted: muted,
+					volumeLevel: Math.round(volume * 100)
+				})
 			}).catch(() => {});
 		}
 	}
@@ -1874,13 +1948,14 @@
 
 	/* SponsorBlock skip notice toast */
 	.sb-notice {
-		position: absolute; top: 1.25rem; right: 1.25rem; z-index: 50;
+		position: absolute; top: 1.25rem; right: 1.25rem; z-index: 999;
 		display: flex; align-items: center; gap: 0.5rem;
-		background: rgba(0,0,0,0.82); backdrop-filter: blur(12px);
-		border: 1px solid rgba(255,255,255,0.08); border-left: 3px solid var(--sb-color, #888);
-		border-radius: 8px; padding: 0.5rem 0.75rem;
-		color: white; font-size: 0.8rem; pointer-events: auto;
+		background: rgba(0,0,0,0.88); backdrop-filter: blur(16px);
+		border: 1px solid rgba(255,255,255,0.12); border-left: 3px solid var(--sb-color, #888);
+		border-radius: 8px; padding: 0.55rem 0.85rem;
+		color: white; font-size: 0.82rem; pointer-events: auto;
 		animation: sb-slide-in 0.3s ease-out;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 	}
 	@keyframes sb-slide-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
 	.sb-notice__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -1893,13 +1968,14 @@
 
 	/* SponsorBlock ask prompt */
 	.sb-ask {
-		position: absolute; bottom: 6rem; right: 1.25rem; z-index: 50;
+		position: absolute; bottom: 6rem; right: 1.25rem; z-index: 999;
 		display: flex; align-items: center; gap: 0.5rem;
-		background: rgba(0,0,0,0.88); backdrop-filter: blur(12px);
-		border: 1px solid rgba(255,255,255,0.1);
+		background: rgba(0,0,0,0.88); backdrop-filter: blur(16px);
+		border: 1px solid rgba(255,255,255,0.12);
 		border-radius: 10px; padding: 0.6rem 0.85rem;
 		color: white; font-size: 0.82rem; pointer-events: auto;
 		animation: sb-slide-in 0.3s ease-out;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 	}
 	.sb-ask__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 	.sb-ask__text { white-space: nowrap; }

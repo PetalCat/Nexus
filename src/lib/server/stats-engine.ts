@@ -139,21 +139,46 @@ export function computeStats(userId: string, from: number, to: number, mediaType
 
 	const mediaTypeFilter = mediaType && mediaType !== 'all' ? ` AND media_type = '${mediaType}'` : '';
 
-	// Play stop events (carry duration info)
-	const playStops = db.all(`
-		SELECT media_id, media_title, media_type, play_duration_ms, media_genres,
+	// Play stop events (carry duration info) — deduplicate near-simultaneous events
+	// from both poller and webhook by keeping only the one with the longest duration
+	// when two stop events for the same media are within 30s of each other
+	const rawPlayStops = db.all(`
+		SELECT media_id, media_title, media_type, play_duration_ms, duration_ticks, media_genres,
 		       device_name, client_name, metadata, timestamp
 		FROM media_events
 		WHERE user_id = ? AND event_type = 'play_stop' AND timestamp >= ? AND timestamp <= ?${mediaTypeFilter}
-		ORDER BY timestamp DESC
+		ORDER BY timestamp ASC
 	`, userId, from, to) as any[];
 
-	// Play start events
-	const playStarts = db.all(`
+	const playStops: typeof rawPlayStops = [];
+	for (const row of rawPlayStops) {
+		const prev = playStops[playStops.length - 1];
+		if (prev && prev.media_id === row.media_id && Math.abs(row.timestamp - prev.timestamp) < 30_000) {
+			// Duplicate — keep whichever has the larger (non-null) duration
+			if ((row.play_duration_ms ?? 0) > (prev.play_duration_ms ?? 0)) {
+				playStops[playStops.length - 1] = row;
+			}
+		} else {
+			playStops.push(row);
+		}
+	}
+
+	// Play start events — deduplicate near-simultaneous starts for the same media
+	const rawPlayStarts = db.all(`
 		SELECT media_id, timestamp
 		FROM media_events
 		WHERE user_id = ? AND event_type = 'play_start' AND timestamp >= ? AND timestamp <= ?${mediaTypeFilter}
+		ORDER BY timestamp ASC
 	`, userId, from, to) as any[];
+
+	const playStarts: typeof rawPlayStarts = [];
+	for (const row of rawPlayStarts) {
+		const prev = playStarts[playStarts.length - 1];
+		if (prev && prev.media_id === row.media_id && Math.abs(row.timestamp - prev.timestamp) < 30_000) {
+			continue; // skip duplicate
+		}
+		playStarts.push(row);
+	}
 
 	// Counts for social signals
 	const completions = (db.get(`SELECT COUNT(*) as count FROM media_events WHERE user_id = ? AND event_type = 'complete' AND timestamp >= ? AND timestamp <= ?${mediaTypeFilter}`, userId, from, to) as any)?.count ?? 0;
@@ -177,7 +202,10 @@ export function computeStats(userId: string, from: number, to: number, mediaType
 	const activeDays = new Set<string>();
 
 	for (const row of playStops) {
-		const dur = row.play_duration_ms ?? 0;
+		let dur = row.play_duration_ms ?? 0;
+		// Cap at media runtime + 10% tolerance to avoid inflated durations
+		const mediaDurationMs = row.duration_ticks ? row.duration_ticks / 10_000 : null;
+		if (mediaDurationMs && dur > mediaDurationMs * 1.1) dur = mediaDurationMs;
 		totalPlayTimeMs += dur;
 		if (dur > longestSessionMs) longestSessionMs = dur;
 

@@ -3,6 +3,9 @@ import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { invalidatePrefix } from '$lib/server/cache';
 import { emitMediaEvent } from '$lib/server/analytics';
+import { getDb } from '$lib/db';
+import { activity } from '$lib/db/schema';
+import { and, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 /**
@@ -39,6 +42,21 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
 	// Resolve userId
 	let userId = userCred?.externalUserId ?? '';
+	if (!userId && token) {
+		try {
+			const meRes = await fetch(`${config.url}/Users/Me`, {
+				headers: {
+					Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${token}"`,
+					'X-Emby-Token': token
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (meRes.ok) {
+				const me = await meRes.json();
+				userId = me?.Id ?? '';
+			}
+		} catch { /* ignore */ }
+	}
 	if (!userId && config.apiKey) {
 		try {
 			const usersRes = await fetch(`${config.url}/Users`, {
@@ -72,6 +90,51 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	};
 
 	try {
+		// Keep a local activity record as a resume fallback for Nexus.
+		if (locals.user?.id) {
+			const db = getDb();
+			const progress = body.durationTicks && body.durationTicks > 0
+				? Math.max(0, Math.min((positionTicks ?? 0) / body.durationTicks, 1))
+				: 0;
+			const isComplete = progress >= 0.9;
+			const existing = db
+				.select()
+				.from(activity)
+				.where(
+					and(
+						eq(activity.userId, locals.user.id),
+						eq(activity.mediaId, itemId),
+						eq(activity.serviceId, serviceId)
+					)
+				)
+				.get();
+
+			if (existing) {
+				db.update(activity)
+					.set({
+						progress,
+						positionTicks: positionTicks ?? 0,
+						completed: isComplete,
+						lastActivity: new Date().toISOString()
+					})
+					.where(eq(activity.id, existing.id))
+					.run();
+			} else {
+				db.insert(activity)
+					.values({
+						userId: locals.user.id,
+						mediaId: itemId,
+						serviceId,
+						type: 'watch',
+						progress,
+						positionTicks: positionTicks ?? 0,
+						completed: isComplete,
+						lastActivity: new Date().toISOString()
+					})
+					.run();
+			}
+		}
+
 		if (isStopped) {
 			// Report playback stopped
 			await fetch(`${config.url}/Sessions/Playing/Stopped`, {
@@ -119,8 +182,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			});
 		}
 
-		// Invalidate continue-watching caches when playback stops
-		if (isStopped && locals.user?.id) {
+		// Invalidate resume/continue caches whenever progress changes.
+		if (locals.user?.id) {
 			invalidatePrefix(`cw:${locals.user.id}`);
 			invalidatePrefix(`activity:${locals.user.id}`);
 		}

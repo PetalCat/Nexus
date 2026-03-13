@@ -10,7 +10,9 @@
 	import AchievementProgress from '$lib/components/games/AchievementProgress.svelte';
 	import AchievementCard from '$lib/components/games/AchievementCard.svelte';
 	import GameNotes from '$lib/components/games/GameNotes.svelte';
-	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo } from 'lucide-svelte';
+	import WatchlistButton from '$lib/components/WatchlistButton.svelte';
+	import AddToCollectionModal from '$lib/components/AddToCollectionModal.svelte';
+	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo, FolderPlus } from 'lucide-svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -70,6 +72,18 @@
 			.then((r) => r.ok ? r.json() : null)
 			.then((d) => { if (d?.formatStreams) videoFormats = d.formatStreams; })
 			.catch(() => {});
+	});
+
+	// Watchlist / Collections state
+	let inWatchlist = $state(data.inWatchlist ?? false);
+	let favoriteId = $state<string | null>(data.favoriteId ?? null);
+	let showCollectionModal = $state(false);
+
+	// Reset watchlist state on navigation
+	$effect(() => {
+		void data.item.sourceId;
+		inWatchlist = data.inWatchlist ?? false;
+		favoriteId = data.favoriteId ?? null;
 	});
 
 	// Save / Share state
@@ -593,205 +607,237 @@
 
 					<!-- Info column -->
 					<div class="hero__info">
-						<!-- Badges -->
-						<div class="anim flex flex-wrap items-center gap-2" style="--d:120ms">
-							<ServiceBadge type={data.serviceType} />
-							<span class="type-label">{typeLabel[item.type] ?? item.type}</span>
-							{#if officialRating}
-								<span class="official-rating">{officialRating}</span>
-							{/if}
-							{#if inLibrary}
-								<span class="lib-badge lib-badge--owned">
-									<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
-									In Library
-								</span>
-							{:else if canRequest && isAvailable}
-								<span class="lib-badge lib-badge--owned">
-									<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
-									Available
-								</span>
-							{:else if canRequest && (isRequested || requested)}
-								<span class="lib-badge lib-badge--requested">Requested</span>
-							{:else if canRequest}
-								<span class="lib-badge lib-badge--missing">Not in Library</span>
-							{/if}
-						</div>
-
-						<!-- Series line (episodes) -->
-						{#if subtitleLine}
-							<p class="anim series-line" style="--d:180ms">
-								{subtitleLine}
-								{#if seasonNumber != null && episodeNumber != null}
-									<span class="series-code">S{String(seasonNumber).padStart(2, '0')}E{String(episodeNumber).padStart(2, '0')}</span>
-								{/if}
-							</p>
-						{/if}
-
-						<!-- Title -->
-						<h1 class="anim hero-title" style="--d:240ms">{item.title}</h1>
-
-						<!-- Episode sub-title -->
-						{#if episodeTitle && item.type === 'episode' && episodeTitle !== item.title}
-							<p class="anim ep-sub" style="--d:280ms">{episodeTitle}</p>
-						{/if}
-
-						<!-- Meta strip -->
-						<div class="anim meta-strip" style="--d:320ms">
-							{#if item.year}<span>{item.year}</span>{/if}
-							{#if item.duration}
-								<span class="dot">·</span>
-								<span>{formatDuration(item.duration)}</span>
-							{/if}
-							{#if item.rating}
-								<span class="dot">·</span>
-								<span class="star-val">★ {item.rating.toFixed(1)}</span>
-							{/if}
-							{#if endTime()}
-								<span class="dot">·</span>
-								<span class="end-val">Ends at {endTime()}</span>
-							{/if}
-						</div>
-
-						<!-- Season / Ep + Critic -->
-						{#if (seasonNumber != null && episodeNumber != null) || criticRating != null}
-							<div class="anim flex flex-wrap items-center gap-3" style="--d:360ms">
-								{#if item.type === 'episode' && seasonNumber != null && episodeNumber != null}
-									<span class="se-tag">Season {seasonNumber} · Episode {episodeNumber}</span>
-								{/if}
-								{#if criticRating != null}
-									<span class="critic-tag">{criticRating}%</span>
+						<!-- ZONE A: Identity -->
+						<div class="hero-zone-a">
+							<!-- Badges -->
+							<div class="anim flex flex-wrap items-center gap-2" style="--d:80ms">
+								<ServiceBadge type={data.serviceType} />
+								<span class="type-label">{typeLabel[item.type] ?? item.type}</span>
+								{#if inLibrary}
+									<span class="lib-badge lib-badge--owned">
+										<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
+										In Library
+									</span>
+								{:else if canRequest && isAvailable}
+									<span class="lib-badge lib-badge--owned">
+										<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
+										Available
+									</span>
+								{:else if canRequest && (isRequested || requested)}
+									<span class="lib-badge lib-badge--requested">Requested</span>
+								{:else if canRequest}
+									<span class="lib-badge lib-badge--missing">Not in Library</span>
 								{/if}
 							</div>
-						{/if}
 
-						<!-- Genres -->
-						{#if item.genres && item.genres.length > 0}
-							<div class="anim genre-row" style="--d:400ms">
-								{#each item.genres as genre}
-									<span class="genre-chip">{genre}</span>
-								{/each}
-							</div>
-						{/if}
-
-						<!-- Tagline -->
-						{#if taglines.length > 0}
-							<p class="anim tagline" style="--d:440ms">"{taglines[0]}"</p>
-						{/if}
-
-						<!-- Description -->
-						{#if item.description}
-							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-							<p
-								class="anim desc"
-								class:desc--open={descExpanded}
-								style="--d:480ms"
-								onclick={() => (descExpanded = !descExpanded)}
-								role="button"
-								tabindex="0"
-								onkeydown={(e) => { if (e.key === 'Enter') descExpanded = !descExpanded; }}
-							>
-								{item.description}
-							</p>
-						{/if}
-
-						<!-- Studios -->
-						{#if item.studios && item.studios.length > 0}
-							<p class="anim studios-line" style="--d:500ms">{item.studios.join(' · ')}</p>
-						{/if}
-
-						<!-- Audio player -->
-						{#if isPlayable && isAudioType}
-							<div class="anim" style="--d:520ms; max-width: 28rem;">
-								{#key item.id}
-								<Player
-									streamUrl={item.streamUrl ?? ''}
-									type={item.type}
-									title={item.title}
-									poster={item.poster}
-									progress={item.progress}
-									duration={item.duration}
-									autoplay={autoplay}
-									serviceId={data.serviceId}
-									itemId={jellyfinItemId}
-								/>
-								{/key}
-							</div>
-						{/if}
-
-						<!-- Progress bar (when not playing) -->
-						{#if !showPlayer && item.progress != null && item.progress > 0 && item.progress < 1 && !isAudioType}
-							<div class="anim flex items-center gap-3" style="--d:540ms">
-								<div class="progress-bar" style="width:12rem">
-									<div class="progress-fill" style="width:{item.progress * 100}%"></div>
-								</div>
-								<span class="text-xs" style="color:var(--color-muted)">{Math.round(item.progress * 100)}%</span>
-							</div>
-						{/if}
-
-						<!-- Season / Episode count (Overseerr TV) -->
-						{#if canRequest && item.type === 'show' && seasonCount}
-							<p class="anim text-xs" style="--d:540ms; color: var(--color-muted)">
-								{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
-							</p>
-						{/if}
-
-						<!-- Actions -->
-						<div class="anim action-row" style="--d:580ms">
-							{#if isBook && item.actionUrl}
-								<a href={item.actionUrl} class="act-play" style="text-decoration:none">
-									<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
-									Read
-								</a>
-							{:else if isPlayable && !showPlayer && !isAudioType}
-								<button class="act-play" onclick={startPlayback}>
-									<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
-									{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
-								</button>
-							{:else if item.type === 'show' && nextEpisode}
-								<a
-									href="/media/{nextEpisode.type}/{nextEpisode.sourceId}?service={nextEpisode.serviceId}&play=1"
-									class="act-play" style="text-decoration:none"
-								>
-									<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
-									{#if nextEpisode.progress && nextEpisode.progress > 0 && nextEpisode.progress < 0.9}
-										Resume S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
-									{:else}
-										Watch S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+							<!-- Series line (episodes) -->
+							{#if subtitleLine}
+								<p class="anim series-line" style="--d:120ms">
+									{subtitleLine}
+									{#if seasonNumber != null && episodeNumber != null}
+										<span class="series-code">S{String(seasonNumber).padStart(2, '0')}E{String(episodeNumber).padStart(2, '0')}</span>
 									{/if}
-								</a>
-							{:else if canRequest}
-								{#if isAvailable}
-									<a href={item.actionUrl ?? '#'} class="act-play" style="text-decoration:none">
-										<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3l10 5-10 5V3z"/></svg>
-										Available — Watch
-									</a>
-								{:else if isRequested || requested}
-									<div class="act-status act-status--requested">
-										<svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
-										Requested
-									</div>
-								{:else}
-									<button class="act-play" onclick={requestItem} disabled={requesting}>
-										{#if requesting}
-											<svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
-											Requesting…
-										{:else}
-											<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
-											Request
-										{/if}
-									</button>
-								{/if}
+								</p>
 							{/if}
-							<button class="act-back" onclick={() => history.back()}>
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-								Back
-							</button>
+
+							<!-- Mobile poster thumbnail -->
+							{#if item.poster}
+								<img src={item.poster} alt={item.title} class="anim hero__mobile-poster" style="--d:140ms" />
+							{/if}
+
+							<!-- Title -->
+							<h1 class="anim hero-title nexus-text-glow" style="--d:180ms">{item.title}</h1>
+
+							<!-- Episode sub-title -->
+							{#if episodeTitle && item.type === 'episode' && episodeTitle !== item.title}
+								<p class="anim ep-sub" style="--d:200ms">{episodeTitle}</p>
+							{/if}
+
+							<!-- Meta strip -->
+							<div class="anim meta-strip" style="--d:240ms">
+								{#if item.year}<span>{item.year}</span>{/if}
+								{#if officialRating}
+									<span class="dot">·</span>
+									<span class="official-rating">{officialRating}</span>
+								{/if}
+								{#if item.duration}
+									<span class="dot">·</span>
+									<span>{formatDuration(item.duration)}</span>
+								{/if}
+								{#if item.rating}
+									<span class="dot">·</span>
+									<span class="star-val">★ {item.rating.toFixed(1)}</span>
+								{/if}
+								{#if endTime()}
+									<span class="dot">·</span>
+									<span class="end-val">Ends at {endTime()}</span>
+								{/if}
+							</div>
+
+							<!-- Season / Ep -->
+							{#if item.type === 'episode' && seasonNumber != null && episodeNumber != null}
+								<div class="anim flex flex-wrap items-center gap-3" style="--d:260ms">
+									<span class="se-tag">Season {seasonNumber} · Episode {episodeNumber}</span>
+								</div>
+							{/if}
+
+							<!-- Tagline -->
+							{#if taglines.length > 0}
+								<p class="anim tagline" style="--d:280ms">"{taglines[0]}"</p>
+							{/if}
 						</div>
 
-						{#if requestError}
-							<p class="anim text-xs" style="--d:600ms; color: var(--color-warm)">{requestError}</p>
-						{/if}
+						<!-- ZONE B: Details -->
+						<div class="hero-zone-b">
+							<!-- Description -->
+							{#if item.description}
+								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+								<p
+									class="anim desc"
+									class:desc--open={descExpanded}
+									style="--d:380ms"
+									onclick={() => (descExpanded = !descExpanded)}
+									role="button"
+									tabindex="0"
+									onkeydown={(e) => { if (e.key === 'Enter') descExpanded = !descExpanded; }}
+								>
+									{item.description}
+								</p>
+							{/if}
+
+							<!-- Critic + Genres -->
+							{#if criticRating != null || (item.genres && item.genres.length > 0)}
+								<div class="anim flex flex-wrap items-center gap-2" style="--d:420ms">
+									{#if criticRating != null}
+										<span class="critic-tag">{criticRating}%</span>
+									{/if}
+									{#if item.genres && item.genres.length > 0}
+										{#each item.genres as genre}
+											<span class="genre-chip">{genre}</span>
+										{/each}
+									{/if}
+								</div>
+							{/if}
+						</div>
+
+						<!-- ZONE C: Actions -->
+						<div class="hero-zone-c">
+							<!-- Audio player -->
+							{#if isPlayable && isAudioType}
+								<div class="anim" style="--d:540ms; max-width: 28rem;">
+									{#key item.id}
+									<Player
+										streamUrl={item.streamUrl ?? ''}
+										type={item.type}
+										title={item.title}
+										poster={item.poster}
+										progress={item.progress}
+										duration={item.duration}
+										autoplay={autoplay}
+										serviceId={data.serviceId}
+										itemId={jellyfinItemId}
+									/>
+									{/key}
+								</div>
+							{/if}
+
+							<!-- Progress bar (when not playing) -->
+							{#if !showPlayer && item.progress != null && item.progress > 0 && item.progress < 1 && !isAudioType}
+								<div class="anim flex items-center gap-3" style="--d:540ms">
+									<div class="progress-bar" style="width:16rem">
+										<div class="progress-fill" style="width:{item.progress * 100}%; height:4px"></div>
+									</div>
+									<span class="text-xs" style="color:var(--color-muted)">{formatDuration(Math.round((item.duration ?? 0) * (1 - item.progress)))} remaining</span>
+								</div>
+							{/if}
+
+							<!-- Season / Episode count (Overseerr TV) -->
+							{#if canRequest && item.type === 'show' && seasonCount}
+								<p class="anim text-xs" style="--d:550ms; color: var(--color-muted)">
+									{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
+								</p>
+							{/if}
+
+							<!-- Actions -->
+							<div class="anim action-row" style="--d:560ms">
+								{#if isBook && item.actionUrl}
+									<a href={item.actionUrl} class="act-play" style="text-decoration:none">
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
+										Read
+									</a>
+								{:else if isPlayable && !showPlayer && !isAudioType}
+									<button class="act-play" onclick={startPlayback}>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
+									</button>
+								{:else if item.type === 'show' && nextEpisode}
+									<a
+										href="/media/{nextEpisode.type}/{nextEpisode.sourceId}?service={nextEpisode.serviceId}&play=1"
+										class="act-play" style="text-decoration:none"
+									>
+										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
+										{#if nextEpisode.progress && nextEpisode.progress > 0 && nextEpisode.progress < 0.9}
+											Resume S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{:else}
+											Watch S{String(nextEpisode.metadata?.seasonNumber ?? selectedSeason ?? '').padStart(2, '0')}E{String(nextEpisode.metadata?.episodeNumber ?? '').padStart(2, '0')}
+										{/if}
+									</a>
+								{:else if canRequest}
+									{#if isAvailable}
+										<a href={item.actionUrl ?? '#'} class="act-play" style="text-decoration:none">
+											<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3l10 5-10 5V3z"/></svg>
+											Available — Watch
+										</a>
+									{:else if isRequested || requested}
+										<div class="act-status act-status--requested">
+											<svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6l3 3 5-5"/></svg>
+											Requested
+										</div>
+									{:else}
+										<button class="act-play" onclick={requestItem} disabled={requesting}>
+											{#if requesting}
+												<svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
+												Requesting…
+											{:else}
+												<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+												Request
+											{/if}
+										</button>
+									{/if}
+								{/if}
+								<button class="act-back" onclick={() => history.back()}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+									Back
+								</button>
+								<WatchlistButton
+									mediaId={item.sourceId}
+									serviceId={data.serviceId}
+									mediaType={item.type}
+									mediaTitle={item.title}
+									mediaPoster={item.poster}
+									bind:inWatchlist
+									bind:favoriteId
+								/>
+								<button
+									class="group/col flex items-center justify-center rounded-xl p-2.5 transition-all duration-300 bg-cream/[0.06] text-muted hover:bg-cream/[0.1] hover:text-cream"
+									title="Add to Collection"
+									onclick={() => (showCollectionModal = true)}
+								>
+									<FolderPlus size={18} strokeWidth={1.5} class="transition-all duration-300 group-hover/col:scale-105" />
+								</button>
+							</div>
+
+							{#if requestError}
+								<p class="anim text-xs" style="--d:600ms; color: var(--color-warm)">{requestError}</p>
+							{/if}
+
+							<!-- Studios -->
+							{#if item.studios && item.studios.length > 0}
+								<p class="anim studios-line" style="--d:620ms">{item.studios.join(' · ')}</p>
+							{/if}
+						</div>
 					</div>
+
 				</div>
 			</div>
 		</header>
@@ -914,28 +960,35 @@
 
 		<!-- ─── CAST ─── -->
 		{#if cast.length > 0}
+			<div class="nexus-divider"></div>
 			<section class="sect">
 				<h2 class="sect__title" style="margin-bottom:0.75rem">Cast & Crew</h2>
 				<div class="cast-scroll">
 					{#each cast.slice(0, 20) as person}
 						<div class="cp">
-							{#if person.imageUrl}
-								<img src={person.imageUrl} alt={person.name} class="cp__img" />
-							{:else}
-								<div class="cp__fallback">
-									<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.25"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+							<div class="cp__card">
+								{#if person.imageUrl}
+									<img src={person.imageUrl} alt={person.name} class="cp__img" />
+								{:else}
+									<div class="cp__fallback">
+										<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.25"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+									</div>
+								{/if}
+								<div class="cp__overlay">
+									<span class="cp__name">{person.name}</span>
+									<span class="cp__role">{person.role}</span>
 								</div>
-							{/if}
-							<span class="cp__name">{person.name}</span>
-							<span class="cp__role">{person.role}</span>
+							</div>
 						</div>
 					{/each}
 				</div>
 			</section>
 		{/if}
 
+
 		<!-- ─── SIMILAR ─── -->
 		{#if similar.length > 0}
+			<div class="nexus-divider"></div>
 			<section class="sect">
 				<h2 class="sect__title" style="margin-bottom:0.75rem">More Like This</h2>
 				<div class="sim-scroll">
@@ -948,6 +1001,9 @@
 									<div class="sim__empty">
 										<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
 									</div>
+								{/if}
+								{#if sim.rating}
+									<span class="sim__rating">★ {sim.rating.toFixed(1)}</span>
 								{/if}
 							</div>
 							<p class="sim__name">{sim.title}</p>
@@ -1690,6 +1746,15 @@
 </div>
 {/if}
 
+<AddToCollectionModal
+	bind:open={showCollectionModal}
+	mediaId={item.sourceId}
+	serviceId={data.serviceId}
+	mediaType={item.type}
+	mediaTitle={item.title}
+	mediaPoster={item.poster}
+/>
+
 <style>
 	/* ═══════════════════════════════════════
 	   ANIMATIONS
@@ -1767,11 +1832,11 @@
 			linear-gradient(to top,
 				var(--color-void) 0%,
 				color-mix(in oklch, var(--color-void) 92%, transparent) 12%,
-				color-mix(in oklch, var(--color-void) 55%, transparent) 35%,
+				color-mix(in oklch, var(--color-void) 65%, transparent) 35%,
 				transparent 60%),
 			linear-gradient(to right,
-				color-mix(in oklch, var(--color-void) 80%, transparent) 0%,
-				transparent 55%),
+				color-mix(in oklch, var(--color-void) 88%, transparent) 0%,
+				transparent 65%),
 			linear-gradient(to bottom,
 				color-mix(in oklch, var(--color-void) 35%, transparent) 0%,
 				transparent 18%);
@@ -1834,15 +1899,34 @@
 		}
 		.hero__poster img {
 			width: 100%; border-radius: 10px;
-			box-shadow: 0 14px 52px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+			box-shadow: 0 18px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
 		}
 	}
-	@media (min-width: 1024px) { .hero__poster { width: 210px; } }
+	@media (min-width: 1024px) { .hero__poster { width: 230px; } }
 
 	.hero__info {
 		flex: 1; min-width: 0;
-		display: flex; flex-direction: column; gap: 0.55rem;
+		display: flex; flex-direction: column;
 	}
+
+	.hero-zone-a {
+		display: flex; flex-direction: column; gap: 0.45rem;
+	}
+	.hero-zone-b {
+		display: flex; flex-direction: column; gap: 0.6rem;
+		margin-top: 1.25rem;
+	}
+	.hero-zone-c {
+		display: flex; flex-direction: column; gap: 0.55rem;
+		margin-top: 1.5rem;
+	}
+
+	.hero__mobile-poster {
+		width: 48px; height: auto; border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+		flex-shrink: 0;
+	}
+	@media (min-width: 768px) { .hero__mobile-poster { display: none; } }
 
 	/* Badges */
 	.type-label {
@@ -1873,7 +1957,7 @@
 		font-family: var(--font-display);
 		font-weight: 800; line-height: 1.08; letter-spacing: -0.035em;
 		color: var(--color-cream);
-		font-size: clamp(1.6rem, 5vw, 3.2rem);
+		font-size: clamp(1.8rem, 5.5vw, 3.6rem);
 	}
 
 	.ep-sub { font-size: 0.95rem; color: var(--color-muted); }
@@ -1881,7 +1965,7 @@
 	/* Meta */
 	.meta-strip {
 		display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
-		font-size: 0.82rem; color: var(--color-muted);
+		font-size: 0.88rem; color: rgba(240,235,227,0.78);
 	}
 	.dot { color: var(--color-muted); opacity: 0.45; }
 	.star-val { color: var(--color-accent); }
@@ -1900,7 +1984,7 @@
 	/* Genres */
 	.genre-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 	.genre-chip {
-		font-size: 0.68rem; font-weight: 500; color: var(--color-muted);
+		font-size: 0.72rem; font-weight: 500; color: var(--color-muted);
 		padding: 0.2rem 0.6rem;
 		border: 1px solid rgba(240,235,227,0.06); border-radius: 100px;
 		transition: all 0.2s ease;
@@ -1910,12 +1994,12 @@
 		color: var(--color-accent);
 	}
 
-	.tagline { font-size: 0.82rem; font-style: italic; color: var(--color-muted); }
+	.tagline { font-family: var(--font-display); font-size: 0.95rem; color: rgba(240,235,227,0.55); }
 
 	/* Description */
 	.desc {
-		max-width: 38rem; font-size: 0.85rem; line-height: 1.7;
-		color: var(--color-muted); cursor: pointer;
+		max-width: 38rem; font-size: 0.9rem; line-height: 1.75;
+		color: rgba(240,235,227,0.72); cursor: pointer;
 		display: -webkit-box; -webkit-box-orient: vertical;
 		-webkit-line-clamp: 3; overflow: hidden;
 		transition: all 0.3s ease;
@@ -2205,34 +2289,48 @@
 	}
 	.cast-scroll::-webkit-scrollbar { display: none; }
 
-	.cp {
-		flex-shrink: 0; width: 4.75rem;
-		display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+	.cp { flex-shrink: 0; }
+
+	.cp__card {
+		position: relative; width: 5.5rem; height: 7.5rem;
+		border-radius: 8px; overflow: hidden;
+		border: 1px solid rgba(240,235,227,0.06);
+		transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 	}
-	@media (min-width: 640px) { .cp { width: 5.5rem; } }
+	@media (min-width: 640px) { .cp__card { width: 6.5rem; height: 8.75rem; } }
+
+	.cp:hover .cp__card {
+		transform: translateY(-4px);
+		border-color: rgba(240,235,227,0.15);
+		box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+	}
 
 	.cp__img {
-		width: 3.75rem; height: 3.75rem; border-radius: 50%;
-		object-fit: cover; border: 2px solid rgba(240,235,227,0.06);
-		transition: border-color 0.2s ease;
+		width: 100%; height: 100%; object-fit: cover;
 	}
-	.cp:hover .cp__img { border-color: var(--color-muted); }
-	@media (min-width: 640px) { .cp__img { width: 4.5rem; height: 4.5rem; } }
 
 	.cp__fallback {
-		width: 3.75rem; height: 3.75rem; border-radius: 50%;
+		width: 100%; height: 100%;
 		display: flex; align-items: center; justify-content: center;
 		background: var(--color-raised);
 	}
-	@media (min-width: 640px) { .cp__fallback { width: 4.5rem; height: 4.5rem; } }
+
+	.cp__overlay {
+		position: absolute; bottom: 0; left: 0; right: 0;
+		padding: 0.4rem 0.45rem;
+		background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+		display: flex; flex-direction: column; gap: 0.1rem;
+	}
 
 	.cp__name {
-		text-align: center; font-size: 0.68rem; font-weight: 500;
+		font-size: 0.62rem; font-weight: 600;
 		color: var(--color-cream); line-height: 1.2;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.cp__role {
-		text-align: center; font-size: 0.58rem;
-		color: var(--color-muted); line-height: 1.2;
+		font-size: 0.52rem;
+		color: rgba(240,235,227,0.55); line-height: 1.2;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 
 	/* ═══════════════════════════════════════
@@ -2245,10 +2343,11 @@
 	}
 	.sim-scroll::-webkit-scrollbar { display: none; }
 
-	.sim { flex-shrink: 0; width: 7rem; }
-	@media (min-width: 640px) { .sim { width: 8.5rem; } }
+	.sim { flex-shrink: 0; width: 8rem; }
+	@media (min-width: 640px) { .sim { width: 9.5rem; } }
 
 	.sim__poster {
+		position: relative;
 		overflow: hidden; border-radius: 8px;
 		border: 1px solid rgba(240,235,227,0.06);
 		transition: all 0.25s ease;
@@ -2274,6 +2373,14 @@
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 	.sim__year { font-size: 0.62rem; color: var(--color-muted); }
+
+	.sim__rating {
+		position: absolute; bottom: 0.35rem; left: 0.35rem;
+		padding: 0.1rem 0.35rem; border-radius: 4px;
+		background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+		font-size: 0.58rem; font-weight: 600;
+		color: var(--color-accent);
+	}
 
 	/* ═══════════════════════════════════════
 	   GAME INFO

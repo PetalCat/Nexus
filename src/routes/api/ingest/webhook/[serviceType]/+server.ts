@@ -14,10 +14,10 @@ import type { RequestHandler } from './$types';
 // Jellyfin webhook handler — registered as a plugin
 // ---------------------------------------------------------------------------
 
+// Playback events (PlaybackStart, PlaybackStop, PlaybackProgress) are handled
+// by the session poller with proper session tracking and pause-time subtraction.
+// The webhook only handles non-playback events to avoid double-counting.
 const JF_EVENT_MAP: Record<string, string> = {
-	PlaybackStart: 'play_start',
-	PlaybackStop: 'play_stop',
-	PlaybackProgress: 'progress',
 	ItemAdded: 'add_to_library',
 	UserDataSaved: 'mark_watched',
 	ItemRated: 'rate'

@@ -10,6 +10,7 @@ import { timeAwareProvider } from './recommendations/providers/time-aware';
 import { getRecommendations } from './recommendations/aggregator';
 import { invalidatePrefix, withCache } from './cache';
 import { buildHomepageCache, invalidateHomepageCache } from './homepage-cache';
+import { syncMediaItems, hasMediaItems } from './media-sync';
 
 // ---------------------------------------------------------------------------
 // Recommendation Scheduler
@@ -54,9 +55,9 @@ function rebuildAffinities(userId: string) {
 	}
 }
 
-/** Pre-compute recommendations for a user */
+/** Pre-compute recommendations for a user across all browsable types */
 async function precomputeRecs(userId: string) {
-	for (const mediaType of ['movie', 'show']) {
+	for (const mediaType of ['movie', 'show', 'book', 'game']) {
 		try {
 			await getRecommendations(userId, mediaType, 30);
 		} catch (e) {
@@ -68,6 +69,13 @@ async function precomputeRecs(userId: string) {
 function runScheduledRebuilds() {
 	tickCount++;
 	const userIds = getActiveUserIds();
+
+	// Every 24th tick (2 hours) — re-sync media items from Jellyfin
+	if (tickCount % 24 === 0) {
+		syncMediaItems().catch((e) =>
+			console.error('[rec-scheduler] Periodic media sync error:', e)
+		);
+	}
 
 	for (const userId of userIds) {
 		try {
@@ -81,7 +89,6 @@ function runScheduledRebuilds() {
 				invalidatePrefix(`rec-rows:${userId}`);
 				invalidateHomepageCache(userId);
 				precomputeRecs(userId).then(() => {
-					// Build homepage cache AFTER recs are computed so we read fresh data
 					const cache = buildHomepageCache(userId);
 					if (cache) {
 						withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => cache);
@@ -115,13 +122,46 @@ export function startRecScheduler() {
 	console.log('[rec-scheduler] Starting recommendation scheduler (5min interval)');
 	schedulerInterval = setInterval(runScheduledRebuilds, 5 * 60 * 1000);
 
-	// First rebuild after 60 seconds (let the app finish booting + stats scheduler go first)
-	setTimeout(() => {
-		const userIds = getActiveUserIds();
-		for (const userId of userIds) {
-			rebuildAffinities(userId);
+	// On startup: sync media items → build affinities → precompute recs
+	// Runs after a short delay to let the app finish booting
+	setTimeout(async () => {
+		console.log('[rec-scheduler] Starting initial data pipeline...');
+		try {
+			// Step 1: Populate media_items from Jellyfin if empty
+			if (!hasMediaItems()) {
+				console.log('[rec-scheduler] media_items empty — running initial sync');
+				await syncMediaItems();
+			} else {
+				console.log('[rec-scheduler] media_items already populated');
+			}
+
+			// Step 2: Build genre affinities for all active users
+			const userIds = getActiveUserIds();
+			console.log(`[rec-scheduler] Building affinities for ${userIds.length} users`);
+			for (const userId of userIds) {
+				rebuildAffinities(userId);
+			}
+			console.log('[rec-scheduler] Affinities built');
+
+			// Step 3: Precompute recommendations and build homepage cache
+			for (const userId of userIds) {
+				try {
+					invalidatePrefix(`rec-rows:${userId}`);
+					invalidateHomepageCache(userId);
+					await precomputeRecs(userId);
+					const cache = buildHomepageCache(userId);
+					if (cache) {
+						withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => cache);
+					}
+					console.log(`[rec-scheduler] Initial homepage cache built for ${userId}`);
+				} catch (e) {
+					console.error(`[rec-scheduler] Initial precompute error for ${userId}:`, e);
+				}
+			}
+		} catch (e) {
+			console.error('[rec-scheduler] Startup sync error:', e);
 		}
-	}, 60_000);
+	}, 10_000);
 }
 
 export function stopRecScheduler() {
