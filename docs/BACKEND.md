@@ -1278,7 +1278,7 @@ SSR data fetching via `+page.server.ts` files. Summary:
 | `/music` | None | `sort` | items, total |
 | `/books` | None | `sort` | items, total |
 | `/games` | None | `sort`, `platform` | items, platforms, collections |
-| `/requests` | Session | — | myRequests, adminPending, discover |
+| `/requests` | Session | — | myRequests, allRequests, discover |
 | `/media/[type]/[id]` | None | `service`, `season` | item, similar, episodes, seasons |
 | `/live` | None | — | channels |
 | `/activity` | None | — | continueWatching |
