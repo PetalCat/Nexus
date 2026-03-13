@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import {
-	emitMediaEvent,
+	emitMediaAction,
 	resolveNexusUserId,
 	getWebhookHandler,
 	registerWebhookHandler,
@@ -54,7 +54,6 @@ registerWebhookHandler('jellyfin', async (request) => {
 	const serviceId = configs[0]?.id ?? 'unknown';
 
 	const session = body.Session ?? {};
-	const playState = session.PlayState ?? {};
 	const transcodingInfo = session.TranscodingInfo ?? {};
 	const mediaStreams = (item.MediaStreams ?? []) as any[];
 
@@ -90,22 +89,14 @@ registerWebhookHandler('jellyfin', async (request) => {
 	if (body.Rating != null) metadata.ratingValue = body.Rating;
 	if (body.IsFavorite != null) metadata.isFavorite = body.IsFavorite;
 
-	emitMediaEvent({
+	emitMediaAction({
 		userId: nexusUserId,
 		serviceId,
 		serviceType: 'jellyfin',
-		eventType,
+		actionType: eventType,
 		mediaId: item.Id,
 		mediaType: JF_TYPE_MAP[item.Type] ?? 'movie',
 		mediaTitle: item.Name,
-		mediaYear: item.ProductionYear,
-		mediaGenres: item.Genres,
-		parentId: item.SeriesId ?? item.ParentId,
-		parentTitle: item.SeriesName,
-		positionTicks: playState.PositionTicks ?? body.PlaybackPositionTicks,
-		durationTicks: item.RunTimeTicks,
-		deviceName: session.DeviceName ?? body.DeviceName,
-		clientName: session.Client ?? body.ClientName,
 		metadata
 	});
 
