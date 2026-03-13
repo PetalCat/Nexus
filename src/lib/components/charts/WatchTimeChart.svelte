@@ -1,0 +1,82 @@
+<script lang="ts">
+	import { Bar } from 'svelte-chartjs';
+	import {
+		Chart as ChartJS,
+		CategoryScale,
+		LinearScale,
+		BarElement,
+		Tooltip
+	} from 'chart.js';
+
+	ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
+
+	interface Props {
+		dailyTimeline: { day: string; totalMs: number; sessions: number }[];
+	}
+
+	let { dailyTimeline }: Props = $props();
+
+	const chartData = $derived.by(() => {
+		const labels = dailyTimeline.map((d) => {
+			const date = new Date(d.day + 'T12:00:00');
+			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+		});
+
+		return {
+			labels,
+			datasets: [
+				{
+					label: 'Minutes',
+					data: dailyTimeline.map((d) => Math.round(d.totalMs / 60_000)),
+					backgroundColor: 'rgba(212, 162, 83, 0.6)',
+					borderRadius: 4,
+					borderSkipped: false as const
+				}
+			]
+		};
+	});
+
+	const chartOptions = {
+		responsive: true,
+		maintainAspectRatio: false,
+		plugins: {
+			tooltip: {
+				callbacks: {
+					label: (ctx: any) => {
+						const mins = ctx.raw;
+						if (mins < 60) return `${mins}m`;
+						return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+					}
+				}
+			}
+		},
+		scales: {
+			x: {
+				grid: { display: false },
+				ticks: {
+					color: 'rgba(240, 235, 227, 0.3)',
+					font: { size: 10 },
+					maxRotation: 45,
+					autoSkip: true,
+					maxTicksLimit: 14
+				}
+			},
+			y: {
+				grid: { color: 'rgba(240, 235, 227, 0.04)' },
+				ticks: {
+					color: 'rgba(240, 235, 227, 0.3)',
+					font: { size: 10 },
+					callback: (v: any) => v < 60 ? `${v}m` : `${Math.floor(v / 60)}h`
+				}
+			}
+		}
+	};
+</script>
+
+<div class="h-48">
+	{#if dailyTimeline.length === 0}
+		<div class="flex h-full items-center justify-center text-xs text-faint">No activity in this period</div>
+	{:else}
+		<Bar data={chartData} options={chartOptions} />
+	{/if}
+</div>
