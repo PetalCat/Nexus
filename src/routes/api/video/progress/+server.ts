@@ -5,7 +5,6 @@ import { eq, and } from 'drizzle-orm';
 import { getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { markWatched } from '$lib/adapters/invidious';
-import { emitMediaEvent } from '$lib/server/analytics';
 import { broadcastToFriends } from '$lib/server/ws';
 import { getFriendIds } from '$lib/server/social';
 import type { RequestHandler } from './$types';
@@ -67,20 +66,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			lastActivity: new Date().toISOString()
 		}).run();
 	}
-
-	// Emit analytics
-	const eventType = isStopped ? 'play_stop' : isStart ? 'play_start' : isPaused ? 'play_pause' : 'progress';
-	emitMediaEvent({
-		userId,
-		serviceId,
-		serviceType: 'invidious',
-		eventType,
-		mediaId: videoId,
-		mediaType: 'video',
-		mediaTitle: title,
-		positionTicks,
-		durationTicks: durationSeconds ? Math.round(durationSeconds * 10_000_000) : undefined
-	});
 
 	// Broadcast activity to friends on start/stop
 	if (isStart || isStopped) {

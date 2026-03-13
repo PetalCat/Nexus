@@ -1,9 +1,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getDb, schema } from '$lib/db';
+import { getDb, getRawDb, schema } from '$lib/db';
 import { eq, and } from 'drizzle-orm';
 import { getEnabledConfigs } from '$lib/server/services';
-import { emitMediaEvent } from '$lib/server/analytics';
+import { findOpenSession } from '$lib/server/analytics';
+import { randomBytes } from 'crypto';
 
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) throw error(401);
@@ -54,15 +55,39 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 			.run();
 	}
 
-	emitMediaEvent({
-		userId: locals.user.id,
-		serviceId: svcId,
-		serviceType: 'calibre',
-		eventType: 'reading_progress',
-		mediaId: params.id,
-		mediaType: 'book',
-		metadata: { progress, cfi }
-	});
+	// Upsert book play session
+	const userId = locals.user.id;
+	const bookId = params.id;
+	const nowMs = Date.now();
+	const TWO_HOURS = 2 * 60 * 60 * 1000;
+
+	try {
+		const raw = getRawDb();
+		const open = findOpenSession(userId, bookId, svcId);
+
+		if (open && (nowMs - (open.updated_at ?? open.started_at)) < TWO_HOURS) {
+			// Update existing session
+			const elapsed = nowMs - (open.updated_at ?? open.started_at);
+			raw.prepare(
+				`UPDATE play_sessions SET duration_ms = duration_ms + ?, progress = ?, updated_at = ? WHERE id = ?`
+			).run(elapsed, progress, nowMs, open.id);
+		} else {
+			if (open) {
+				// Close stale session
+				raw.prepare(
+					`UPDATE play_sessions SET ended_at = ?, completed = ? WHERE id = ?`
+				).run(open.updated_at ?? nowMs, open.progress >= 1.0 ? 1 : 0, open.id);
+			}
+			// Create new session
+			const id = randomBytes(16).toString('hex');
+			raw.prepare(
+				`INSERT INTO play_sessions (id, user_id, service_id, service_type, media_id, media_type, progress, duration_ms, started_at, updated_at)
+				 VALUES (?, ?, ?, 'calibre', ?, 'book', ?, 0, ?, ?)`
+			).run(id, userId, svcId, bookId, progress, nowMs, nowMs);
+		}
+	} catch (e) {
+		console.error('[books/progress] Session write failed:', e);
+	}
 
 	return json({ ok: true });
 };

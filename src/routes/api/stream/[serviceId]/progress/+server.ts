@@ -2,7 +2,6 @@ import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { invalidatePrefix } from '$lib/server/cache';
-import { emitMediaEvent } from '$lib/server/analytics';
 import { getDb } from '$lib/db';
 import { activity } from '$lib/db/schema';
 import { and, eq } from 'drizzle-orm';
@@ -158,27 +157,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				headers,
 				body: JSON.stringify(jellyfinBody),
 				signal: AbortSignal.timeout(5000)
-			});
-		}
-
-		// Emit analytics event
-		if (locals.user?.id) {
-			const eventType = isStopped ? 'play_stop' : isStart ? 'play_start' : 'progress';
-			emitMediaEvent({
-				userId: locals.user.id,
-				serviceId,
-				serviceType: config.type,
-				eventType,
-				mediaId: itemId,
-				mediaType: body.mediaType ?? 'movie',
-				mediaTitle: body.mediaTitle,
-				parentId: body.parentId,
-				parentTitle: body.parentTitle,
-				positionTicks: positionTicks ?? 0,
-				durationTicks: body.durationTicks,
-				deviceName: body.deviceName,
-				clientName: body.clientName,
-				metadata: body.playbackMetadata
 			});
 		}
 
