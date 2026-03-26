@@ -11,6 +11,7 @@
 	import PdfSidebar from './PdfSidebar.svelte';
 	import ReaderProgressBar from './ReaderProgressBar.svelte';
 	import TimeEstimate from './TimeEstimate.svelte';
+	import AnnotationPopup from './AnnotationPopup.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────
 	interface Props {
@@ -54,12 +55,24 @@
 	let loadError = $state<string | null>(null);
 	let loadProgress = $state(0);
 	let pdfOutline = $state<Array<{ title: string; dest: any; items?: any[] }>>([]);
-	let isBookmarked = $state(false);
+	let isBookmarked = $derived(localBookmarks.has(currentPage));
 	let searchQuery = $state('');
 	let searchResults = $state<Array<{ page: number; text: string }>>([]);
 	let searchResultCount = $derived(searchResults.length);
 	let searchIndex = $state(0);
 	let prevScale = $state(1);
+
+	// ── Annotation state ──────────────────────────────────────────
+	let showAnnotationPopup = $state(false);
+	let annotationPopupX = $state(0);
+	let annotationPopupY = $state(0);
+	let selectedText = $state('');
+	let selectedPage = $state(0);
+	let showNoteInput = $state(false);
+	let noteInputText = $state('');
+	let localHighlights = $state<Array<{ page: number; text: string; color: string }>>([]);
+	let localBookmarks = new SvelteSet<number>();
+	let highlightedPages = $derived(new Set(localHighlights.map((h) => h.page)));
 
 	// ── Internal refs & tracking ───────────────────────────────────
 	let viewportEl = $state<HTMLDivElement | null>(null);
@@ -241,9 +254,129 @@
 		}
 	}
 
-	function handleBookmark() {
-		isBookmarked = !isBookmarked;
-		// Bookmark persistence will be added in Task 9
+	async function handleBookmark() {
+		const page = currentPage;
+		if (localBookmarks.has(page)) {
+			// Remove bookmark
+			localBookmarks.delete(page);
+			// Find and delete from server
+			const existing = bookmarks.find((b) => b.cfi === `pdf:${page}`);
+			if (existing) {
+				await fetch(`/api/books/${book.sourceId}/bookmarks/${existing.id}`, { method: 'DELETE' });
+			}
+		} else {
+			// Add bookmark
+			localBookmarks.add(page);
+			try {
+				const res = await fetch(`/api/books/${book.sourceId}/bookmarks`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						cfi: `pdf:${page}`,
+						label: `Page ${page}`,
+						serviceId
+					})
+				});
+				if (res.ok) {
+					const created = await res.json();
+					bookmarks.push(created);
+				}
+			} catch (err) {
+				console.error('Failed to save bookmark:', err);
+			}
+		}
+	}
+
+	// ── Text selection handler ────────────────────────────────────
+	function handleTextSelection() {
+		const sel = window.getSelection();
+		if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+			showAnnotationPopup = false;
+			return;
+		}
+		selectedText = sel.toString().trim();
+		const range = sel.getRangeAt(0);
+		const rect = range.getBoundingClientRect();
+		annotationPopupX = rect.left + rect.width / 2;
+		annotationPopupY = rect.top - 10;
+
+		// Find page number from closest ancestor with data-page
+		const pageEl = range.startContainer.parentElement?.closest('[data-page]');
+		selectedPage = pageEl ? Number((pageEl as HTMLElement).dataset.page) : currentPage;
+
+		showAnnotationPopup = true;
+	}
+
+	function dismissAnnotationPopup() {
+		showAnnotationPopup = false;
+		showNoteInput = false;
+		noteInputText = '';
+		window.getSelection()?.removeAllRanges();
+	}
+
+	// ── Annotation actions ────────────────────────────────────────
+	async function handleHighlight(color: string) {
+		if (!selectedText) return;
+		localHighlights.push({ page: selectedPage, text: selectedText, color });
+		dismissAnnotationPopup();
+
+		try {
+			await fetch(`/api/books/${book.sourceId}/highlights`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					cfi: `pdf:${selectedPage}`,
+					text: selectedText,
+					color,
+					chapter: `Page ${selectedPage}`,
+					serviceId
+				})
+			});
+		} catch (err) {
+			console.error('Failed to save highlight:', err);
+		}
+	}
+
+	function handleAnnotationNote() {
+		showNoteInput = true;
+		showAnnotationPopup = false;
+	}
+
+	async function submitNote() {
+		if (!noteInputText.trim()) return;
+		const content = noteInputText.trim();
+		showNoteInput = false;
+		noteInputText = '';
+		window.getSelection()?.removeAllRanges();
+
+		try {
+			await fetch(`/api/books/${book.sourceId}/notes`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					cfi: `pdf:${selectedPage}`,
+					chapter: `Page ${selectedPage}`,
+					content,
+					serviceId
+				})
+			});
+		} catch (err) {
+			console.error('Failed to save note:', err);
+		}
+	}
+
+	function handleAnnotationCopy() {
+		if (selectedText) {
+			navigator.clipboard.writeText(selectedText);
+		}
+		dismissAnnotationPopup();
+	}
+
+	function handleAnnotationSearch() {
+		if (selectedText) {
+			handleSearch(selectedText);
+		}
+		dismissAnnotationPopup();
 	}
 
 	function handleProgressSeek(position: number) {
@@ -616,6 +749,27 @@
 		});
 	}
 
+	// ── Initialize annotations from props ─────────────────────────
+	$effect(() => {
+		if (highlights && highlights.length > 0) {
+			for (const h of highlights) {
+				const match = h.cfi.match(/^pdf:(\d+)/);
+				if (match) {
+					const page = +match[1];
+					if (!localHighlights.some((lh) => lh.page === page && lh.text === h.text)) {
+						localHighlights.push({ page, text: h.text, color: h.color ?? 'yellow' });
+					}
+				}
+			}
+		}
+		if (bookmarks && bookmarks.length > 0) {
+			for (const b of bookmarks) {
+				const match = b.cfi.match(/^pdf:(\d+)/);
+				if (match) localBookmarks.add(+match[1]);
+			}
+		}
+	});
+
 	// ── Re-render on scale change ─────────────────────────────────
 	$effect(() => {
 		// Track scale changes — re-render visible pages
@@ -753,6 +907,7 @@
 			class="viewport"
 			bind:this={viewportEl}
 			onscroll={handleScroll}
+			onmouseup={handleTextSelection}
 		>
 			{#if loading}
 				<div class="loading-state">
@@ -799,6 +954,12 @@
 												<span class="page-placeholder-num">{pageNum}</span>
 											</div>
 										{/if}
+										{#if localBookmarks.has(pageNum)}
+											<div class="bookmark-ribbon"></div>
+										{/if}
+										{#if highlightedPages.has(pageNum)}
+											<div class="highlight-indicator"></div>
+										{/if}
 									</div>
 								{/each}
 							</div>
@@ -820,6 +981,12 @@
 									<div class="page-placeholder">
 										<span class="page-placeholder-num">{i + 1}</span>
 									</div>
+								{/if}
+								{#if localBookmarks.has(i + 1)}
+									<div class="bookmark-ribbon"></div>
+								{/if}
+								{#if highlightedPages.has(i + 1)}
+									<div class="highlight-indicator"></div>
 								{/if}
 							</div>
 						{/each}
@@ -844,6 +1011,38 @@
 			/>
 			<div class="bottom-extra">
 				<TimeEstimate {remainingPages} />
+			</div>
+		</div>
+	{/if}
+
+	<!-- ── Annotation Popup ───────────────────────────────────── -->
+	{#if showAnnotationPopup}
+		<AnnotationPopup
+			x={annotationPopupX}
+			y={annotationPopupY}
+			onHighlight={handleHighlight}
+			onNote={handleAnnotationNote}
+			onCopy={handleAnnotationCopy}
+			onSearch={handleAnnotationSearch}
+			onDismiss={dismissAnnotationPopup}
+		/>
+	{/if}
+
+	<!-- ── Note Input Modal ───────────────────────────────────── -->
+	{#if showNoteInput}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="note-backdrop" onclick={() => { showNoteInput = false; noteInputText = ''; }} onkeydown={() => {}}></div>
+		<div class="note-modal">
+			<div class="note-header">Add Note — Page {selectedPage}</div>
+			<textarea
+				class="note-textarea"
+				placeholder="Write your note..."
+				bind:value={noteInputText}
+				onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitNote(); }}
+			></textarea>
+			<div class="note-actions">
+				<button class="note-btn note-cancel" onclick={() => { showNoteInput = false; noteInputText = ''; }}>Cancel</button>
+				<button class="note-btn note-save" onclick={submitNote}>Save Note</button>
 			</div>
 		</div>
 	{/if}
@@ -1063,5 +1262,124 @@
 		display: flex;
 		justify-content: center;
 		padding: 0 16px 6px;
+	}
+
+	/* ── Bookmark ribbon ────────────────────────────────── */
+	.bookmark-ribbon {
+		position: absolute;
+		top: -2px;
+		right: 18px;
+		width: 22px;
+		height: 34px;
+		background: var(--color-warm);
+		clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+		filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+		z-index: 5;
+		pointer-events: none;
+	}
+
+	/* ── Highlight indicator ───────────────────────────── */
+	.highlight-indicator {
+		position: absolute;
+		top: 8px;
+		left: -4px;
+		width: 4px;
+		height: calc(100% - 16px);
+		background: rgba(250, 204, 21, 0.7);
+		border-radius: 2px;
+		z-index: 5;
+		pointer-events: none;
+	}
+
+	/* ── Note input modal ──────────────────────────────── */
+	.note-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 1000;
+	}
+
+	.note-modal {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 1001;
+		background: var(--color-raised);
+		border: 1px solid rgba(240, 235, 227, 0.08);
+		border-radius: 12px;
+		box-shadow: var(--shadow-float);
+		backdrop-filter: blur(20px);
+		padding: 20px;
+		width: 400px;
+		max-width: 90vw;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		font-family: var(--font-body);
+	}
+
+	.note-header {
+		font-size: 14px;
+		font-weight: 600;
+		color: var(--color-cream);
+	}
+
+	.note-textarea {
+		width: 100%;
+		min-height: 100px;
+		padding: 10px 12px;
+		background: var(--color-surface);
+		border: 1px solid rgba(240, 235, 227, 0.06);
+		border-radius: 8px;
+		color: var(--color-cream);
+		font-family: var(--font-body);
+		font-size: 13px;
+		resize: vertical;
+		outline: none;
+		transition: border-color 0.15s;
+	}
+
+	.note-textarea:focus {
+		border-color: var(--color-accent-dim);
+	}
+
+	.note-textarea::placeholder {
+		color: var(--color-faint);
+	}
+
+	.note-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+
+	.note-btn {
+		padding: 6px 16px;
+		border: none;
+		border-radius: 8px;
+		font-family: var(--font-body);
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: opacity 0.15s;
+	}
+
+	.note-cancel {
+		background: var(--color-surface);
+		color: var(--color-muted);
+	}
+
+	.note-cancel:hover {
+		color: var(--color-cream);
+	}
+
+	.note-save {
+		background: var(--color-accent);
+		color: var(--color-void);
+	}
+
+	.note-save:hover {
+		opacity: 0.9;
 	}
 </style>
