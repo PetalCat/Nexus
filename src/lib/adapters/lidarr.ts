@@ -4,7 +4,7 @@ import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } 
 async function lidarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v1${path}`);
 	url.searchParams.set('apikey', config.apiKey ?? '');
-	const res = await fetch(url.toString());
+	const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
 	if (!res.ok) throw new Error(`Lidarr ${path} → ${res.status}`);
 	return res.json();
 }

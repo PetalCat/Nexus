@@ -34,8 +34,8 @@
 
 <svelte:window onclick={handleClickOutside} />
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="share-menu-container relative inline-block" onclick={(e) => e.stopPropagation()}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="share-menu-container relative inline-block" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === 'Escape' && (open = false)} role="group">
 	<button
 		onclick={handleToggle}
 		class="flex items-center gap-1.5 rounded-lg bg-cream/[0.04] px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-cream/[0.08] hover:text-cream"

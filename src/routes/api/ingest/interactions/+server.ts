@@ -22,9 +22,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json({ ok: true, ingested: 0 });
 	}
 
-	// Cap batch size to prevent abuse
+	// Cap batch size to prevent abuse; ignore unauthenticated requests
+	if (!userId) {
+		return json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
 	const batch = events.slice(0, 500).map((e: any) => ({
-		userId: userId ?? e.userId,
+		userId,
 		sessionToken: e.sessionToken,
 		eventType: e.eventType ?? 'unknown',
 		page: e.page,

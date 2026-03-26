@@ -7,6 +7,8 @@ import type { RequestHandler } from './$types';
 
 // GET /api/media?serviceId=xxx&sourceId=yyy
 export const GET: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
+
 	const serviceId = url.searchParams.get('serviceId');
 	const sourceId = url.searchParams.get('sourceId');
 

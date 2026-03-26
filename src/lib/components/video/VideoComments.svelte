@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ThumbsUp, MessageCircle } from 'lucide-svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	interface Props {
 		videoId: string;
@@ -39,7 +40,7 @@
 				commentCount = data.commentCount ?? comments.length;
 				loaded = true;
 			}
-		} catch { /* silent */ } finally {
+		} catch { toast.error('Failed to load comments'); } finally {
 			loading = false;
 		}
 	}
@@ -53,7 +54,7 @@
 				const data = await res.json();
 				expandedReplies[index] = data.comments ?? [];
 			}
-		} catch { /* silent */ } finally {
+		} catch { toast.error('Failed to load replies'); } finally {
 			loadingReplies[index] = false;
 		}
 	}

@@ -5,4 +5,5 @@
 	let { data }: { data: PageData } = $props();
 </script>
 
+<svelte:head><title>Services — Admin — Nexus</title></svelte:head>
 <AdminServices {data} />

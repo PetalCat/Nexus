@@ -90,8 +90,8 @@
 
 	<!-- Favorite -->
 	{#if onfavoritetoggle}
-		<div class="shrink-0" onclick={(e) => e.stopPropagation()}>
+		<span class="shrink-0">
 			<FavoriteButton active={isFavorite} size="sm" onclick={(e) => { e.stopPropagation(); onfavoritetoggle?.(); }} />
-		</div>
+		</span>
 	{/if}
 </button>

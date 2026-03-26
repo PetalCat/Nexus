@@ -3,6 +3,9 @@
 
 	let { data }: { data: any } = $props();
 
+	const queue = $derived(data.queue ?? []);
+	const health = $derived(data.health ?? []);
+
 	// ── helpers ───────────────────────────────────────────────────────────────
 
 	function ticksToSeconds(ticks?: number) {
@@ -115,8 +118,8 @@
 
 	const activeSessions = $derived(data.sessions.length);
 	const pendingCount = $derived(data.requests.filter((r: any) => r.status === 'pending').length);
-	const onlineCount = $derived(data.health.filter((h: any) => h.online).length);
-	const totalServices = $derived(data.health.length);
+	const onlineCount = $derived(health.filter((h: any) => h.online).length);
+	const totalServices = $derived(health.length);
 </script>
 
 <!-- ── Stat Cards ──────────────────────────────────────────────────────── -->
@@ -258,7 +261,7 @@
 		<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
 			{#each data.recentEvents as event, i (i)}
 				{@const icon = eventIcon(event.eventType)}
-				<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02]">
+				<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
 					<!-- Event icon -->
 					{#if icon.type === 'play'}
 						<svg width="14" height="14" viewBox="0 0 14 14" fill={icon.color} class="flex-shrink-0">
@@ -305,23 +308,23 @@
 		<div class="mb-4 flex items-center justify-between">
 			<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
 				Download Queue
-				{#if data.queue.length > 0}
-					<span class="ml-1 normal-case font-normal text-[var(--color-muted)]">· {data.queue.length}</span>
+				{#if queue.length > 0}
+					<span class="ml-1 normal-case font-normal text-[var(--color-muted)]">· {queue.length}</span>
 				{/if}
 			</h2>
-			{#if data.queue.length > 5}
+			{#if queue.length > 5}
 				<button class="text-xs text-[var(--color-accent)] hover:underline">View all &rarr;</button>
 			{/if}
 		</div>
 
-		{#if data.queue.length === 0}
+		{#if queue.length === 0}
 			<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
 				<p class="text-sm text-[var(--color-muted)]">Nothing downloading</p>
 			</div>
 		{:else}
 			<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
-				{#each data.queue.slice(0, 5) as item (item.id)}
-					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02]">
+				{#each queue.slice(0, 5) as item (item.id)}
+					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
 						{#if item.poster}
 							<img src={item.poster} alt={item.title} class="h-10 w-7 flex-shrink-0 rounded object-cover" style="background: rgba(255,255,255,0.05)" />
 						{:else}
@@ -363,7 +366,7 @@
 		{:else}
 			<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
 				{#each data.requests.slice(0, 5) as req (req.id)}
-					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02]">
+					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
 						{#if req.poster}
 							<img src={req.poster} alt={req.title} class="h-10 w-7 flex-shrink-0 rounded object-cover" style="background: rgba(255,255,255,0.05)" />
 						{:else}

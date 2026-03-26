@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CheckCircle, Bell, BellOff } from 'lucide-svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	interface Props {
 		authorId: string;
@@ -51,7 +52,7 @@
 				subscribed = !subscribed;
 				if (!subscribed) notify = false;
 			}
-		} catch { /* silent */ } finally {
+		} catch { toast.error('Failed to update subscription'); } finally {
 			toggling = false;
 		}
 	}
@@ -67,7 +68,7 @@
 				body: JSON.stringify({ channelName: author })
 			});
 			if (res.ok) notify = !notify;
-		} catch { /* silent */ } finally {
+		} catch { toast.error('Failed to update notifications'); } finally {
 			togglingNotify = false;
 		}
 	}

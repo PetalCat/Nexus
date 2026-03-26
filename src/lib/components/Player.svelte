@@ -273,7 +273,7 @@
 	const audioUrl = $derived(streamUrl.replace(/\/([^/]+)$/, '/audio/$1') + '/universal');
 
 	/* ── Direct mode quality ── */
-	let directFormats = $state<VideoFormat[]>(formats);
+	let directFormats = $state<VideoFormat[]>([]);
 	let currentDirectQuality = $state('');
 
 	// Sync directFormats when formats prop updates (fetched async)
@@ -1377,6 +1377,7 @@
 </script>
 
 {#if isVideo}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
 	<div
 		bind:this={theaterEl}
 		class="theater"
@@ -1385,7 +1386,7 @@
 		class:cursor-none={!showControls && playing}
 		onmousemove={resetControlsTimer}
 		onclick={(e) => { if ((e.target as HTMLElement).closest('.ctrl-panel, .ctrl-bar')) return; }}
-		role="region"
+		role="application"
 		aria-label="Video player"
 	>
 		<!-- svelte-ignore a11y_media_has_caption -->
@@ -2025,7 +2026,6 @@
 		animation: panelIn 0.18s cubic-bezier(0.16,1,0.3,1);
 		scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
 	}
-	.panel--narrow { min-width: 9rem; }
 	.panel__head {
 		padding: 0.55rem 0.85rem; font-size: 0.68rem; font-weight: 600;
 		color: rgba(255,255,255,0.35); text-transform: uppercase;
@@ -2087,7 +2087,7 @@
 	.speed-input:focus { border-color: var(--color-accent); }
 	.speed-input::-webkit-inner-spin-button,
 	.speed-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-	.speed-input { -moz-appearance: textfield; }
+	.speed-input { -moz-appearance: textfield; appearance: textfield; }
 	.speed-apply {
 		font-size: 0.7rem; padding: 0.3rem 0.6rem; border-radius: 6px;
 		border: 1px solid var(--color-accent); background: transparent;

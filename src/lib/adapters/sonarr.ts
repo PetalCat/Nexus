@@ -4,7 +4,7 @@ import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } 
 async function sonarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v3${path}`);
 	url.searchParams.set('apikey', config.apiKey ?? '');
-	const res = await fetch(url.toString());
+	const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
 	if (!res.ok) throw new Error(`Sonarr ${path} → ${res.status}`);
 	return res.json();
 }

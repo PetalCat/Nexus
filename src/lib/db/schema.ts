@@ -11,12 +11,12 @@ export const services = sqliteTable('services', {
 	username: text('username'),
 	password: text('password'),
 	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-	createdAt: text('created_at')
+	createdAt: integer('created_at')
 		.notNull()
-		.default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at')
+		.default(sql`(strftime('%s','now') * 1000)`),
+	updatedAt: integer('updated_at')
 		.notNull()
-		.default(sql`(datetime('now'))`)
+		.default(sql`(strftime('%s','now') * 1000)`)
 });
 
 // Cached unified media items
@@ -45,8 +45,8 @@ export const mediaItems = sqliteTable('media_items', {
 // Per-user credentials for user-level services (Jellyfin, Overseerr, Calibre, etc.)
 export const userServiceCredentials = sqliteTable('user_service_credentials', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	userId: text('user_id').notNull(),
-	serviceId: text('service_id').notNull(), // FK → services.id
+	userId: text('user_id').notNull(), // FK → users.id (defined later, ref added there)
+	serviceId: text('service_id').notNull().references(() => services.id), // FK → services.id
 	accessToken: text('access_token'), // e.g. Jellyfin user auth token
 	externalUserId: text('external_user_id'), // e.g. Jellyfin userId
 	externalUsername: text('external_username'),
@@ -61,10 +61,10 @@ export const inviteLinks = sqliteTable('invite_links', {
 	createdBy: text('created_by').notNull(), // admin userId
 	maxUses: integer('max_uses').notNull().default(1),
 	uses: integer('uses').notNull().default(0),
-	expiresAt: text('expires_at'), // null = never expires
-	createdAt: text('created_at')
+	expiresAt: integer('expires_at'), // null = never expires; unix ms
+	createdAt: integer('created_at')
 		.notNull()
-		.default(sql`(datetime('now'))`)
+		.default(sql`(strftime('%s','now') * 1000)`)
 });
 
 // User activity / watch progress
@@ -118,18 +118,18 @@ export const users = sqliteTable('users', {
 // Auth sessions
 export const sessions = sqliteTable('sessions', {
 	token: text('token').primaryKey(),
-	userId: text('user_id').notNull(),
-	expiresAt: text('expires_at').notNull(),
-	createdAt: text('created_at')
+	userId: text('user_id').notNull().references(() => users.id),
+	expiresAt: integer('expires_at').notNull(),
+	createdAt: integer('created_at')
 		.notNull()
-		.default(sql`(datetime('now'))`)
+		.default(sql`(strftime('%s','now') * 1000)`)
 });
 
 // ── Play Sessions (replaces media_events) ────────────────────────────
 export const playSessions = sqliteTable('play_sessions', {
 	id: text('id').primaryKey(),
 	sessionKey: text('session_key').unique(),
-	userId: text('user_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
 	serviceId: text('service_id').notNull(),
 	serviceType: text('service_type').notNull(),
 	mediaId: text('media_id').notNull(),
@@ -218,8 +218,8 @@ export type NewInteractionEvent = typeof interactionEvents.$inferInsert;
 
 export const friendships = sqliteTable('friendships', {
 	id: text('id').primaryKey(),
-	userId: text('user_id').notNull(),
-	friendId: text('friend_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
+	friendId: text('friend_id').notNull().references(() => users.id),
 	status: text('status').notNull(), // 'pending' | 'accepted' | 'blocked'
 	createdAt: integer('created_at').notNull(), // unix ms
 	acceptedAt: integer('accepted_at') // unix ms, nullable
@@ -307,7 +307,7 @@ export const collectionItems = sqliteTable('collection_items', {
 
 export const collectionMembers = sqliteTable('collection_members', {
 	collectionId: text('collection_id').notNull(),
-	userId: text('user_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
 	role: text('role').notNull().default('viewer'), // 'owner' | 'editor' | 'viewer'
 	addedAt: integer('added_at').notNull()
 });
@@ -337,7 +337,7 @@ export type CollectionActivity = typeof collectionActivity.$inferSelect;
 
 export const userWatchlist = sqliteTable('user_watchlist', {
 	id: text('id').primaryKey(),
-	userId: text('user_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
 	mediaId: text('media_id').notNull(),
 	serviceId: text('service_id').notNull(),
 	mediaType: text('media_type').notNull(),
@@ -353,7 +353,7 @@ export type UserWatchlistItem = typeof userWatchlist.$inferSelect;
 
 export const userRatings = sqliteTable('user_ratings', {
 	id: text('id').primaryKey(),
-	userId: text('user_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
 	mediaId: text('media_id').notNull(),
 	serviceId: text('service_id').notNull(),
 	mediaType: text('media_type').notNull(),
@@ -409,7 +409,7 @@ export type PlaylistCollaborator = typeof playlistCollaborators.$inferSelect;
 // ── Notifications ────────────────────────────────────────────────────
 export const notifications = sqliteTable('notifications', {
 	id: text('id').primaryKey(),
-	userId: text('user_id').notNull(),
+	userId: text('user_id').notNull().references(() => users.id),
 	type: text('type').notNull(), // 'friend_request' | 'friend_accept' | 'share_received' | 'session_invite' | 'request_approved' | 'request_available' | 'collection_invite' | 'system'
 	title: text('title').notNull(),
 	message: text('message'),

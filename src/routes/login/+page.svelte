@@ -32,12 +32,12 @@
 			{/if}
 
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
-				<input name="username" class="input" placeholder="admin" autocomplete="username" required />
+				<label for="login-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
+				<input id="login-username" name="username" class="input" placeholder="admin" autocomplete="username" required />
 			</div>
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
-				<input name="password" type="password" class="input" placeholder="••••••••" autocomplete="current-password" required />
+				<label for="login-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
+				<input id="login-password" name="password" type="password" class="input" placeholder="••••••••" autocomplete="current-password" required />
 			</div>
 
 			<button type="submit" class="btn btn-primary mt-2" disabled={loading}>

@@ -106,8 +106,8 @@
 		}
 	]);
 
-	let customFrom = $state(fromDate);
-	let customTo = $state(toDate);
+	let customFrom = $state('');
+	let customTo = $state('');
 
 	$effect(() => {
 		customFrom = fromDate;
@@ -125,7 +125,7 @@
 					class="rounded-lg px-3 py-1.5 text-xs font-medium transition-all
 						{activePreset === preset.label
 						? 'bg-accent/15 text-accent'
-						: 'bg-white/[0.04] text-muted hover:text-cream hover:bg-white/[0.08]'}"
+						: 'bg-cream/[0.04] text-muted hover:text-cream hover:bg-cream/[0.08]'}"
 				>
 					{preset.label}
 				</button>

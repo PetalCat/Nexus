@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/stores/toast.svelte';
 	// ── State ──────────────────────────────────────────────────────────────────
 	let users = $state<any[]>([]);
 	let pendingUsers = $state<any[]>([]);
@@ -23,6 +24,9 @@
 	let migrateLoading = $state(false);
 	let migratePreview = $state<any[] | null>(null);
 	let migrateResult = $state<any | null>(null);
+	let migrateSelected = $state<Set<string>>(new Set());
+	let autoLinkLoading = $state(false);
+	let autoLinkResult = $state<any[] | null>(null);
 
 	// ── Data loading ──────────────────────────────────────────────────────────
 	async function loadData() {
@@ -42,6 +46,7 @@
 			onlineUserIds = new Set(onlineRes?.userIds ?? []);
 		} catch (e) {
 			console.error('Failed to load admin users data', e);
+			toast.error('Failed to load user data');
 		} finally {
 			loading = false;
 		}
@@ -59,6 +64,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to approve user', e);
+			toast.error('Failed to approve user');
 		} finally {
 			approveLoading = null;
 		}
@@ -70,6 +76,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to deny user', e);
+			toast.error('Failed to deny user');
 		}
 	}
 
@@ -79,6 +86,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to delete user', e);
+			toast.error('Failed to delete user');
 		} finally {
 			deleteUserConfirm = null;
 		}
@@ -118,6 +126,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to toggle force reset', e);
+			toast.error('Failed to update force reset');
 		}
 	}
 
@@ -135,6 +144,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to create invite', e);
+			toast.error('Failed to create invite');
 		} finally {
 			creatingInvite = false;
 		}
@@ -146,6 +156,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to delete invite', e);
+			toast.error('Failed to delete invite');
 		} finally {
 			deleteInviteConfirm = null;
 		}
@@ -162,6 +173,7 @@
 			await loadData();
 		} catch (e) {
 			console.error('Failed to save setting', e);
+			toast.error('Failed to save setting');
 		} finally {
 			savingSettings = false;
 		}
@@ -174,8 +186,10 @@
 		try {
 			const res = await fetch('/api/admin/migrate/jellyfin');
 			migratePreview = await res.json();
+			migrateSelected = new Set((migratePreview ?? []).map((u: any) => u.externalId));
 		} catch (e) {
 			console.error('Failed to preview migration', e);
+			toast.error('Failed to preview migration');
 		} finally {
 			migrateLoading = false;
 		}
@@ -184,17 +198,45 @@
 	async function executeMigration() {
 		migrateLoading = true;
 		try {
+			const selectedUsers = migratePreview?.filter((u: any) => migrateSelected.has(u.externalId)) ?? [];
 			const res = await fetch('/api/admin/migrate/jellyfin', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({})
+				body: JSON.stringify({ users: selectedUsers.map((u: any) => ({ externalId: u.externalId, username: u.username, serviceId: u.serviceId })) })
 			});
 			migrateResult = await res.json();
 			await loadData();
 		} catch (e) {
 			console.error('Failed to execute migration', e);
+			toast.error('Failed to execute migration');
 		} finally {
 			migrateLoading = false;
+		}
+	}
+
+	async function autoLinkAfterMigration() {
+		autoLinkLoading = true;
+		autoLinkResult = null;
+		try {
+			// Get all Jellyfin service IDs from the preview data
+			const serviceIds = [...new Set(migratePreview?.map((u: any) => u.serviceId) ?? [])];
+			const allResults: any[] = [];
+			for (const serviceId of serviceIds) {
+				const res = await fetch('/api/admin/autolink', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ serviceId })
+				});
+				const data = await res.json();
+				if (Array.isArray(data)) allResults.push(...data);
+				else if (data.results) allResults.push(...data.results);
+			}
+			autoLinkResult = allResults;
+		} catch (e) {
+			console.error('Auto-link failed', e);
+			toast.error('Auto-link failed');
+		} finally {
+			autoLinkLoading = false;
 		}
 	}
 
@@ -224,7 +266,7 @@
 		return `${Math.floor(h / 24)}d ago`;
 	}
 
-	function formatDate(dateStr?: string): string {
+	function formatDate(dateStr?: string | number | null): string {
 		if (!dateStr) return '';
 		return new Date(dateStr).toLocaleDateString(undefined, {
 			year: 'numeric',
@@ -242,10 +284,10 @@
 	<div class="flex flex-col gap-6">
 		{#each Array(4) as _}
 			<div class="animate-pulse rounded-2xl p-6" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-				<div class="mb-4 h-4 w-32 rounded bg-white/10"></div>
+				<div class="mb-4 h-4 w-32 rounded bg-cream/10"></div>
 				<div class="space-y-3">
-					<div class="h-10 rounded-lg bg-white/5"></div>
-					<div class="h-10 rounded-lg bg-white/5"></div>
+					<div class="h-10 rounded-lg bg-cream/5"></div>
+					<div class="h-10 rounded-lg bg-cream/5"></div>
 				</div>
 			</div>
 		{/each}
@@ -268,14 +310,15 @@
 							class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {regEnabled ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
 							onclick={() => toggleSetting('registration_enabled', !regEnabled)}
 							disabled={savingSettings}
+							aria-label="Toggle open registration"
 						>
-							<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 transform rounded-full bg-white shadow transition-transform {regEnabled ? 'translate-x-5' : 'translate-x-0.5'}"></span>
+							<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 transform rounded-full bg-cream shadow transition-transform {regEnabled ? 'translate-x-5' : 'translate-x-0.5'}"></span>
 						</button>
 					</div>
 
 					<!-- Require Approval (only shown if open reg) -->
 					{#if regEnabled}
-						<div class="flex items-center justify-between border-t border-white/5 pt-4">
+						<div class="flex items-center justify-between border-t border-cream/5 pt-4">
 							<div>
 								<p class="text-sm font-medium">Require Approval</p>
 								<p class="mt-0.5 text-xs text-[var(--color-muted)]">Admin must approve new registrations before access is granted</p>
@@ -284,8 +327,9 @@
 								class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors {approvalRequired ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
 								onclick={() => toggleSetting('registration_requires_approval', !approvalRequired)}
 								disabled={savingSettings}
+								aria-label="Toggle require approval"
 							>
-								<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 transform rounded-full bg-white shadow transition-transform {approvalRequired ? 'translate-x-5' : 'translate-x-0.5'}"></span>
+								<span class="pointer-events-none inline-block h-5 w-5 translate-y-0.5 transform rounded-full bg-cream shadow transition-transform {approvalRequired ? 'translate-x-5' : 'translate-x-0.5'}"></span>
 							</button>
 						</div>
 					{/if}
@@ -318,7 +362,7 @@
 							<span class="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase" style="background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25)">Pending</span>
 							<div class="flex items-center gap-1.5">
 								<button
-									class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/5"
+									class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-cream/5"
 									style="background: rgba(52,211,153,0.1); color: #34d399; border: 1px solid rgba(52,211,153,0.2)"
 									onclick={() => approveUser(user.id)}
 									disabled={approveLoading === user.id}
@@ -326,7 +370,7 @@
 									{approveLoading === user.id ? 'Approving...' : 'Approve'}
 								</button>
 								<button
-									class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/5"
+									class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-cream/5"
 									style="background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2)"
 									onclick={() => denyUser(user.id)}
 								>
@@ -354,7 +398,7 @@
 				<div class="flex flex-col divide-y overflow-hidden rounded-2xl" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); divide-color: rgba(255,255,255,0.06)">
 					{#each users as user (user.id)}
 						{@const isOnline = onlineUserIds.has(user.id)}
-						<div class="px-4 py-3 transition-colors hover:bg-white/[0.02]">
+						<div class="px-4 py-3 transition-colors hover:bg-cream/[0.02]">
 							<div class="flex items-center gap-3">
 								<!-- Avatar with online indicator -->
 								<div class="relative flex-shrink-0">
@@ -387,7 +431,7 @@
 									<div class="flex items-center gap-1.5">
 										<!-- Reset password toggle -->
 										<button
-											class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-white/5 hover:text-[var(--color-cream)]"
+											class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-cream/5 hover:text-[var(--color-cream)]"
 											title="Reset password"
 											onclick={() => { resetPasswordUserId = resetPasswordUserId === user.id ? null : user.id; resetPasswordValue = ''; resetPasswordError = null; }}
 										>
@@ -398,7 +442,7 @@
 										</button>
 										<!-- Toggle force reset -->
 										<button
-											class="rounded-lg p-1.5 transition-colors hover:bg-white/5 {user.forcePasswordReset ? 'text-[#f59e0b]' : 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
+											class="rounded-lg p-1.5 transition-colors hover:bg-cream/5 {user.forcePasswordReset ? 'text-[#f59e0b]' : 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
 											title="{user.forcePasswordReset ? 'Remove force reset' : 'Force password reset on login'}"
 											onclick={() => toggleForceReset(user.id, !user.forcePasswordReset)}
 										>
@@ -424,7 +468,7 @@
 											</button>
 										{:else}
 											<button
-												class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-white/5 hover:text-[#f87171]"
+												class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-cream/5 hover:text-[#f87171]"
 												title="Delete user"
 												onclick={() => { deleteUserConfirm = user.id; }}
 											>
@@ -443,7 +487,7 @@
 									<input
 										type="password"
 										placeholder="New password"
-										class="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+										class="flex-1 rounded-lg border border-cream/10 bg-cream/5 px-3 py-1.5 text-xs text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 										bind:value={resetPasswordValue}
 									/>
 									<button
@@ -457,6 +501,7 @@
 									<button
 										class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:text-[var(--color-cream)]"
 										onclick={() => { resetPasswordUserId = null; resetPasswordValue = ''; resetPasswordError = null; }}
+										aria-label="Cancel password reset"
 									>
 										<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
 											<path d="M2 2l8 8M10 2l-8 8" />
@@ -481,22 +526,24 @@
 			<div class="mb-4 rounded-2xl p-5" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
 				<div class="flex flex-wrap items-end gap-3">
 					<div>
-						<label class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Max Uses</label>
+						<label for="invite-max-uses" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Max Uses</label>
 						<input
+							id="invite-max-uses"
 							type="number"
 							min="1"
 							max="100"
-							class="w-20 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs tabular-nums text-[var(--color-cream)] focus:border-[var(--color-accent)] focus:outline-none"
+							class="w-20 rounded-lg border border-cream/10 bg-cream/5 px-3 py-1.5 text-xs tabular-nums text-[var(--color-cream)] focus:border-[var(--color-accent)] focus:outline-none"
 							bind:value={inviteMaxUses}
 						/>
 					</div>
 					<div>
-						<label class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Expires in (hours)</label>
+						<label for="invite-expiry" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Expires in (hours)</label>
 						<input
+							id="invite-expiry"
 							type="number"
 							min="0"
 							placeholder="0 = never"
-							class="w-28 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs tabular-nums text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+							class="w-28 rounded-lg border border-cream/10 bg-cream/5 px-3 py-1.5 text-xs tabular-nums text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 							bind:value={inviteExpiry}
 						/>
 					</div>
@@ -524,7 +571,7 @@
 						<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#34d399" stroke-width="1.3" stroke-linecap="round"><circle cx="7" cy="7" r="5.5" /><path d="M5 7l1.5 1.5L9 5.5" /></svg>
 						<code class="flex-1 truncate text-xs text-[#34d399]">{inviteUrl}</code>
 						<button
-							class="rounded-lg px-2 py-1 text-[10px] font-medium text-[#34d399] transition-colors hover:bg-white/5"
+							class="rounded-lg px-2 py-1 text-[10px] font-medium text-[#34d399] transition-colors hover:bg-cream/5"
 							onclick={() => copyToClipboard(inviteUrl)}
 						>
 							Copy
@@ -558,7 +605,7 @@
 								</div>
 							</div>
 							<button
-								class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-white/5 hover:text-[var(--color-cream)]"
+								class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-cream/5 hover:text-[var(--color-cream)]"
 								title="Copy link"
 								onclick={() => copyToClipboard(inviteLink)}
 							>
@@ -579,7 +626,7 @@
 								>Cancel</button>
 							{:else}
 								<button
-									class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-white/5 hover:text-[#f87171]"
+									class="rounded-lg p-1.5 text-[var(--color-muted)] transition-colors hover:bg-cream/5 hover:text-[#f87171]"
 									title="Delete invite"
 									onclick={() => { deleteInviteConfirm = invite.code; }}
 								>
@@ -617,10 +664,10 @@
 						<button
 							class="rounded-lg px-4 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
 							style="background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.25)"
-							disabled={migrateLoading}
+							disabled={migrateLoading || migrateSelected.size === 0}
 							onclick={executeMigration}
 						>
-							{migrateLoading ? 'Importing...' : `Import ${migratePreview.length} Users`}
+							{migrateLoading ? 'Importing...' : `Import ${migrateSelected.size} Users`}
 						</button>
 					{/if}
 				</div>
@@ -632,9 +679,33 @@
 							No new Jellyfin users to import
 						</div>
 					{:else}
-						<div class="mt-4 flex flex-col divide-y overflow-hidden rounded-xl" style="background: rgba(0,164,220,0.04); border: 1px solid rgba(0,164,220,0.12); divide-color: rgba(0,164,220,0.08)">
+						<div class="mt-3 flex items-center gap-2">
+							<button class="text-[10px] text-[var(--color-accent)] hover:underline"
+								onclick={() => { migrateSelected = new Set((migratePreview ?? []).map((u: any) => u.externalId)); }}>
+								Select All
+							</button>
+							<button class="text-[10px] text-[var(--color-muted)] hover:underline"
+								onclick={() => { migrateSelected = new Set(); }}>
+								Deselect All
+							</button>
+						</div>
+						<div class="mt-2 flex flex-col divide-y overflow-hidden rounded-xl" style="background: rgba(0,164,220,0.04); border: 1px solid rgba(0,164,220,0.12); divide-color: rgba(0,164,220,0.08)">
 							{#each migratePreview as jfUser (jfUser.externalId || jfUser.username)}
 								<div class="flex items-center gap-3 px-3 py-2">
+									<input
+										type="checkbox"
+										checked={migrateSelected.has(jfUser.externalId)}
+										onchange={() => {
+											if (migrateSelected.has(jfUser.externalId)) {
+												migrateSelected.delete(jfUser.externalId);
+												migrateSelected = new Set(migrateSelected);
+											} else {
+												migrateSelected.add(jfUser.externalId);
+												migrateSelected = new Set(migrateSelected);
+											}
+										}}
+										class="h-3.5 w-3.5 rounded accent-[var(--color-accent)]"
+									/>
 									<div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold" style="background: rgba(0,164,220,0.15); color: #00a4dc">
 										{initials(jfUser.username)}
 									</div>
@@ -669,6 +740,38 @@
 							</div>
 						{/if}
 					</div>
+					<div class="mt-3 flex items-center gap-2">
+						<button
+							class="rounded-lg px-4 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+							style="background: rgba(124,108,248,0.12); color: var(--color-accent); border: 1px solid rgba(124,108,248,0.25)"
+							disabled={autoLinkLoading}
+							onclick={autoLinkAfterMigration}
+						>
+							{autoLinkLoading ? 'Linking...' : 'Auto-Link Credentials'}
+						</button>
+						<span class="text-[10px] text-[var(--color-muted)]">Reset &amp; link Jellyfin accounts for imported users</span>
+					</div>
+					{#if autoLinkResult}
+						<div class="mt-3 rounded-xl p-3" style="background: rgba(124,108,248,0.06); border: 1px solid rgba(124,108,248,0.15)">
+							<p class="mb-2 text-xs font-medium" style="color: var(--color-accent)">Auto-Link Results</p>
+							<div class="flex flex-col gap-1">
+								{#each autoLinkResult as r}
+									<div class="flex items-center gap-2 text-[10px]">
+										{#if r.status === 'linked'}
+											<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#34d399" stroke-width="1.5"><circle cx="5" cy="5" r="4" /><path d="M3.5 5l1 1L6.5 4" stroke-linecap="round" /></svg>
+										{:else if r.status === 'already-linked'}
+											<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#60a5fa" stroke-width="1.5"><circle cx="5" cy="5" r="4" /><path d="M3.5 5l1 1L6.5 4" stroke-linecap="round" /></svg>
+										{:else}
+											<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#f59e0b" stroke-width="1.5"><circle cx="5" cy="5" r="4" /><path d="M5 3v2.5M5 7v.5" stroke-linecap="round" /></svg>
+										{/if}
+										<span>{r.externalUsername}</span>
+										<span class="text-[var(--color-muted)]">→ {r.nexusUsername ?? '—'}</span>
+										<span class="text-[var(--color-muted)]">{r.status}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		</section>

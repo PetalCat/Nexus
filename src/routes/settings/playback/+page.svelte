@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/stores/toast.svelte';
 	// ── Playback speed state ──────────────────────────────────
 	type SpeedRule = { id?: number; scope: string; scopeValue: string | null; scopeName: string | null; speed: number };
 	let speedRules = $state<SpeedRule[]>([]);
@@ -17,7 +18,7 @@
 				const { rules } = await res.json();
 				speedRules = rules;
 			}
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to load speed rules'); }
 		finally { speedLoading = false; }
 	}
 
@@ -38,7 +39,7 @@
 			newRuleScopeName = '';
 			newRuleSpeed = 1;
 			await loadSpeedRules();
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to save speed rule'); }
 		finally { speedSaving = false; }
 	}
 
@@ -94,7 +95,7 @@
 				sbShowSkipNotice = data.showSkipNotice;
 				sbSkipNoticeDuration = data.skipNoticeDuration;
 			}
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to load SponsorBlock preferences'); }
 		finally { sbLoading = false; }
 	}
 
@@ -112,7 +113,7 @@
 					skipNoticeDuration: sbSkipNoticeDuration
 				})
 			});
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to save SponsorBlock preferences'); }
 		finally { sbSaving = false; }
 	}
 
@@ -165,8 +166,8 @@
 			<h3 class="text-sm font-medium text-[var(--color-display)] mb-3">Add Speed Rule</h3>
 			<div class="flex flex-wrap gap-3 items-end">
 				<div>
-					<label class="block text-xs text-[var(--color-muted)] mb-1">Scope</label>
-					<select class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)]" bind:value={newRuleScope}>
+					<label for="speed-scope" class="block text-xs text-[var(--color-muted)] mb-1">Scope</label>
+					<select id="speed-scope" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)]" bind:value={newRuleScope}>
 						<option value="default">Global Default</option>
 						<option value="type">Media Type</option>
 						<option value="channel">Channel</option>
@@ -175,20 +176,20 @@
 
 				{#if newRuleScope !== 'default'}
 					<div>
-						<label class="block text-xs text-[var(--color-muted)] mb-1">
+						<label for="speed-scope-value" class="block text-xs text-[var(--color-muted)] mb-1">
 							{newRuleScope === 'type' ? 'Type (e.g. movie, show, video)' : 'Channel ID'}
 						</label>
-						<input type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeValue} placeholder={newRuleScope === 'type' ? 'movie' : 'channel-id'} />
+						<input id="speed-scope-value" type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeValue} placeholder={newRuleScope === 'type' ? 'movie' : 'channel-id'} />
 					</div>
 					<div>
-						<label class="block text-xs text-[var(--color-muted)] mb-1">Display Name</label>
-						<input type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeName} placeholder="Optional label" />
+						<label for="speed-scope-name" class="block text-xs text-[var(--color-muted)] mb-1">Display Name</label>
+						<input id="speed-scope-name" type="text" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-48" bind:value={newRuleScopeName} placeholder="Optional label" />
 					</div>
 				{/if}
 
 				<div>
-					<label class="block text-xs text-[var(--color-muted)] mb-1">Speed</label>
-					<input type="number" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-24" bind:value={newRuleSpeed} min="0.1" max="16" step="0.05" />
+					<label for="speed-value" class="block text-xs text-[var(--color-muted)] mb-1">Speed</label>
+					<input id="speed-value" type="number" class="rounded-md border border-[rgba(240,235,227,0.1)] bg-[var(--color-raised)] px-3 py-1.5 text-sm text-[var(--color-body)] w-24" bind:value={newRuleSpeed} min="0.1" max="16" step="0.05" />
 				</div>
 
 				<button
@@ -212,7 +213,7 @@
 			onclick={() => { sbEnabled = !sbEnabled; saveSBPrefs(); }}
 			aria-label="Toggle SponsorBlock"
 		>
-			<span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform {sbEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+			<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {sbEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
 		</button>
 	</div>
 	<p class="text-body-muted mb-5 text-xs">Skip sponsor segments and other categories in YouTube videos using <a href="https://sponsor.ajay.app" target="_blank" class="text-[var(--color-accent)] hover:underline">SponsorBlock</a>.</p>
@@ -262,9 +263,9 @@
 				</div>
 				<button
 					class="relative h-6 w-11 rounded-full transition-colors {sbShowOnTimeline ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
-					onclick={() => { sbShowOnTimeline = !sbShowOnTimeline; saveSBPrefs(); }}
+					onclick={() => { sbShowOnTimeline = !sbShowOnTimeline; saveSBPrefs(); }} aria-label="Toggle show segments on timeline"
 				>
-					<span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform {sbShowOnTimeline ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+					<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {sbShowOnTimeline ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
 				</button>
 			</div>
 
@@ -275,9 +276,9 @@
 				</div>
 				<button
 					class="relative h-6 w-11 rounded-full transition-colors {sbShowSkipNotice ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
-					onclick={() => { sbShowSkipNotice = !sbShowSkipNotice; saveSBPrefs(); }}
+					onclick={() => { sbShowSkipNotice = !sbShowSkipNotice; saveSBPrefs(); }} aria-label="Toggle show skip notifications"
 				>
-					<span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform {sbShowSkipNotice ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+					<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {sbShowSkipNotice ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
 				</button>
 			</div>
 

@@ -24,8 +24,10 @@
 
 	let showModal = $state(false);
 	let activeTab: 'states' | 'saves' = $state('states');
-	let stateList = $state<CloudEntry[]>(data.states ?? []);
-	let saveList = $state<CloudEntry[]>(data.saves ?? []);
+	let stateList = $state<CloudEntry[]>([]);
+	let saveList = $state<CloudEntry[]>([]);
+	$effect(() => { stateList = data.states ?? []; });
+	$effect(() => { saveList = data.saves ?? []; });
 	let toastMessage = $state('');
 	let toastType: 'success' | 'error' | 'info' | 'undo' = $state('info');
 	let toastTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -182,10 +184,10 @@
 		} catch { /* silent */ }
 	}
 
-	function toUint8(data: ArrayBuffer | Uint8Array | number[]): Uint8Array {
-		if (data instanceof ArrayBuffer) return new Uint8Array(data);
-		if (data instanceof Uint8Array) return data;
-		return new Uint8Array(data);
+	function toBlob(data: ArrayBuffer | Uint8Array | number[], type?: string): Blob {
+		if (data instanceof ArrayBuffer) return new Blob([new Uint8Array(data)], type ? { type } : undefined);
+		if (data instanceof Uint8Array) return new Blob([new Uint8Array(data)], type ? { type } : undefined);
+		return new Blob([new Uint8Array(data)], type ? { type } : undefined);
 	}
 
 	async function uploadState(stateData: ArrayBuffer | Uint8Array | number[], screenshotData?: ArrayBuffer | Uint8Array | number[] | null) {
@@ -194,9 +196,9 @@
 			const form = new FormData();
 			const ts = new Date().toISOString().replace(/[:.]/g, '-');
 			const fileName = `${item.title.replace(/[^a-zA-Z0-9]/g, '_')}_${ts}.state`;
-			form.append('file', new Blob([toUint8(stateData)]), fileName);
+			form.append('file', toBlob(stateData), fileName);
 			if (screenshotData) {
-				form.append('screenshot', new Blob([toUint8(screenshotData)], { type: 'image/png' }), `${fileName}.png`);
+				form.append('screenshot', toBlob(screenshotData, 'image/png'), `${fileName}.png`);
 			}
 
 			const res = await fetch(`/api/games/${item.sourceId}/states?serviceId=${data.serviceId}`, {
@@ -222,9 +224,9 @@
 			const form = new FormData();
 			const ts = new Date().toISOString().replace(/[:.]/g, '-');
 			const fileName = `${item.title.replace(/[^a-zA-Z0-9]/g, '_')}_${ts}.srm`;
-			form.append('file', new Blob([toUint8(saveData)]), fileName);
+			form.append('file', toBlob(saveData), fileName);
 			if (screenshotData) {
-				form.append('screenshot', new Blob([toUint8(screenshotData)], { type: 'image/png' }), `screenshot.png`);
+				form.append('screenshot', toBlob(screenshotData, 'image/png'), `screenshot.png`);
 			}
 
 			const res = await fetch(`/api/games/${item.sourceId}/saves?serviceId=${data.serviceId}`, {
@@ -583,10 +585,9 @@
 
 <!-- Keyboard Shortcuts Overlay -->
 {#if showShortcuts}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="shortcuts-backdrop" onclick={() => { showShortcuts = false; }}>
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="shortcuts-panel" onclick={(e) => e.stopPropagation()}>
+		<div class="shortcuts-backdrop" onclick={() => { showShortcuts = false; }} onkeydown={(e) => { if (e.key === 'Escape') showShortcuts = false; }} role="button" tabindex="-1" aria-label="Close shortcuts">
+		<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+		<div class="shortcuts-panel" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 			<h3>Keyboard Shortcuts</h3>
 			<div class="shortcut-grid">
 				<kbd>F2</kbd><span>Quick Save</span>
@@ -603,18 +604,16 @@
 
 <!-- Thumbnail Zoom -->
 {#if zoomedUrl}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="zoom-backdrop" onclick={() => { zoomedUrl = null; }}>
+		<div class="zoom-backdrop" onclick={() => { zoomedUrl = null; }} onkeydown={(e) => { if (e.key === 'Escape') zoomedUrl = null; }} role="button" tabindex="-1" aria-label="Close zoom">
 		<img src={zoomedUrl} alt="Screenshot" class="zoom-img" />
 	</div>
 {/if}
 
 <!-- Save Manager Modal -->
 {#if showModal}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="sm-backdrop" onclick={closeModal} onkeydown={(e) => { if (e.key === 'Escape') closeModal(); }}>
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="sm" onclick={(e) => e.stopPropagation()}>
+		<div class="sm-backdrop" onclick={closeModal} onkeydown={(e) => { if (e.key === 'Escape') closeModal(); }} role="button" tabindex="-1" aria-label="Close save manager">
+		<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+		<div class="sm" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 			<!-- Header -->
 			<div class="sm__header">
 				<div class="sm__header-left">
@@ -630,7 +629,7 @@
 						<p class="sm__subtitle">{stateList.length + saveList.length} files synced</p>
 					</div>
 				</div>
-				<button class="sm__close" onclick={closeModal}>
+				<button class="sm__close" onclick={closeModal} aria-label="Close">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M18 6L6 18M6 6l12 12"/>
 					</svg>
@@ -714,8 +713,8 @@
 								style="animation-delay: {i * 40}ms"
 							>
 								<!-- Thumbnail -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div class="sm__card-thumb" onclick={() => { if (entry.screenshot_url) zoomedUrl = entry.screenshot_url; }} class:sm__card-thumb--clickable={!!entry.screenshot_url}>
+								<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+								<div class="sm__card-thumb" onclick={() => { if (entry.screenshot_url) zoomedUrl = entry.screenshot_url; }} onkeydown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && entry.screenshot_url) zoomedUrl = entry.screenshot_url; }} role="button" tabindex="0" class:sm__card-thumb--clickable={!!entry.screenshot_url}>
 									{#if entry.screenshot_url}
 										<img src={entry.screenshot_url} alt="" class="sm__card-img" loading="lazy" />
 									{:else}
@@ -841,7 +840,8 @@
 				<div class="sm__confirm">
 					<div class="sm__confirm-inner">
 						<p class="sm__confirm-text">Rename</p>
-						<input
+						<!-- svelte-ignore a11y_autofocus -->
+					<input
 							class="sm__rename-input"
 							type="text"
 							bind:value={renameValue}

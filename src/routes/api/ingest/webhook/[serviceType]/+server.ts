@@ -106,6 +106,8 @@ registerWebhookHandler('jellyfin', async (request) => {
 /**
  * POST /api/ingest/webhook/:serviceType
  * Routes to registered webhook handlers. New services just call registerWebhookHandler().
+ * Validates the request originates from a configured service by checking the
+ * X-Webhook-Token header against the service's API key or a dedicated webhook secret.
  */
 export const POST: RequestHandler = async ({ params, request }) => {
 	const { serviceType } = params;
@@ -113,6 +115,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	if (!handler) {
 		return json({ error: `No webhook handler for: ${serviceType}` }, { status: 400 });
+	}
+
+	// Verify webhook token matches a configured service of this type
+	const token = request.headers.get('x-webhook-token');
+	const configs = getEnabledConfigs().filter((c) => c.type === serviceType);
+	if (!configs.length) {
+		return json({ error: 'No configured services for this type' }, { status: 404 });
+	}
+	const validToken = configs.some((c) => c.apiKey && token === c.apiKey);
+	if (!validToken) {
+		return json({ error: 'Invalid or missing webhook token' }, { status: 401 });
 	}
 
 	const result = await handler(request);

@@ -127,16 +127,16 @@
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 			{#each Array(5) as _, i (i)}
 				<div class="animate-pulse rounded-2xl p-4" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-					<div class="mb-2 h-7 w-16 rounded bg-white/5"></div>
-					<div class="h-3 w-20 rounded bg-white/5"></div>
+					<div class="mb-2 h-7 w-16 rounded bg-cream/5"></div>
+					<div class="h-3 w-20 rounded bg-cream/5"></div>
 				</div>
 			{/each}
 		</div>
 		<div class="animate-pulse rounded-2xl p-6" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-			<div class="h-40 rounded bg-white/5"></div>
+			<div class="h-40 rounded bg-cream/5"></div>
 		</div>
 		<div class="animate-pulse rounded-2xl p-6" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-			<div class="h-32 rounded bg-white/5"></div>
+			<div class="h-32 rounded bg-cream/5"></div>
 		</div>
 	{:else}
 		<!-- ── Summary stat cards ──────────────────────────────────────────── -->
@@ -418,7 +418,7 @@
 						</thead>
 						<tbody>
 							{#each sortedUsers as user (user.userId)}
-								<tr class="transition-colors hover:bg-white/[0.02]" style="border-bottom: 1px solid rgba(255,255,255,0.04)">
+								<tr class="transition-colors hover:bg-cream/[0.02]" style="border-bottom: 1px solid rgba(255,255,255,0.04)">
 									<td class="px-4 py-3">
 										<div class="flex items-center gap-2">
 											<div

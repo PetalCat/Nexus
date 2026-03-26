@@ -30,7 +30,7 @@
 				{#each segments as seg (seg.name)}
 					<div
 						style="width: {Math.max(seg.pct, 3)}%; background: {seg.color};"
-						class="flex items-center justify-center text-[9px] font-medium text-white/80"
+						class="flex items-center justify-center text-[9px] font-medium text-cream/80"
 						title="{seg.name}: {seg.pct}%"
 					>
 						{#if seg.pct >= 15}{seg.name}{/if}

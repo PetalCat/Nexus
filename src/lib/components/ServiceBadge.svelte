@@ -16,7 +16,7 @@
 		prowlarr: '#ef4444'
 	};
 
-	const color = colors[type] ?? '#7c6cf8';
+	const color = $derived(colors[type] ?? '#7c6cf8');
 </script>
 
 <span

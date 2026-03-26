@@ -713,6 +713,16 @@ export const jellyfinAdapter: ServiceAdapter = {
 			externalUserId: (created.Id ?? authData.User?.Id) as string,
 			externalUsername: username
 		};
+	},
+
+	async resetPassword(config, externalUserId, newPassword) {
+		const res = await fetch(`${config.url}/Users/${externalUserId}/Password`, {
+			method: 'POST',
+			headers: { ...authHeaders(config), 'Content-Type': 'application/json' },
+			body: JSON.stringify({ NewPw: newPassword }),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!res.ok) throw new Error(`Password reset failed: ${res.status}`);
 	}
 };
 

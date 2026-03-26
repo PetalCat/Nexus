@@ -162,7 +162,7 @@
 						>
 							<!-- Time badge -->
 							<div
-								class="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded-full bg-warm px-2.5 py-0.5 text-[10px] font-bold text-white shadow-[0_2px_10px_rgba(196,92,92,0.5)]"
+								class="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded-full bg-warm px-2.5 py-0.5 text-[10px] font-bold text-cream shadow-[0_2px_10px_rgba(196,92,92,0.5)]"
 							>
 								{formatTime(now)}
 							</div>

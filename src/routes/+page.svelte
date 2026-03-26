@@ -35,7 +35,7 @@
 			{#each data.rows as row (row.id)}
 				{#if row.id === 'continue'}
 					<div class="px-4">
-						<h2 class="mb-3 text-base font-semibold text-white sm:text-lg">{row.title}</h2>
+						<h2 class="mb-3 text-base font-semibold text-cream sm:text-lg">{row.title}</h2>
 						<div class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
 							{#each row.items as item (item.id)}
 								<ContinueWatchingCard {item} />

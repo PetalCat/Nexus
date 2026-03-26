@@ -1,10 +1,11 @@
+import { randomBytes } from 'crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { registry } from '../adapters/registry';
 import type { DashboardRow, ServiceConfig, ServiceHealth, UnifiedMedia, UserCredential } from '../adapters/types';
 import { getStreamyStatsRecommendations } from '../adapters/streamystats';
 import { importJellyfinUser } from '../adapters/overseerr';
 import { getDb, schema } from '../db';
-import { getUserCredentialForService, upsertUserCredential } from './auth';
+import { getAllUsers, getUserCredentialForService, upsertUserCredential } from './auth';
 import { withCache, invalidate } from './cache';
 
 // ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ export function upsertService(config: ServiceConfig) {
 	db.insert(schema.services)
 		.values({
 			...config,
-			updatedAt: new Date().toISOString()
+			updatedAt: Date.now()
 		})
 		.onConflictDoUpdate({
 			target: schema.services.id,
@@ -45,7 +46,7 @@ export function upsertService(config: ServiceConfig) {
 				username: config.username,
 				password: config.password,
 				enabled: config.enabled,
-				updatedAt: new Date().toISOString()
+				updatedAt: Date.now()
 			}
 		})
 		.run();
@@ -94,6 +95,32 @@ export async function provisionUserOnServices(
 				status: 'linked', externalUsername: existing.externalUsername
 			});
 			continue;
+		}
+
+		// Try to link existing account before creating new one
+		if (adapter.getUsers && adapter.resetPassword && adapter.authenticateUser) {
+			try {
+				const existingUsers = await adapter.getUsers(config);
+				const match = existingUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
+				if (match) {
+					const tempPw = randomBytes(24).toString('base64url');
+					await adapter.resetPassword(config, match.externalId, tempPw);
+					const authResult = await adapter.authenticateUser(config, match.username, tempPw);
+					upsertUserCredential(userId, config.id, {
+						accessToken: authResult.accessToken,
+						externalUserId: authResult.externalUserId,
+						externalUsername: authResult.externalUsername
+					});
+					results.push({
+						serviceId: config.id, serviceName: config.name, serviceType: config.type,
+						status: 'linked', externalUsername: authResult.externalUsername
+					});
+					continue;
+				}
+			} catch (e) {
+				console.warn(`[Provision] Auto-link attempt failed for ${config.name}, falling through to createUser:`, e);
+				// Fall through to createUser below
+			}
 		}
 
 		if (!adapter.createUser) {
@@ -552,6 +579,115 @@ export async function autoLinkJellyfinServices(userId: string): Promise<void> {
 			}
 		})
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Auto-discovery & linking
+// ---------------------------------------------------------------------------
+
+export interface AutoLinkResult {
+	externalUsername: string;
+	externalId: string;
+	nexusUsername?: string;
+	nexusUserId?: string;
+	status: 'linked' | 'already-linked' | 'no-match' | 'error';
+	error?: string;
+}
+
+export async function autoDiscoverAndLink(serviceId: string): Promise<AutoLinkResult[]> {
+	const config = getServiceConfig(serviceId);
+	if (!config) throw new Error(`Service not found: ${serviceId}`);
+
+	const adapter = registry.get(config.type);
+	if (!adapter) throw new Error(`No adapter registered for type: ${config.type}`);
+	if (!adapter.getUsers) throw new Error(`Adapter ${config.type} does not support getUsers`);
+
+	const externalUsers = await adapter.getUsers(config);
+	const nexusUsers = getAllUsers();
+
+	// Build a map of already-linked external user IDs for this service
+	const linkedExternalIds = new Set<string>();
+	for (const nexusUser of nexusUsers) {
+		const cred = getUserCredentialForService(nexusUser.id, serviceId);
+		if (cred?.externalUserId) {
+			linkedExternalIds.add(cred.externalUserId);
+		}
+	}
+
+	const results: AutoLinkResult[] = [];
+
+	for (const externalUser of externalUsers) {
+		// Already linked — skip
+		if (linkedExternalIds.has(externalUser.externalId)) {
+			// Find which Nexus user has this credential
+			const linkedNexus = nexusUsers.find((u) => {
+				const c = getUserCredentialForService(u.id, serviceId);
+				return c?.externalUserId === externalUser.externalId;
+			});
+			results.push({
+				externalUsername: externalUser.username,
+				externalId: externalUser.externalId,
+				nexusUsername: linkedNexus?.username,
+				nexusUserId: linkedNexus?.id,
+				status: 'already-linked'
+			});
+			continue;
+		}
+
+		// Find a matching Nexus user by username (case-insensitive)
+		const match = nexusUsers.find(
+			(u) => u.username.toLowerCase() === externalUser.username.toLowerCase()
+		);
+
+		if (!match) {
+			results.push({
+				externalUsername: externalUser.username,
+				externalId: externalUser.externalId,
+				status: 'no-match'
+			});
+			continue;
+		}
+
+		try {
+			if (adapter.resetPassword && adapter.authenticateUser) {
+				const tempPw = randomBytes(24).toString('base64url');
+				await adapter.resetPassword(config, externalUser.externalId, tempPw);
+				const result = await adapter.authenticateUser(config, match.username, tempPw);
+				upsertUserCredential(match.id, serviceId, result);
+
+				// Cascade dependent service links for Jellyfin-based services
+				await autoLinkJellyfinServices(match.id);
+
+				results.push({
+					externalUsername: externalUser.username,
+					externalId: externalUser.externalId,
+					nexusUsername: match.username,
+					nexusUserId: match.id,
+					status: 'linked'
+				});
+			} else {
+				results.push({
+					externalUsername: externalUser.username,
+					externalId: externalUser.externalId,
+					nexusUsername: match.username,
+					nexusUserId: match.id,
+					status: 'error',
+					error: 'Adapter does not support password reset or authentication'
+				});
+			}
+		} catch (e) {
+			results.push({
+				externalUsername: externalUser.username,
+				externalId: externalUser.externalId,
+				nexusUsername: match.username,
+				nexusUserId: match.id,
+				status: 'error',
+				error: e instanceof Error ? e.message : String(e)
+			});
+		}
+	}
+
+	return results;
 }
 
 // ---------------------------------------------------------------------------

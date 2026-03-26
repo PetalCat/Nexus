@@ -3,6 +3,7 @@
 	import NavSidebar from '$lib/components/NavSidebar.svelte';
 	import NotificationPanel from '$lib/components/NotificationPanel.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { onNavigate, afterNavigate, invalidateAll } from '$app/navigation';
@@ -23,7 +24,8 @@
 		actorName?: string | null; metadata?: Record<string, unknown> | null;
 		read: boolean; createdAt: number;
 	}>>([]);
-	let unreadCount = $state(data.unreadNotifications ?? 0);
+	let unreadCount = $state(0);
+	$effect(() => { unreadCount = data.unreadNotifications ?? 0; });
 	let pendingRequests = $state(0);
 
 	// Resolve streamed pending count (may be Promise or already resolved number)
@@ -246,3 +248,4 @@
 {/if}
 
 <CommandPalette />
+<ToastContainer />

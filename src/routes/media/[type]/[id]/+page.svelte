@@ -13,6 +13,7 @@
 	import WatchlistButton from '$lib/components/WatchlistButton.svelte';
 	import AddToCollectionModal from '$lib/components/AddToCollectionModal.svelte';
 	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo, FolderPlus } from 'lucide-svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -21,9 +22,9 @@
 
 	const item = $derived(data.item);
 	const similar = $derived((data as any).similar ?? []);
-	let episodes = $state((data as any).episodes ?? []);
-	let seasons = $state((data as any).seasons ?? []);
-	let selectedSeason: number | null = $state((data as any).selectedSeason as number | null);
+	let episodes = $state<any[]>([]);
+	let seasons = $state<any[]>([]);
+	let selectedSeason: number | null = $state(null);
 	let loadingEpisodes = $state(false);
 
 	// Reset when navigating to a different item (different sourceId)
@@ -75,16 +76,83 @@
 	});
 
 	// Watchlist / Collections state
-	let inWatchlist = $state(data.inWatchlist ?? false);
-	let favoriteId = $state<string | null>(data.favoriteId ?? null);
+	let inWatchlist = $state(false);
+	let watchlistItemId = $state<string | null>(null);
 	let showCollectionModal = $state(false);
 
 	// Reset watchlist state on navigation
 	$effect(() => {
 		void data.item.sourceId;
 		inWatchlist = data.inWatchlist ?? false;
-		favoriteId = data.favoriteId ?? null;
+		watchlistItemId = data.watchlistItemId ?? null;
 	});
+
+	// ── User rating ──────────────────────────────────────────────────
+	let userRating = $state<number | null>(null);
+	let ratingStats = $state<{ avg: number; count: number } | null>(null);
+	let ratingHover = $state(0);
+	let ratingCleared = $state(false);
+
+	$effect(() => {
+		void data.item.sourceId;
+		userRating = data.userRating as number | null;
+		ratingStats = data.ratingStats as { avg: number; count: number } | null;
+		ratingCleared = false;
+	});
+
+	const ratingSource = $derived.by(() => {
+		const st = data.serviceType;
+		if (st === 'jellyfin') return 'Community';
+		if (st === 'overseerr') return 'TMDB';
+		if (st === 'radarr') return 'IMDb';
+		if (st === 'sonarr') return 'TMDB';
+		return 'Rating';
+	});
+
+	async function submitRating(value: number) {
+		if (value === userRating) {
+			const prev = userRating;
+			const prevStats = ratingStats;
+			userRating = null;
+			ratingCleared = true;
+			setTimeout(() => (ratingCleared = false), 2000);
+			try {
+				const res = await fetch(
+					`/api/media/${item.sourceId}/ratings?service=${data.serviceId}&serviceType=${data.serviceType}&mediaType=${item.type}`,
+					{ method: 'DELETE' }
+				);
+				const json = await res.json();
+				ratingStats = json.stats;
+			} catch {
+				userRating = prev;
+				ratingStats = prevStats;
+				toast.error('Failed to update rating');
+			}
+		} else {
+			const prev = userRating;
+			const prevStats = ratingStats;
+			userRating = value;
+			ratingCleared = false;
+			try {
+				const res = await fetch(`/api/media/${item.sourceId}/ratings`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						service: data.serviceId,
+						rating: value,
+						mediaType: item.type,
+						serviceType: data.serviceType
+					})
+				});
+				const json = await res.json();
+				ratingStats = json.stats;
+			} catch {
+				userRating = prev;
+				ratingStats = prevStats;
+				toast.error('Failed to update rating');
+			}
+		}
+	}
 
 	// Save / Share state
 	let showPlaylistMenu = $state(false);
@@ -100,7 +168,9 @@
 				const d = await res.json();
 				userPlaylists = d.playlists ?? [];
 			}
-		} catch {}
+		} catch {
+			toast.error('Failed to load playlists');
+		}
 	}
 
 	async function saveToPlaylist(playlistId: string) {
@@ -115,7 +185,9 @@
 				saveSuccess = playlistId;
 				setTimeout(() => { saveSuccess = null; showPlaylistMenu = false; }, 1500);
 			}
-		} catch {}
+		} catch {
+			toast.error('Failed to save to playlist');
+		}
 		savingTo = null;
 	}
 
@@ -165,6 +237,7 @@
 			extraRecs = [...extraRecs, ...fresh];
 		} catch {
 			noMoreRecs = true;
+			toast.error('Failed to load more recommendations');
 		} finally {
 			loadingMoreRecs = false;
 		}
@@ -226,7 +299,9 @@
 		try {
 			const res = await fetch(`/api/books/${item.sourceId}/toggle-read`, { method: 'POST' });
 			if (res.ok) currentReadStatus = !currentReadStatus;
-		} catch {}
+		} catch {
+			toast.error('Failed to update read status');
+		}
 		togglingRead = false;
 	}
 
@@ -239,7 +314,9 @@
 				body: JSON.stringify({ content: bookNoteContent, serviceId: data.serviceId })
 			});
 			bookNoteContent = '';
-		} catch {}
+		} catch {
+			toast.error('Failed to save note');
+		}
 	}
 
 	let gameTab = $state<'overview' | 'saves' | 'screenshots' | 'files' | 'notes'>('overview');
@@ -261,7 +338,9 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ status: status || null })
 			});
-		} catch { /* silent */ }
+		} catch {
+			toast.error('Failed to update game status');
+		}
 	}
 
 	async function toggleFavorite() {
@@ -272,7 +351,9 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ favorite: isFavorited })
 			});
-		} catch { /* silent */ }
+		} catch {
+			toast.error('Failed to update favorite');
+		}
 	}
 
 	function formatSaveTime(dateStr: string) {
@@ -327,7 +408,9 @@
 		try {
 			const res = await fetch(`/api/games/${item.sourceId}/saves/${saveId}?serviceId=${data.serviceId}`, { method: 'DELETE' });
 			if (res.ok) window.location.reload();
-		} catch {}
+		} catch {
+			toast.error('Failed to delete save file');
+		}
 		deletingSaveId = null;
 	}
 
@@ -337,7 +420,9 @@
 		try {
 			const res = await fetch(`/api/games/${item.sourceId}/states/${stateId}?serviceId=${data.serviceId}`, { method: 'DELETE' });
 			if (res.ok) window.location.reload();
-		} catch {}
+		} catch {
+			toast.error('Failed to delete save state');
+		}
 		deletingSaveId = null;
 	}
 
@@ -353,7 +438,9 @@
 				body: form
 			});
 			if (res.ok) window.location.reload();
-		} catch {}
+		} catch {
+			toast.error('Failed to upload save file');
+		}
 		input.value = '';
 	}
 
@@ -459,7 +546,9 @@
 			if (res.ok) {
 				episodes = await res.json();
 			}
-		} catch { /* silent */ }
+		} catch {
+			toast.error('Failed to load episodes');
+		}
 
 		loadingEpisodes = false;
 
@@ -666,7 +755,18 @@
 								{/if}
 								{#if item.rating}
 									<span class="dot">·</span>
-									<span class="star-val">★ {item.rating.toFixed(1)}</span>
+									<span class="rating-pill">
+										<span class="rating-source">{ratingSource}</span>
+										{item.rating.toFixed(1)}
+									</span>
+								{/if}
+								{#if ratingStats}
+									<span class="dot">·</span>
+									<span class="rating-pill rating-pill--nexus">
+										<span class="rating-source">Nexus</span>
+										★ {ratingStats.avg.toFixed(1)}
+										<span class="rating-count">({ratingStats.count})</span>
+									</span>
 								{/if}
 								{#if endTime()}
 									<span class="dot">·</span>
@@ -691,25 +791,22 @@
 						<div class="hero-zone-b">
 							<!-- Description -->
 							{#if item.description}
-								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-								<p
+								<button
+									type="button"
 									class="anim desc"
 									class:desc--open={descExpanded}
 									style="--d:380ms"
 									onclick={() => (descExpanded = !descExpanded)}
-									role="button"
-									tabindex="0"
-									onkeydown={(e) => { if (e.key === 'Enter') descExpanded = !descExpanded; }}
 								>
 									{item.description}
-								</p>
+								</button>
 							{/if}
 
 							<!-- Critic + Genres -->
 							{#if criticRating != null || (item.genres && item.genres.length > 0)}
 								<div class="anim flex flex-wrap items-center gap-2" style="--d:420ms">
 									{#if criticRating != null}
-										<span class="critic-tag">{criticRating}%</span>
+										<span class="critic-tag">Critic {criticRating}%</span>
 									{/if}
 									{#if item.genres && item.genres.length > 0}
 										{#each item.genres as genre}
@@ -757,6 +854,36 @@
 									{seasonCount} Season{seasonCount !== 1 ? 's' : ''}{#if item.metadata?.episodeCount} · {item.metadata.episodeCount} Episodes{/if}
 								</p>
 							{/if}
+
+							<!-- Star rating -->
+							<div class="anim star-widget" style="--d:555ms">
+								<div
+									class="star-row"
+									onmouseleave={() => (ratingHover = 0)}
+									role="group"
+									aria-label="Rate this {item.type}"
+								>
+									{#each [1, 2, 3, 4, 5] as star}
+										<button
+											class="star-btn"
+											class:star-filled={(ratingHover || userRating || 0) >= star}
+											onmouseenter={() => (ratingHover = star)}
+											onclick={() => submitRating(star)}
+											aria-label="{star} star{star !== 1 ? 's' : ''}"
+										>
+											<svg width="18" height="18" viewBox="0 0 24 24" fill={((ratingHover || userRating || 0) >= star) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
+												<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+											</svg>
+										</button>
+									{/each}
+								</div>
+								{#if ratingStats}
+									<span class="star-aggregate">{ratingStats.avg.toFixed(1)} avg ({ratingStats.count})</span>
+								{/if}
+								{#if ratingCleared}
+									<span class="star-cleared">Rating cleared</span>
+								{/if}
+							</div>
 
 							<!-- Actions -->
 							<div class="anim action-row" style="--d:560ms">
@@ -816,7 +943,7 @@
 									mediaTitle={item.title}
 									mediaPoster={item.poster}
 									bind:inWatchlist
-									bind:favoriteId
+									bind:watchlistItemId
 								/>
 								<button
 									class="group/col flex items-center justify-center rounded-xl p-2.5 transition-all duration-300 bg-cream/[0.06] text-muted hover:bg-cream/[0.1] hover:text-cream"
@@ -1615,7 +1742,7 @@
 						Save
 					</button>
 					{#if showPlaylistMenu}
-						<div class="absolute left-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-white/[0.08] bg-surface p-1 shadow-2xl">
+						<div class="absolute left-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-cream/[0.08] bg-surface p-1 shadow-2xl">
 							{#if userPlaylists.length === 0}
 								<p class="px-3 py-2 text-xs text-muted">No playlists found</p>
 							{:else}
@@ -1674,7 +1801,7 @@
 
 			<!-- Description (expandable) -->
 			{#if item.description}
-				<div class="rounded-xl border border-white/[0.04] bg-cream/[0.02] p-4">
+				<div class="rounded-xl border border-cream/[0.04] bg-cream/[0.02] p-4">
 					<p
 						class="whitespace-pre-line text-sm leading-relaxed text-cream/80"
 						class:line-clamp-4={!videoDescExpanded}
@@ -1969,6 +2096,30 @@
 	}
 	.dot { color: var(--color-muted); opacity: 0.45; }
 	.star-val { color: var(--color-accent); }
+
+	.rating-pill {
+		display: inline-flex; align-items: center; gap: 0.3rem;
+		padding: 0.1rem 0.45rem; border-radius: 4px;
+		background: rgba(240,235,227,0.06);
+		font-size: 0.78rem; font-weight: 600;
+		color: rgba(240,235,227,0.72);
+	}
+	.rating-source {
+		font-size: 0.58rem; font-weight: 700;
+		text-transform: uppercase; letter-spacing: 0.05em;
+		color: rgba(240,235,227,0.4);
+	}
+	.rating-pill--nexus {
+		background: rgba(212,162,83,0.1);
+		color: var(--color-accent);
+	}
+	.rating-pill--nexus .rating-source {
+		color: rgba(212,162,83,0.55);
+	}
+	.rating-count {
+		font-size: 0.6rem; font-weight: 400;
+		color: rgba(240,235,227,0.4);
+	}
 	.end-val { color: var(--color-muted); }
 
 	.se-tag {
@@ -2000,11 +2151,12 @@
 	.desc {
 		max-width: 38rem; font-size: 0.9rem; line-height: 1.75;
 		color: rgba(240,235,227,0.72); cursor: pointer;
+		text-align: left; background: none; border: none; padding: 0; font: inherit;
 		display: -webkit-box; -webkit-box-orient: vertical;
-		-webkit-line-clamp: 3; overflow: hidden;
+		-webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
 		transition: all 0.3s ease;
 	}
-	.desc--open { -webkit-line-clamp: unset; }
+	.desc--open { -webkit-line-clamp: unset; line-clamp: unset; }
 
 	.studios-line { font-size: 0.68rem; color: var(--color-muted); letter-spacing: 0.015em; }
 
@@ -2047,6 +2199,38 @@
 	.act-status--requested {
 		background: rgba(245, 158, 11, 0.15); color: #f59e0b;
 		border: 1px solid rgba(245, 158, 11, 0.3);
+	}
+
+	/* Star Rating Widget */
+	.star-widget {
+		display: flex; align-items: center; gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.star-row {
+		display: inline-flex; gap: 0.15rem;
+	}
+	.star-btn {
+		background: none; border: none; cursor: pointer;
+		color: rgba(240,235,227,0.25);
+		padding: 0.1rem;
+		transition: color 0.15s ease, transform 0.15s ease;
+	}
+	.star-btn:hover { transform: scale(1.15); }
+	.star-filled { color: var(--color-accent); }
+	.star-aggregate {
+		font-size: 0.72rem; color: var(--color-muted);
+		font-weight: 500;
+	}
+	.star-cleared {
+		font-size: 0.68rem; color: rgba(240,235,227,0.45);
+		font-style: italic;
+		animation: fadeInOut 2s ease forwards;
+	}
+	@keyframes fadeInOut {
+		0% { opacity: 0; }
+		15% { opacity: 1; }
+		75% { opacity: 1; }
+		100% { opacity: 0; }
 	}
 
 	/* ═══════════════════════════════════════
@@ -2273,7 +2457,7 @@
 	}
 	.epc__desc {
 		display: -webkit-box; -webkit-box-orient: vertical;
-		-webkit-line-clamp: 2; overflow: hidden;
+		-webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 		margin-top: 0.2rem;
 		font-size: 0.68rem; line-height: 1.45;
 		color: var(--color-muted);
@@ -2469,7 +2653,7 @@
 		font-size: 0.65rem; font-weight: 600;
 		color: var(--color-cream); line-height: 1.25;
 		display: -webkit-box; -webkit-box-orient: vertical;
-		-webkit-line-clamp: 2; overflow: hidden;
+		-webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 	}
 	.ra-points {
 		font-size: 0.55rem; font-weight: 700;
@@ -2479,7 +2663,7 @@
 		font-size: 0.58rem; color: var(--color-muted);
 		line-height: 1.3;
 		display: -webkit-box; -webkit-box-orient: vertical;
-		-webkit-line-clamp: 2; overflow: hidden;
+		-webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 	}
 	.ra-grid {
 		display: grid;

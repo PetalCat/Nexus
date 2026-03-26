@@ -1,10 +1,19 @@
 import type { PageServerLoad } from './$types';
-import { getEnabledConfigs, getQueue } from '$lib/server/services';
+import { getEnabledConfigs, getQueue, getServiceConfigs } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import { getProwlarrIndexers, getProwlarrStats } from '$lib/adapters/prowlarr';
 
 export const load: PageServerLoad = async () => {
+	const services = getServiceConfigs();
+	const available = registry.all().map((a) => ({
+		id: a.id,
+		displayName: a.displayName,
+		defaultPort: a.defaultPort,
+		supportsGetUsers: !!a.getUsers,
+		userLinkable: !!a.userLinkable
+	}));
+
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 	const prowlarrConfigs = getEnabledConfigs().filter((c) => c.type === 'prowlarr');
 	const hasInvidious = getEnabledConfigs().some((c) => c.type === 'invidious');
@@ -50,6 +59,8 @@ export const load: PageServerLoad = async () => {
 	]);
 
 	return {
+		services,
+		available,
 		requests: requestsResult.status === 'fulfilled' ? requestsResult.value : [],
 		queue: queueResult.status === 'fulfilled' ? queueResult.value : [],
 		prowlarr: prowlarrResult.status === 'fulfilled' ? prowlarrResult.value : null,

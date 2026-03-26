@@ -1077,10 +1077,14 @@ export function removeFromWatchlist(userId: string, watchlistItemId: string): bo
 
 export function reorderWatchlist(userId: string, orderedIds: string[]): void {
 	const db = getDb();
-	for (let i = 0; i < orderedIds.length; i++) {
-		db.update(schema.userWatchlist)
-			.set({ position: i })
-			.where(and(eq(schema.userWatchlist.id, orderedIds[i]), eq(schema.userWatchlist.userId, userId)))
-			.run();
-	}
+	const raw = getRawDb();
+	const tx = raw.transaction(() => {
+		for (let i = 0; i < orderedIds.length; i++) {
+			db.update(schema.userWatchlist)
+				.set({ position: i })
+				.where(and(eq(schema.userWatchlist.id, orderedIds[i]), eq(schema.userWatchlist.userId, userId)))
+				.run();
+		}
+	});
+	tx();
 }

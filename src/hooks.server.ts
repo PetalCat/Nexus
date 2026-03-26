@@ -90,5 +90,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 		throw redirect(303, `/login?next=${next}`);
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+
+	// Security headers
+	response.headers.set('X-Content-Type-Options', 'nosniff');
+	response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+	return response;
 };

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { Users, UserPlus, Search, UserX, Clock, Check, X } from 'lucide-svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -9,8 +10,8 @@
 	let searching = $state(false);
 	let tab = $state<'friends' | 'requests' | 'blocked'>('friends');
 
-	const onlineFriends = $derived(data.friends.filter((f) => data.onlineIds.includes(f.userId)));
-	const offlineFriends = $derived(data.friends.filter((f) => !data.onlineIds.includes(f.userId)));
+	const onlineFriends = $derived(data.friends.filter((f) => data.onlineIds.has(f.userId)));
+	const offlineFriends = $derived(data.friends.filter((f) => !data.onlineIds.has(f.userId)));
 
 	async function searchUsers() {
 		if (!searchQuery.trim()) { searchResults = []; return; }
@@ -29,21 +30,39 @@
 	}
 
 	async function sendRequest(userId: string) {
-		await fetch('/api/friends/requests', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ userId })
-		});
-		searchResults = searchResults.filter((u) => u.id !== userId);
+		try {
+			const res = await fetch('/api/friends/requests', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId })
+			});
+			if (res.ok) {
+				searchResults = searchResults.filter((u) => u.id !== userId);
+				toast.success('Friend request sent');
+			} else {
+				toast.error('Failed to send request');
+			}
+		} catch {
+			toast.error('Failed to send request');
+		}
 	}
 
 	async function respondRequest(requestId: string, action: 'accept' | 'reject') {
-		await fetch(`/api/friends/requests/${requestId}`, {
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ action })
-		});
-		location.reload();
+		try {
+			const res = await fetch(`/api/friends/requests/${requestId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action })
+			});
+			if (res.ok) {
+				toast.success(action === 'accept' ? 'Friend request accepted' : 'Request declined');
+				location.reload();
+			} else {
+				toast.error('Failed to respond to request');
+			}
+		} catch {
+			toast.error('Failed to respond to request');
+		}
 	}
 </script>
 

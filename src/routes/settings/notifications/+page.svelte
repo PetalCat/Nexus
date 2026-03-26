@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/stores/toast.svelte';
 	// ── Notification preferences state ─────────────────────────
 	let notifPrefs = $state<Record<string, boolean>>({});
 	let notifTypes = $state<Record<string, { label: string; description: string }>>({});
@@ -15,7 +16,7 @@
 			notifPrefs = json.preferences ?? {};
 			notifTypes = json.types ?? {};
 			notifPrefsLoaded = true;
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to load notification preferences'); }
 		finally { notifPrefsLoading = false; }
 	}
 
@@ -31,6 +32,7 @@
 			});
 		} catch {
 			notifPrefs[type] = !newVal; // revert
+			toast.error('Failed to update notification preference');
 		}
 		finally { notifPrefSaving = null; }
 	}
@@ -71,7 +73,7 @@
 						aria-label="Toggle {meta.label}"
 					>
 						<span
-							class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform {notifPrefs[type] ? 'translate-x-[22px]' : 'translate-x-0.5'}"
+							class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {notifPrefs[type] ? 'translate-x-[22px]' : 'translate-x-0.5'}"
 						></span>
 					</button>
 				</div>

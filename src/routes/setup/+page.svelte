@@ -32,20 +32,20 @@
 			{/if}
 
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
-				<input name="username" class="input" placeholder="admin" autocomplete="username" required />
+				<label for="setup-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
+				<input id="setup-username" name="username" class="input" placeholder="admin" autocomplete="username" required />
 			</div>
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Display Name</label>
-				<input name="displayName" class="input" placeholder="Your name" required />
+				<label for="setup-displayname" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Display Name</label>
+				<input id="setup-displayname" name="displayName" class="input" placeholder="Your name" required />
 			</div>
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
-				<input name="password" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
+				<label for="setup-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
+				<input id="setup-password" name="password" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
 			</div>
 			<div>
-				<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Confirm Password</label>
-				<input name="confirm" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
+				<label for="setup-confirm" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Confirm Password</label>
+				<input id="setup-confirm" name="confirm" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
 			</div>
 
 			<button type="submit" class="btn btn-primary mt-2" disabled={loading}>

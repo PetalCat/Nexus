@@ -68,7 +68,7 @@
 	</nav>
 
 	<!-- Separator -->
-	<div class="mx-4 border-t border-white/[0.06]"></div>
+	<div class="mx-4 border-t border-cream/[0.06]"></div>
 
 	<!-- Secondary nav group -->
 	<nav class="relative flex flex-col gap-0.5 px-2 py-2">
@@ -81,7 +81,7 @@
 	<div class="flex-1"></div>
 
 	<!-- Pinned bottom nav -->
-	<div class="relative border-t border-white/[0.06] px-2 py-2">
+	<div class="relative border-t border-cream/[0.06] px-2 py-2">
 		{@render NavLink({ item: { href: '/settings', label: 'Settings', icon: 'settings' } })}
 		{#if isAdmin}
 			{@render NavLink({ item: { href: '/admin', label: 'Admin', icon: 'admin' } })}
@@ -105,7 +105,7 @@
 			<!-- Left accent bar -->
 			<span class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-[var(--color-nebula)] shadow-[0_0_8px_var(--color-nebula)]"></span>
 		{:else}
-			<span class="absolute inset-0 rounded-lg transition-colors duration-100 hover:bg-white/[0.04]"></span>
+			<span class="absolute inset-0 rounded-lg transition-colors duration-100 hover:bg-cream/[0.04]"></span>
 		{/if}
 		<span class="relative">
 			{@render NavIcon({ name: item.icon, active: isActive(item.href) })}

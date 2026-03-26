@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import type { NexusRequest, UnifiedMedia } from '$lib/adapters/types';
 	import { invalidateAll, goto } from '$app/navigation';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -74,7 +75,7 @@
 			selectedSeasons = new Set(
 				seasonsList.filter(s => s.status === 'none').map(s => s.seasonNumber)
 			);
-		} catch { seasonsList = []; }
+		} catch { seasonsList = []; toast.error('Failed to load seasons'); }
 		finally { seasonsLoading = false; }
 	}
 
@@ -269,7 +270,7 @@
 			discoverItems = [...discoverItems, ...fresh];
 			discoverPage = nextPage;
 			discoverHasMore = body.hasMore;
-		} catch { /* ignore */ }
+		} catch { toast.error('Failed to load more'); }
 		finally { loadingMore = false; }
 	}
 
@@ -314,7 +315,7 @@
 			});
 			actionResult = await res.json();
 			await invalidateAll();
-		} catch { /* ignore */ }
+		} catch { toast.error('Request action failed'); }
 		finally { actioning = false; }
 	}
 
@@ -490,10 +491,10 @@
 							<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4L5 6.5 7.5 4"/></svg>
 						</button>
 						{#if genreOpen}
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 							<div
 								class="absolute left-0 top-full z-30 mt-1 max-h-60 w-48 overflow-y-auto overscroll-contain rounded-xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-raised)] p-1 shadow-xl"
-								onclick={(e) => e.stopPropagation()}
+								onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
 							>
 								<button
 									onclick={() => { genreFilter = null; genreOpen = false; }}
@@ -525,10 +526,10 @@
 						<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4L5 6.5 7.5 4"/></svg>
 					</button>
 					{#if yearOpen}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 						<div
 							class="absolute left-0 top-full z-30 mt-1 w-40 rounded-xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-raised)] p-1 shadow-xl"
-							onclick={(e) => e.stopPropagation()}
+							onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
 						>
 							{#each Object.keys(yearPresets) as key (key)}
 								<button
@@ -554,10 +555,10 @@
 						<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4L5 6.5 7.5 4"/></svg>
 					</button>
 					{#if ratingOpen}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 						<div
 							class="absolute left-0 top-full z-30 mt-1 w-32 rounded-xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-raised)] p-1 shadow-xl"
-							onclick={(e) => e.stopPropagation()}
+							onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
 						>
 							{#each [
 								{ value: 0, label: 'Any Rating' },
@@ -588,10 +589,10 @@
 						<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4L5 6.5 7.5 4"/></svg>
 					</button>
 					{#if sortOpen}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 						<div
 							class="absolute left-0 top-full z-30 mt-1 w-36 rounded-xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-raised)] p-1 shadow-xl"
-							onclick={(e) => e.stopPropagation()}
+							onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
 						>
 							{#each [
 								{ key: 'default', label: 'Default' },
@@ -662,8 +663,8 @@
 						{@const isAvailable = item.status === 'available'}
 						{@const isPending = item.status === 'requested' || item.status === 'downloading'}
 
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-						<div class="group relative cursor-pointer" onclick={() => openMedia(item)}>
+						
+						<div class="group relative cursor-pointer" onclick={() => openMedia(item)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openMedia(item); }} role="button" tabindex="0">
 							<div class="relative overflow-hidden rounded-xl transition-all duration-200 {''}" style="aspect-ratio:2/3;background:var(--color-surface)">
 								{#if item.poster}
 									<img
@@ -690,14 +691,14 @@
 								<div class="absolute inset-0 flex flex-col justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100"
 									style="background: linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.5) 40%, transparent 70%)">
 									<div class="p-2">
-										<p class="mb-1.5 text-xs font-semibold text-white line-clamp-2 leading-tight">{item.title}</p>
+										<p class="mb-1.5 text-xs font-semibold text-cream line-clamp-2 leading-tight">{item.title}</p>
 										{#if item.year}
-											<p class="mb-2 text-[10px] text-white/50">{item.year}{item.rating ? ` · ★ ${item.rating.toFixed(1)}` : ''}</p>
+											<p class="mb-2 text-[10px] text-cream/50">{item.year}{item.rating ? ` · ★ ${item.rating.toFixed(1)}` : ''}</p>
 										{/if}
 										{#if isAvailable}
 											{#if item.actionUrl}
-												<a href={item.actionUrl} onclick={(e) => e.stopPropagation()}
-													class="flex w-full items-center justify-center gap-1 rounded-lg bg-white py-1.5 text-[11px] font-bold text-black hover:bg-white/90">
+												<a href={item.actionUrl} onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
+													class="flex w-full items-center justify-center gap-1 rounded-lg bg-cream py-1.5 text-[11px] font-bold text-black hover:bg-cream/90">
 													<svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3l10 5-10 5V3z"/></svg>
 													Watch
 												</a>
@@ -711,7 +712,7 @@
 											<button
 												onclick={(e) => { e.stopPropagation(); requestItem(item); }}
 												disabled={isLoading}
-												class="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--color-accent)] py-1.5 text-[11px] font-bold text-white hover:bg-[var(--color-accent)]/80 disabled:opacity-60 transition-colors"
+												class="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--color-accent)] py-1.5 text-[11px] font-bold text-cream hover:bg-[var(--color-accent)]/80 disabled:opacity-60 transition-colors"
 											>
 												{#if isLoading}
 													<svg class="animate-spin" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
@@ -803,12 +804,12 @@
 				{:else}
 					<div class="flex flex-col gap-2.5">
 						{#each filteredMyRequests as req (req.id)}
-							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+							
 							<div
 								class="group relative cursor-pointer overflow-hidden rounded-2xl transition-all hover:ring-1 hover:ring-[rgba(240,235,227,0.06)]
 									{''}"
 								style="background:var(--color-raised)"
-								onclick={() => openReq(req)}
+								onclick={() => openReq(req)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openReq(req); }} role="button" tabindex="0"
 							>
 								<!-- Backdrop bleed -->
 								{#if req.backdrop}
@@ -843,8 +844,8 @@
 												<a
 													href={req.mediaUrl}
 													target="_blank" rel="noopener"
-													onclick={(e) => e.stopPropagation()}
-													class="flex-shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-bold text-black transition hover:bg-white/90 active:scale-95"
+													onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
+													class="flex-shrink-0 rounded-lg bg-cream px-2.5 py-1.5 text-[11px] font-bold text-black transition hover:bg-cream/90 active:scale-95"
 												>Watch</a>
 											{/if}
 										</div>
@@ -949,11 +950,11 @@
 				<div class="flex flex-col gap-2">
 					{#each filteredAllRequests as req (req.id)}
 						{@const isOwn = mySourceIds.has(req.sourceId)}
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+						
 						<div
 							class="group flex items-center gap-3 rounded-xl px-3 py-3 cursor-pointer transition-all hover:ring-1 hover:ring-[rgba(240,235,227,0.06)]"
 							style="background:var(--color-raised)"
-							onclick={() => openReq(req)}
+							onclick={() => openReq(req)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openReq(req); }} role="button" tabindex="0"
 						>
 							<!-- Poster -->
 							<div class="flex-shrink-0 overflow-hidden rounded-lg" style="width:40px;height:60px;background:var(--color-surface)">
@@ -997,7 +998,8 @@
 							</div>
 
 							<!-- Actions -->
-							<div class="flex flex-shrink-0 items-center gap-1.5" onclick={(e) => e.stopPropagation()}>
+							<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+							<div class="flex flex-shrink-0 items-center gap-1.5" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 								{#if req.status === 'pending'}
 									<button
 										onclick={() => adminAction('approve', req.id)}
@@ -1015,7 +1017,7 @@
 									<a
 										href={req.mediaUrl}
 										target="_blank" rel="noopener"
-										class="rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-bold text-black transition hover:bg-white/90 active:scale-95"
+										class="rounded-lg bg-cream px-2.5 py-1.5 text-[11px] font-bold text-black transition hover:bg-cream/90 active:scale-95"
 									>Watch</a>
 								{/if}
 							</div>
@@ -1039,7 +1041,7 @@
 
 <!-- ══ SEASON PICKER MODAL ════════════════════════════ -->
 {#if seasonPickerItem}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center p-4"
 		style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);"
@@ -1161,7 +1163,7 @@
 						<button
 							onclick={confirmSeasonRequest}
 							disabled={selectedSeasons.size === 0}
-							class="rounded-lg bg-[var(--color-accent)] px-4 py-1.5 text-xs font-bold text-white transition-all hover:bg-[var(--color-accent)]/80 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+							class="rounded-lg bg-[var(--color-accent)] px-4 py-1.5 text-xs font-bold text-cream transition-all hover:bg-[var(--color-accent)]/80 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
 						>Request {selectedSeasons.size > 0 ? `(${selectedSeasons.size})` : ''}</button>
 					</div>
 				</div>

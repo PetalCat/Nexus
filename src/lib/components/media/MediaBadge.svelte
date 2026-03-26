@@ -25,13 +25,13 @@
 </script>
 
 <span
-	class="inline-flex items-center gap-1.5 rounded font-body font-bold uppercase tracking-[0.1em] text-white {sizeClass}"
+	class="inline-flex items-center gap-1.5 rounded font-body font-bold uppercase tracking-[0.1em] text-cream {sizeClass}"
 	style="background: {badge.bg};"
 >
 	{#if type === 'live'}
 		<span class="relative flex h-1.5 w-1.5" aria-hidden="true">
-			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60"></span>
-			<span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-white"></span>
+			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-cream opacity-60"></span>
+			<span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-cream"></span>
 		</span>
 	{/if}
 	{badge.label}

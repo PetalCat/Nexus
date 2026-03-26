@@ -4,6 +4,8 @@ import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
+
 	const query = url.searchParams.get('q')?.trim();
 	const typeFilter = url.searchParams.get('type')?.trim() || undefined;
 	const source = url.searchParams.get('source') as 'library' | 'discover' | null;
