@@ -56,7 +56,8 @@
 	let pdfOutline = $state<Array<{ title: string; dest: any; items?: any[] }>>([]);
 	let isBookmarked = $state(false);
 	let searchQuery = $state('');
-	let searchResultCount = $state(0);
+	let searchResults = $state<Array<{ page: number; text: string }>>([]);
+	let searchResultCount = $derived(searchResults.length);
 	let searchIndex = $state(0);
 	let prevScale = $state(1);
 
@@ -82,6 +83,22 @@
 	let progressPercent = $derived(Math.round(progress * 100));
 	let remainingPages = $derived(Math.max(0, numPages - currentPage));
 
+	// Page pairs for dual-spread mode: [[1], [2,3], [4,5], ...]
+	let pagePairs = $derived.by(() => {
+		if (numPages === 0) return [];
+		const pairs: number[][] = [];
+		// First page solo as cover
+		pairs.push([1]);
+		for (let i = 2; i <= numPages; i += 2) {
+			if (i + 1 <= numPages) {
+				pairs.push([i, i + 1]);
+			} else {
+				pairs.push([i]);
+			}
+		}
+		return pairs;
+	});
+
 	// ── Navigation ─────────────────────────────────────────────────
 	function closeReader() {
 		goto(`/media/book/${book.sourceId}?service=${serviceId}`);
@@ -98,29 +115,47 @@
 
 	function goToPage(page: number) {
 		if (page < 1 || page > numPages || !viewportEl) return;
-		const wrapper = pageWrappers[page - 1];
-		if (wrapper) {
-			wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		if (spreadMode === 'dual') {
+			// Find the pair container that contains this page
+			const pairIdx = page === 1 ? 0 : Math.ceil((page - 1) / 2);
+			const pairEl = viewportEl.querySelector(`[data-pair="${pairIdx}"]`);
+			if (pairEl) {
+				pairEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			}
+		} else {
+			const wrapper = pageWrappers[page - 1];
+			if (wrapper) {
+				wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			}
 		}
+	}
+
+	/** In dual mode, jump by 2 pages; in single mode, jump by 1 */
+	function pageStep(): number {
+		return spreadMode === 'dual' ? 2 : 1;
 	}
 
 	// ── Zoom functions ────────────────────────────────────────────
 	function zoomIn() {
 		fitMode = 'custom';
-		scale *= 1.25;
+		scale = Math.min(5.0, scale * 1.25);
 	}
 
 	function zoomOut() {
 		fitMode = 'custom';
-		scale *= 0.8;
+		scale = Math.max(0.25, scale * 0.8);
 	}
 
 	function fitWidth() {
 		if (!pdfDoc || pageViewports.length === 0) return;
 		const vp = pageViewports[0];
-		const sidebarWidth = showSidebar ? 190 : 0;
-		const containerWidth = (viewportEl?.clientWidth ?? 800) - sidebarWidth;
-		scale = (containerWidth - 80) / vp.width;
+		const containerWidth = (viewportEl?.clientWidth ?? 800) - 80;
+		if (spreadMode === 'dual') {
+			// Fit two pages side-by-side with 16px gap
+			scale = (containerWidth - 16) / (2 * vp.width);
+		} else {
+			scale = containerWidth / vp.width;
+		}
 		fitMode = 'width';
 	}
 
@@ -129,7 +164,12 @@
 		const vp = pageViewports[0];
 		const containerWidth = viewportEl.clientWidth - 80;
 		const containerHeight = viewportEl.clientHeight - 80;
-		const scaleW = containerWidth / vp.width;
+		let scaleW: number;
+		if (spreadMode === 'dual') {
+			scaleW = (containerWidth - 16) / (2 * vp.width);
+		} else {
+			scaleW = containerWidth / vp.width;
+		}
 		const scaleH = containerHeight / vp.height;
 		scale = Math.min(scaleW, scaleH);
 		fitMode = 'page';
@@ -142,26 +182,62 @@
 
 	function handleSpreadMode(mode: 'single' | 'dual') {
 		spreadMode = mode;
+		// Recalculate scale for the new spread mode
+		if (fitMode === 'width') fitWidth();
+		else if (fitMode === 'page') fitPage();
 	}
 
 	function handleDarkMode(mode: 'light' | 'dark' | 'sepia') {
 		darkMode = mode;
 	}
 
+	async function searchDocument(query: string) {
+		if (!pdfDoc || !query.trim()) {
+			searchResults = [];
+			searchIndex = 0;
+			return;
+		}
+		const results: Array<{ page: number; text: string }> = [];
+		for (let i = 1; i <= numPages; i++) {
+			const page = await pdfDoc.getPage(i);
+			const content = await page.getTextContent();
+			const pageText = content.items.map((item: any) => item.str).join(' ');
+			const lowerQuery = query.toLowerCase();
+			const lowerText = pageText.toLowerCase();
+			let idx = lowerText.indexOf(lowerQuery);
+			while (idx !== -1) {
+				const start = Math.max(0, idx - 40);
+				const end = Math.min(pageText.length, idx + query.length + 40);
+				results.push({
+					page: i,
+					text: '...' + pageText.substring(start, end) + '...'
+				});
+				idx = lowerText.indexOf(lowerQuery, idx + 1);
+			}
+		}
+		searchResults = results;
+		searchIndex = results.length > 0 ? 0 : -1;
+		if (results.length > 0) {
+			goToPage(results[0].page);
+		}
+	}
+
 	function handleSearch(query: string) {
 		searchQuery = query;
-		// Search implementation will be added in Task 8
+		searchDocument(query);
 	}
 
 	function handleSearchNext() {
 		if (searchResultCount > 0) {
 			searchIndex = (searchIndex + 1) % searchResultCount;
+			goToPage(searchResults[searchIndex].page);
 		}
 	}
 
 	function handleSearchPrev() {
 		if (searchResultCount > 0) {
 			searchIndex = (searchIndex - 1 + searchResultCount) % searchResultCount;
+			goToPage(searchResults[searchIndex].page);
 		}
 	}
 
@@ -195,12 +271,12 @@
 			case 'ArrowDown':
 			case 'PageDown':
 				e.preventDefault();
-				goToPage(currentPage + 1);
+				goToPage(currentPage + pageStep());
 				break;
 			case 'ArrowUp':
 			case 'PageUp':
 				e.preventDefault();
-				goToPage(currentPage - 1);
+				goToPage(currentPage - pageStep());
 				break;
 			case 'Home':
 				e.preventDefault();
@@ -497,12 +573,19 @@
 			(entries) => {
 				for (const entry of entries) {
 					if (entry.isIntersecting) {
-						const pageNum = parseInt(
-							(entry.target as HTMLElement).dataset.page ?? '0',
-							10
-						);
+						const el = entry.target as HTMLElement;
+						// Direct page wrapper
+						const pageNum = parseInt(el.dataset.page ?? '0', 10);
 						if (pageNum > 0) {
 							enqueueRender(pageNum);
+						}
+						// Page pair container — render all pages within
+						if (el.dataset.pair !== undefined) {
+							const pages = el.querySelectorAll('[data-page]');
+							for (const p of pages) {
+								const pn = parseInt((p as HTMLElement).dataset.page ?? '0', 10);
+								if (pn > 0) enqueueRender(pn);
+							}
 						}
 					}
 				}
@@ -513,8 +596,16 @@
 			}
 		);
 
+		// Observe individual page wrappers
 		for (const wrapper of pageWrappers) {
 			if (wrapper) observer.observe(wrapper);
+		}
+		// In dual mode, also observe pair containers
+		if (spreadMode === 'dual') {
+			const pairs = viewportEl.querySelectorAll('[data-pair]');
+			for (const pair of pairs) {
+				observer.observe(pair);
+			}
 		}
 	}
 
@@ -530,10 +621,30 @@
 		// Track scale changes — re-render visible pages
 		const currentScale = scale;
 		if (currentScale !== prevScale && pdfDoc && !loading) {
+			// Remember current page before re-render
+			const pageToRestore = currentPage;
 			prevScale = currentScale;
-			// Use untrack to avoid recursive triggering
 			invalidateAllPages();
+			// After re-render, scroll back to the same page
+			requestAnimationFrame(() => {
+				goToPage(pageToRestore);
+			});
 		}
+	});
+
+	// ── Re-setup observer on spread mode change ──────────────────
+	$effect(() => {
+		// Track spreadMode to re-observe when layout changes
+		const _mode = spreadMode;
+		if (!pdfDoc || loading) return;
+		// Wait for DOM to update after spread mode switch
+		requestAnimationFrame(() => {
+			if (observer) {
+				observer.disconnect();
+			}
+			setupObserver();
+			invalidateAllPages();
+		});
 	});
 
 	// ── Fullscreen listener ────────────────────────────────────────
@@ -669,25 +780,51 @@
 					<button onclick={() => initPdf()} class="error-retry">Retry</button>
 				</div>
 			{:else}
-				<div class="pages-container" class:spread-dual={spreadMode === 'dual'}>
-					{#each Array(numPages) as _, i (i)}
-						{@const dims = getPageDims(i)}
-						<div
-							class="page-wrapper"
-							data-page={i + 1}
-							style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
-							bind:this={pageWrappers[i]}
-						>
-							<canvas bind:this={canvasRefs[i]}></canvas>
-							<div class="text-layer" bind:this={textLayerRefs[i]}></div>
-							{#if !renderedPages.has(i + 1)}
-								<div class="page-placeholder">
-									<span class="page-placeholder-num">{i + 1}</span>
-								</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
+				{#if spreadMode === 'dual'}
+					<div class="pages-container spread-dual">
+						{#each pagePairs as pair, pairIdx (pairIdx)}
+							<div class="page-pair" data-pair={pairIdx}>
+								{#each pair as pageNum (pageNum)}
+									{@const dims = getPageDims(pageNum - 1)}
+									<div
+										class="page-wrapper"
+										data-page={pageNum}
+										style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
+										bind:this={pageWrappers[pageNum - 1]}
+									>
+										<canvas bind:this={canvasRefs[pageNum - 1]}></canvas>
+										<div class="text-layer" bind:this={textLayerRefs[pageNum - 1]}></div>
+										{#if !renderedPages.has(pageNum)}
+											<div class="page-placeholder">
+												<span class="page-placeholder-num">{pageNum}</span>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="pages-container">
+						{#each Array(numPages) as _, i (i)}
+							{@const dims = getPageDims(i)}
+							<div
+								class="page-wrapper"
+								data-page={i + 1}
+								style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
+								bind:this={pageWrappers[i]}
+							>
+								<canvas bind:this={canvasRefs[i]}></canvas>
+								<div class="text-layer" bind:this={textLayerRefs[i]}></div>
+								{#if !renderedPages.has(i + 1)}
+									<div class="page-placeholder">
+										<span class="page-placeholder-num">{i + 1}</span>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -750,10 +887,13 @@
 	}
 
 	.pages-container.spread-dual {
-		flex-direction: row;
-		flex-wrap: wrap;
+		gap: 24px;
+	}
+
+	.page-pair {
+		display: flex;
 		justify-content: center;
-		gap: 8px 16px;
+		gap: 16px;
 	}
 
 	/* ── Page wrapper ───────────────────────────────────── */
