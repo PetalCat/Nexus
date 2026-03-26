@@ -146,6 +146,7 @@ export function computeStats(userId: string, from: number, to: number, mediaType
 		FROM play_sessions
 		WHERE user_id = ? AND started_at >= ? AND started_at < ?${mediaTypeFilter}
 		ORDER BY started_at ASC
+		LIMIT 50000
 	`).all(userId, from, to) as any[];
 
 	// Completions from the completed column

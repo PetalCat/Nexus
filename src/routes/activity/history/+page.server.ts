@@ -6,9 +6,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
 
 	const raw = getRawDb();
-	const events = raw.prepare(
-		`SELECT * FROM play_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT 50 OFFSET 0`
-	).all(userId) as any[];
+	const events = raw.prepare(`
+		SELECT id, user_id as userId, service_id as serviceId, media_id as mediaId,
+		       media_type as mediaType, media_title as mediaTitle, started_at as timestamp,
+		       duration_ms as durationMs, media_duration_ms as mediaDurationMs, progress,
+		       completed, device_name as deviceName, client_name as clientName
+		FROM play_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT 50 OFFSET 0
+	`).all(userId) as any[];
 
 	const totalRow = raw.prepare(
 		`SELECT COUNT(*) as count FROM play_sessions WHERE user_id = ?`

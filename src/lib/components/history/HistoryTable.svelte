@@ -1,8 +1,15 @@
 <script lang="ts">
-	import type { MediaEvent } from '$lib/db/schema';
+	interface HistoryEvent {
+		id: string;
+		serviceId: string;
+		mediaType: string;
+		mediaTitle: string | null;
+		timestamp: number;
+		durationMs: number | null;
+	}
 
 	interface Props {
-		events: MediaEvent[];
+		events: HistoryEvent[];
 		services: { id: string; name: string }[];
 	}
 
@@ -29,7 +36,7 @@
 			switch (sortCol) {
 				case 'title': return dir * ((a.mediaTitle ?? '').localeCompare(b.mediaTitle ?? ''));
 				case 'type': return dir * (a.mediaType.localeCompare(b.mediaType));
-				case 'duration': return dir * ((a.playDurationMs ?? 0) - (b.playDurationMs ?? 0));
+				case 'duration': return dir * ((a.durationMs ?? 0) - (b.durationMs ?? 0));
 				case 'service': return dir * (a.serviceId.localeCompare(b.serviceId));
 				case 'date': return dir * (a.timestamp - b.timestamp);
 				default: return 0;
@@ -73,10 +80,10 @@
 			</thead>
 			<tbody>
 				{#each sorted as event (event.id)}
-					<tr class="border-b border-cream/[0.03] hover:bg-white/[0.02]">
+					<tr class="border-b border-cream/[0.03] hover:bg-cream/[0.02]">
 						<td class="max-w-[200px] truncate px-3 py-2 text-cream/80">{event.mediaTitle ?? 'Untitled'}</td>
 						<td class="px-3 py-2 capitalize text-muted">{event.mediaType}</td>
-						<td class="px-3 py-2 text-muted">{formatDuration(event.playDurationMs)}</td>
+						<td class="px-3 py-2 text-muted">{formatDuration(event.durationMs)}</td>
 						<td class="px-3 py-2 text-muted">{serviceNameMap.get(event.serviceId) ?? event.serviceId}</td>
 						<td class="px-3 py-2 text-faint">{formatDate(event.timestamp)}</td>
 					</tr>

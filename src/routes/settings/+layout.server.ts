@@ -1,6 +1,8 @@
 import { registry } from '$lib/adapters/registry';
 import { getUserCredentials, getUserCredentialForService } from '$lib/server/auth';
 import { getServiceConfigs, autoLinkJellyfinServices } from '$lib/server/services';
+import { getDb, schema } from '$lib/db';
+import { eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -79,5 +81,28 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 
 	const isAdmin = locals.user?.isAdmin ?? false;
 
-	return { services, myCredentials, linkableServices, isAdmin };
+	// For each linkable service the user doesn't have a credential for,
+	// count unclaimed accounts for the account picker
+	const unclaimedCounts: Record<string, number> = {};
+	for (const svc of linkableServices) {
+		if (myCredentials.some(c => c.serviceId === svc.id)) continue;
+		const svcConfig = services.find(s => s.id === svc.id);
+		if (!svcConfig) continue;
+		const adapter = registry.get(svcConfig.type);
+		if (!adapter?.getUsers || !adapter?.resetPassword || !adapter?.authenticateUser) continue;
+		try {
+			const db = getDb();
+			const allCreds = db.select({ externalUserId: schema.userServiceCredentials.externalUserId })
+				.from(schema.userServiceCredentials)
+				.where(eq(schema.userServiceCredentials.serviceId, svc.id))
+				.all();
+			const claimedIds = new Set(allCreds.map(c => c.externalUserId).filter(Boolean));
+			const allUsers = await adapter.getUsers(svcConfig);
+			unclaimedCounts[svc.id] = allUsers.filter(u => !claimedIds.has(u.externalId)).length;
+		} catch {
+			// Ignore errors — service may be offline
+		}
+	}
+
+	return { services, myCredentials, linkableServices, isAdmin, unclaimedCounts };
 };

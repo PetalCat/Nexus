@@ -7,11 +7,11 @@
 	}
 	let { stats, calendarData }: Props = $props();
 
-	const streakStats = [
+	const streakStats = $derived([
 		{ label: 'Current', value: stats.streaks.current },
 		{ label: 'Longest', value: stats.streaks.longest },
 		{ label: 'Sessions', value: stats.totalSessions }
-	];
+	]);
 
 	const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 

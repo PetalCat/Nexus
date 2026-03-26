@@ -16,7 +16,7 @@ interface UserSimilarity {
 }
 
 let similarityCache = new Map<string, UserSimilarity[]>();
-let lastSimilarityBuild = 0;
+const lastBuildPerUser = new Map<string, number>();
 const SIMILARITY_TTL_MS = 2 * 60 * 60 * 1000;
 
 function getGenreVector(userId: string): Map<string, number> {
@@ -86,11 +86,12 @@ function buildSimilarityForUser(targetId: string, allUserIds: string[]): UserSim
 }
 
 function ensureSimilarityMatrix(targetId: string) {
-	if (Date.now() - lastSimilarityBuild < SIMILARITY_TTL_MS && similarityCache.has(targetId)) return;
+	const lastBuild = lastBuildPerUser.get(targetId) ?? 0;
+	if (Date.now() - lastBuild < SIMILARITY_TTL_MS && similarityCache.has(targetId)) return;
 	const allUserIds = getEligibleUserIds(10);
 	if (allUserIds.length < 3) return;
 	similarityCache.set(targetId, buildSimilarityForUser(targetId, allUserIds));
-	lastSimilarityBuild = Date.now();
+	lastBuildPerUser.set(targetId, Date.now());
 }
 
 export const collaborativeProvider: RecommendationProvider = {

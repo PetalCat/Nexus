@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import { goto } from '$app/navigation';
+	import { watchlistStore } from '$lib/stores/watchlist.svelte';
+	import { onMount } from 'svelte';
 
 	interface Props {
 		item: UnifiedMedia;
@@ -23,6 +25,27 @@
 	const isPlayable = $derived(!!item.streamUrl);
 
 	let imgError = $state(false);
+	let menuOpen = $state(false);
+	const inWatchlist = $derived(watchlistStore.isInWatchlist(item.sourceId, item.serviceId));
+
+	onMount(() => { watchlistStore.load(); });
+
+	function handleMenuToggle(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		menuOpen = !menuOpen;
+	}
+
+	function handleWatchlistToggle(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		menuOpen = false;
+		watchlistStore.toggle(item);
+	}
+
+	function handleClickOutside() {
+		if (menuOpen) menuOpen = false;
+	}
 
 	function handlePlayClick(e: MouseEvent) {
 		e.preventDefault();
@@ -132,10 +155,40 @@
 
 		<!-- Status badge -->
 		{#if item.status && item.status !== 'available'}
-			<div class="absolute top-2 right-2">
+			<div class="absolute top-2 left-2 z-10">
 				<span class="badge {statusClass[item.status] ?? ''} text-[10px]">{item.status}</span>
 			</div>
 		{/if}
+
+		<!-- Three-dot menu -->
+		<div class="card-menu-anchor">
+			<button
+				class="card-menu-btn"
+				onclick={handleMenuToggle}
+				aria-label="More options"
+			>
+				<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+					<circle cx="8" cy="3" r="1.5"/>
+					<circle cx="8" cy="8" r="1.5"/>
+					<circle cx="8" cy="13" r="1.5"/>
+				</svg>
+			</button>
+			{#if menuOpen}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="card-menu" onmouseleave={handleClickOutside}>
+					<button class="card-menu-item" onclick={handleWatchlistToggle}>
+						{#if inWatchlist}
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+							<span>In Watchlist</span>
+							<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="ml-auto opacity-60"><path d="M2 6l3 3 5-5"/></svg>
+						{:else}
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+							<span>Add to Watchlist</span>
+						{/if}
+					</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Info -->
@@ -163,3 +216,45 @@
 		</p>
 	</div>
 </a>
+
+<style>
+	.card-menu-anchor {
+		position: absolute; top: 0.4rem; right: 0.4rem; z-index: 15;
+	}
+	.card-menu-btn {
+		display: flex; align-items: center; justify-content: center;
+		width: 1.6rem; height: 1.6rem; border-radius: 6px;
+		background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+		border: 1px solid rgba(255,255,255,0.08);
+		color: rgba(255,255,255,0.7); cursor: pointer;
+		opacity: 0; transition: opacity 0.2s ease, background 0.15s ease;
+	}
+	:global(.group:hover) .card-menu-btn { opacity: 1; }
+	.card-menu-btn:hover { background: rgba(0,0,0,0.8); color: white; }
+	@media (hover: none) { .card-menu-btn { opacity: 1; } }
+
+	.card-menu {
+		position: absolute; top: 100%; right: 0;
+		margin-top: 0.3rem; min-width: 10rem;
+		background: var(--color-surface);
+		border: 1px solid rgba(240,235,227,0.08);
+		border-radius: 8px; overflow: hidden;
+		box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+		animation: menuIn 0.15s ease;
+	}
+	@keyframes menuIn {
+		from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
+	}
+	.card-menu-item {
+		display: flex; align-items: center; gap: 0.5rem;
+		width: 100%; padding: 0.5rem 0.7rem;
+		background: none; border: none; cursor: pointer;
+		font-size: 0.72rem; font-weight: 500;
+		color: var(--color-cream);
+		transition: background 0.15s ease;
+	}
+	.card-menu-item:hover {
+		background: rgba(240,235,227,0.06);
+	}
+</style>

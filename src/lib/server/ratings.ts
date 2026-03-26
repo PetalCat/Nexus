@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb, schema } from '../db';
+import { getDb, getRawDb, schema } from '../db';
 import { withCache, invalidate } from './cache';
 import { emitMediaAction } from './analytics';
 
@@ -39,39 +39,14 @@ export function upsertRating(
 		throw new Error('Rating must be an integer between 1 and 5');
 	}
 
-	const db = getDb();
+	const raw = getRawDb();
 	const now = Date.now();
-	const existing = db
-		.select({ id: schema.userRatings.id })
-		.from(schema.userRatings)
-		.where(
-			and(
-				eq(schema.userRatings.userId, userId),
-				eq(schema.userRatings.mediaId, mediaId),
-				eq(schema.userRatings.serviceId, serviceId)
-			)
-		)
-		.get();
 
-	if (existing) {
-		db.update(schema.userRatings)
-			.set({ rating, updatedAt: now })
-			.where(eq(schema.userRatings.id, existing.id))
-			.run();
-	} else {
-		db.insert(schema.userRatings)
-			.values({
-				id: genId(),
-				userId,
-				mediaId,
-				serviceId,
-				mediaType: meta.mediaType,
-				rating,
-				createdAt: now,
-				updatedAt: now
-			})
-			.run();
-	}
+	raw.prepare(`
+		INSERT INTO user_ratings (id, user_id, media_id, service_id, media_type, rating, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, media_id, service_id) DO UPDATE SET rating = excluded.rating, updated_at = excluded.updated_at
+	`).run(genId(), userId, mediaId, serviceId, meta.mediaType, rating, now, now);
 
 	invalidate(`rating-stats:${mediaId}:${serviceId}`);
 

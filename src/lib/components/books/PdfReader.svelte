@@ -192,6 +192,5 @@
 
 <!-- Click outside to close format menu -->
 {#if showFormatMenu}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-[59]" onclick={() => showFormatMenu = false}></div>
+	<div class="fixed inset-0 z-[59]" onclick={() => showFormatMenu = false} onkeydown={(e) => e.key === 'Escape' && (showFormatMenu = false)} role="button" tabindex="-1" aria-label="Close format menu"></div>
 {/if}

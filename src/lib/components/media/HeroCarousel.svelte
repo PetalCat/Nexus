@@ -67,7 +67,7 @@
 	const current = $derived(items[currentIndex]);
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions a11y_no_redundant_roles -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 <section
 	class="nexus-grain group/carousel relative overflow-hidden"
 	style="min-height: clamp(320px, 55vh, 720px);"
@@ -76,7 +76,6 @@
 	onfocusin={() => (isPaused = true)}
 	onfocusout={() => (isPaused = false)}
 	onkeydown={handleKeydown}
-	role="region"
 	aria-label="Featured media carousel"
 	aria-roledescription="carousel"
 	tabindex="0"

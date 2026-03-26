@@ -94,6 +94,9 @@ export interface ServiceAdapter {
 	/** List all users on this service (for migration) */
 	getUsers?(config: ServiceConfig): Promise<ExternalUser[]>;
 
+	/** Reset a user's password on this service (admin API) */
+	resetPassword?(config: ServiceConfig, externalUserId: string, newPassword: string): Promise<void>;
+
 	/** Fetch similar items for a given item ID */
 	getSimilar?(config: ServiceConfig, sourceId: string, userCred?: UserCredential): Promise<UnifiedMedia[]>;
 

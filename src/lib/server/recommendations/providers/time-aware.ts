@@ -117,7 +117,7 @@ export const timeAwareProvider: RecommendationProvider = {
 			try { genres = JSON.parse(c.genres); } catch { continue; }
 
 			const relevance = timeRelevance(genres, hour, isWeekend, model);
-			if (relevance <= 1.0) continue;
+			if (relevance < 0.85) continue;
 
 			const matchingGenres = genres.filter((g: string) => topGenres.includes(g));
 			if (matchingGenres.length === 0) continue;

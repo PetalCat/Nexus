@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { invalidateAll } from '$app/navigation';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -52,7 +53,7 @@
 			formData.append('avatar', file);
 			const res = await fetch('/api/user/avatar', { method: 'POST', body: formData });
 			if (res.ok) await invalidateAll();
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to upload avatar'); }
 		finally { avatarUploading = false; }
 	}
 

@@ -82,13 +82,13 @@
 					<div class="max-w-xl">
 						<div class="mb-3 flex flex-wrap items-center gap-2">
 							<ServiceBadge type={h.serviceType} />
-							{#if h.year}<span class="text-xs font-medium text-white/50">{h.year}</span>{/if}
+							{#if h.year}<span class="text-xs font-medium text-cream/50">{h.year}</span>{/if}
 							{#if h.duration}
-								<span class="text-xs text-white/30">·</span>
-								<span class="text-xs font-medium text-white/50">{formatDuration(h.duration)}</span>
+								<span class="text-xs text-cream/30">·</span>
+								<span class="text-xs font-medium text-cream/50">{formatDuration(h.duration)}</span>
 							{/if}
 							{#if h.rating}
-								<span class="text-xs text-white/30">·</span>
+								<span class="text-xs text-cream/30">·</span>
 								<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-accent)]">
 									<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1l1.5 3 3.5.5-2.5 2.5.5 3.5L6 9 3 10.5l.5-3.5L1 4.5 4.5 4z"/></svg>
 									{h.rating.toFixed(1)}
@@ -99,17 +99,17 @@
 						{#if h.genres?.length}
 							<div class="mt-2 flex flex-wrap gap-1.5">
 								{#each h.genres.slice(0, 3) as genre}
-									<span class="rounded-full border border-white/20 px-2 py-0.5 text-[10px] font-medium text-white/70">{genre}</span>
+									<span class="rounded-full border border-cream/20 px-2 py-0.5 text-[10px] font-medium text-cream/70">{genre}</span>
 								{/each}
 							</div>
 						{/if}
 						{#if h.description}
-							<p class="mt-3 line-clamp-2 max-w-lg text-sm leading-relaxed text-white/70 sm:line-clamp-3">{h.description}</p>
+							<p class="mt-3 line-clamp-2 max-w-lg text-sm leading-relaxed text-cream/70 sm:line-clamp-3">{h.description}</p>
 						{/if}
 						<div class="mt-4 flex items-center gap-3">
 							<a
 								href="/media/{h.type}/{h.sourceId}?service={h.serviceId}"
-								class="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:bg-white/20 active:scale-95"
+								class="flex items-center gap-2 rounded-xl border border-cream/20 bg-cream/10 px-5 py-2.5 text-sm font-semibold text-cream backdrop-blur-sm transition-all hover:bg-cream/20 active:scale-95"
 							>More Info</a>
 						</div>
 					</div>

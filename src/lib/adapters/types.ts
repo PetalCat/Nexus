@@ -1,6 +1,6 @@
 export type MediaType = 'movie' | 'show' | 'episode' | 'book' | 'game' | 'music' | 'album' | 'live' | 'video';
 
-export type MediaStatus = 'available' | 'requested' | 'downloading' | 'missing' | 'continuing';
+export type MediaStatus = 'available' | 'requested' | 'downloading' | 'missing' | 'continuing' | 'completed';
 
 export interface UnifiedMedia {
 	id: string;

@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { ArrowLeft, CheckCircle, Users, Eye, Bell, BellOff } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,9 +16,11 @@
 	] as const;
 
 	let activeTab = $state<'videos' | 'about'>('videos');
-	let subscribed = $state(data.isSubscribed);
+	let subscribed = $state(false);
 	let subscribing = $state(false);
-	let notify = $state(data.notifyEnabled);
+	let notify = $state(false);
+	$effect(() => { subscribed = data.isSubscribed; });
+	$effect(() => { notify = data.notifyEnabled; });
 	let togglingNotify = $state(false);
 
 	async function toggleSubscribe() {
@@ -29,7 +32,7 @@
 				subscribed = !subscribed;
 				if (!subscribed) notify = false;
 			}
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to update subscription'); }
 		finally { subscribing = false; }
 	}
 
@@ -44,7 +47,7 @@
 				body: JSON.stringify({ channelName: data.channel.author })
 			});
 			if (res.ok) notify = !notify;
-		} catch { /* silent */ }
+		} catch { toast.error('Failed to update notifications'); }
 		finally { togglingNotify = false; }
 	}
 </script>
@@ -130,7 +133,7 @@
 					<button
 						class="rounded-full px-5 py-2 text-sm font-medium transition-all
 							{subscribed
-								? 'border border-white/[0.1] bg-transparent text-muted hover:border-white/[0.2] hover:text-cream'
+								? 'border border-cream/[0.1] bg-transparent text-muted hover:border-cream/[0.2] hover:text-cream'
 								: 'bg-accent text-cream hover:bg-accent/80'}"
 						onclick={toggleSubscribe}
 						disabled={subscribing}
@@ -151,7 +154,7 @@
 		</button>
 
 		<!-- Tabs -->
-		<div class="flex items-center gap-1 border-b border-white/[0.06] pb-0">
+		<div class="flex items-center gap-1 border-b border-cream/[0.06] pb-0">
 			<button
 				class="rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors
 					{activeTab === 'videos' ? 'border-b-2 border-accent text-cream' : 'text-muted hover:text-cream'}"

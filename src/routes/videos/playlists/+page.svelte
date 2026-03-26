@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { ListVideo, Plus, PlaySquare, ArrowLeft, Lock, Globe, Eye } from 'lucide-svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -31,7 +32,7 @@
 				await invalidateAll();
 			}
 		} catch {
-			// silent
+			toast.error('Failed to create playlist');
 		} finally {
 			creating = false;
 		}
@@ -99,7 +100,7 @@
 	{:else}
 		<!-- Create playlist form -->
 		<div
-			class="flex flex-col gap-3 rounded-xl border border-white/[0.04] bg-surface/50 p-4 sm:flex-row sm:items-end"
+			class="flex flex-col gap-3 rounded-xl border border-cream/[0.04] bg-surface/50 p-4 sm:flex-row sm:items-end"
 		>
 			<div class="flex-1">
 				<label for="playlist-title" class="mb-1.5 block text-xs font-medium text-muted"
@@ -111,7 +112,7 @@
 					bind:value={newTitle}
 					onkeydown={handleKeydown}
 					placeholder="Playlist name..."
-					class="w-full rounded-lg border border-white/[0.06] bg-raised/50 px-3 py-2 text-sm text-cream placeholder:text-faint outline-none transition-colors focus:border-accent/40 focus:ring-1 focus:ring-accent/20"
+					class="w-full rounded-lg border border-cream/[0.06] bg-raised/50 px-3 py-2 text-sm text-cream placeholder:text-faint outline-none transition-colors focus:border-accent/40 focus:ring-1 focus:ring-accent/20"
 				/>
 			</div>
 			<div class="flex items-end gap-2">
@@ -122,7 +123,7 @@
 					<select
 						id="playlist-privacy"
 						bind:value={newPrivacy}
-						class="rounded-lg border border-white/[0.06] bg-raised/50 px-3 py-2 text-sm text-cream outline-none transition-colors focus:border-accent/40"
+						class="rounded-lg border border-cream/[0.06] bg-raised/50 px-3 py-2 text-sm text-cream outline-none transition-colors focus:border-accent/40"
 					>
 						{#each privacyOptions as opt (opt.value)}
 							<option value={opt.value}>{opt.label}</option>
@@ -158,7 +159,7 @@
 					{@const thumb = getThumbnail(playlist)}
 					{@const count = getVideoCount(playlist)}
 					<button
-						class="group overflow-hidden rounded-xl border border-white/[0.04] bg-surface/50 text-left transition-colors hover:bg-raised/60"
+						class="group overflow-hidden rounded-xl border border-cream/[0.04] bg-surface/50 text-left transition-colors hover:bg-raised/60"
 						onclick={() => goto(`/videos/playlists/${id}`)}
 					>
 						<!-- Thumbnail -->

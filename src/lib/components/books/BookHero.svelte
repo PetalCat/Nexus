@@ -60,22 +60,22 @@
 				</p>
 			{/if}
 
-			<h1 class="text-display text-2xl font-bold leading-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)] sm:text-3xl md:text-4xl lg:text-5xl">
+			<h1 class="text-display text-2xl font-bold leading-tight text-cream drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)] sm:text-3xl md:text-4xl lg:text-5xl">
 				{book.title}
 			</h1>
 
 			{#if authorName}
-				<p class="mt-1.5 text-sm font-medium text-white/60 sm:text-base">
+				<p class="mt-1.5 text-sm font-medium text-cream/60 sm:text-base">
 					by {authorName}
 				</p>
 			{/if}
 
 			<div class="mt-2 flex flex-wrap items-center gap-2">
 				{#if book.year}
-					<span class="text-xs font-medium text-white/40">{book.year}</span>
+					<span class="text-xs font-medium text-cream/40">{book.year}</span>
 				{/if}
 				{#if book.rating}
-					<span class="text-xs text-white/20">·</span>
+					<span class="text-xs text-cream/20">·</span>
 					<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-accent)]">
 						<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1l1.5 3 3.5.5-2.5 2.5.5 3.5L6 9 3 10.5l.5-3.5L1 4.5 4.5 4z"/></svg>
 						{book.rating.toFixed(1)}
@@ -86,13 +86,13 @@
 			{#if book.genres && book.genres.length > 0}
 				<div class="mt-2.5 flex flex-wrap gap-1.5">
 					{#each book.genres.slice(0, 4) as genre}
-						<span class="rounded-full border border-white/15 px-2.5 py-0.5 text-[10px] font-medium text-white/60">{genre}</span>
+						<span class="rounded-full border border-cream/15 px-2.5 py-0.5 text-[10px] font-medium text-cream/60">{genre}</span>
 					{/each}
 				</div>
 			{/if}
 
 			{#if book.description}
-				<p class="mt-3 hidden max-w-lg text-sm leading-relaxed text-white/55 line-clamp-3 sm:block">
+				<p class="mt-3 hidden max-w-lg text-sm leading-relaxed text-cream/55 line-clamp-3 sm:block">
 					{book.description}
 				</p>
 			{/if}
@@ -110,7 +110,7 @@
 				</a>
 				<a
 					href={detailUrl}
-					class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/80 backdrop-blur-sm transition-all hover:bg-white/10 active:scale-95"
+					class="flex items-center gap-2 rounded-xl border border-cream/15 bg-cream/5 px-5 py-2.5 text-sm font-semibold text-cream/80 backdrop-blur-sm transition-all hover:bg-cream/10 active:scale-95"
 				>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
 					Details

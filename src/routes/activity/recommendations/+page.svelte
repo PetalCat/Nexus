@@ -8,15 +8,17 @@
 	let recommendations = $state<UnifiedMedia[]>([]);
 	let recsLoading = $state(true);
 	let recsError = $state<string | null>(null);
-	let feedbackList = $state(data.feedback);
+	let feedbackList: typeof data.feedback = $state([]);
+	$effect(() => { feedbackList = data.feedback; });
 
-	let preferences = $state(data.preferences);
+	let preferences: typeof data.preferences = $state({ mediaTypeWeights: {}, genrePreferences: {}, similarityThreshold: 0.5 });
+	$effect(() => { preferences = data.preferences; });
 	let savingPrefs = $state(false);
 
 	async function loadRecs() {
 		if (!data.hasStreamyStats) { recsLoading = false; return; }
 		try {
-			const res = await fetch('/api/user/recommendations');
+			const res = await fetch('/api/recommendations');
 			const json = await res.json();
 			recommendations = json.recommendations ?? [];
 			recsError = json.error ?? null;
@@ -30,24 +32,24 @@
 	$effect(() => { loadRecs(); });
 
 	async function giveFeedback(mediaId: string, mediaTitle: string | undefined, fb: 'up' | 'down' | 'dismiss', reason?: string) {
-		await fetch('/api/user/recommendations/feedback', {
+		await fetch('/api/recommendations/feedback', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ mediaId, mediaTitle, feedback: fb, reason })
 		});
 		recommendations = recommendations.filter((r) => r.id !== mediaId);
-		const res = await fetch('/api/user/recommendations/feedback');
+		const res = await fetch('/api/recommendations/feedback');
 		feedbackList = (await res.json()).feedback;
 	}
 
 	async function deleteFeedback(id: number) {
-		await fetch(`/api/user/recommendations/feedback/${id}`, { method: 'DELETE' });
+		await fetch(`/api/recommendations/feedback/${id}`, { method: 'DELETE' });
 		feedbackList = feedbackList.filter((f: any) => f.id !== id);
 	}
 
 	async function savePreferences() {
 		savingPrefs = true;
-		await fetch('/api/user/recommendations/preferences', {
+		await fetch('/api/recommendations/preferences', {
 			method: 'PUT',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(preferences)
@@ -81,7 +83,7 @@
 			{#if recsLoading}
 				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 					{#each Array(6) as _}
-						<div class="h-64 animate-pulse rounded-xl bg-white/[0.03]"></div>
+						<div class="h-64 animate-pulse rounded-xl bg-cream/[0.03]"></div>
 					{/each}
 				</div>
 			{:else if recsError && recommendations.length === 0}
@@ -99,7 +101,7 @@
 							{#if rec.poster}
 								<img src={rec.poster} alt={rec.title} class="mb-2 aspect-[2/3] w-full rounded-lg object-cover" loading="lazy" />
 							{:else}
-								<div class="mb-2 flex aspect-[2/3] w-full items-center justify-center rounded-lg bg-white/[0.03] text-xs text-faint">
+								<div class="mb-2 flex aspect-[2/3] w-full items-center justify-center rounded-lg bg-cream/[0.03] text-xs text-faint">
 									No poster
 								</div>
 							{/if}
@@ -128,7 +130,7 @@
 								</button>
 								<button
 									onclick={() => giveFeedback(rec.id, rec.title, 'dismiss')}
-									class="rounded-md bg-white/[0.04] p-1.5 text-faint hover:bg-white/[0.08] hover:text-cream"
+									class="rounded-md bg-cream/[0.04] p-1.5 text-faint hover:bg-cream/[0.08] hover:text-cream"
 									title="Not interested"
 								>
 									<X size={12} />
@@ -148,13 +150,15 @@
 				<div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
 					{#each WEIGHT_TYPES as type (type)}
 						<div>
-							<label class="mb-1 block text-[11px] capitalize text-muted">{type}</label>
-							<input
-								type="range"
-								min="0" max="100"
-								bind:value={preferences.mediaTypeWeights[type]}
-								class="w-full accent-[#d4a253]"
-							/>
+							<label class="mb-1 block text-[11px] capitalize text-muted">
+								{type}
+								<input
+									type="range"
+									min="0" max="100"
+									bind:value={preferences.mediaTypeWeights[type]}
+									class="w-full accent-[#d4a253]"
+								/>
+							</label>
 							<span class="text-[10px] text-faint">{preferences.mediaTypeWeights[type]}</span>
 						</div>
 					{/each}
@@ -170,7 +174,7 @@
 								class="rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all
 									{pref === 'boost' ? 'bg-emerald-500/15 text-emerald-400'
 									: pref === 'suppress' ? 'bg-red-500/15 text-red-400'
-									: 'bg-white/[0.04] text-muted'}"
+									: 'bg-cream/[0.04] text-muted'}"
 							>
 								{genre}
 								{#if pref === 'boost'}↑{:else if pref === 'suppress'}↓{/if}
@@ -217,13 +221,13 @@
 						</thead>
 						<tbody>
 							{#each feedbackList as fb (fb.id)}
-								<tr class="border-b border-cream/[0.03] hover:bg-white/[0.02]">
+								<tr class="border-b border-cream/[0.03] hover:bg-cream/[0.02]">
 									<td class="px-3 py-2 text-cream/80">{fb.media_title ?? fb.media_id}</td>
 									<td class="px-3 py-2">
 										<span class="rounded px-1.5 py-0.5 text-[10px]
 											{fb.feedback === 'up' ? 'bg-emerald-500/15 text-emerald-400'
 											: fb.feedback === 'down' ? 'bg-red-500/15 text-red-400'
-											: 'bg-white/[0.04] text-faint'}">
+											: 'bg-cream/[0.04] text-faint'}">
 											{fb.feedback === 'up' ? '👍' : fb.feedback === 'down' ? '👎' : '✕'}
 										</span>
 									</td>

@@ -124,10 +124,11 @@
 
 				<!-- Game search -->
 				<div>
-					<label class="mb-1.5 block text-xs font-medium text-faint">Add Games</label>
+					<label for="collection-search-games" class="mb-1.5 block text-xs font-medium text-faint">Add Games</label>
 					<div class="relative">
 						<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
 						<input
+							id="collection-search-games"
 							bind:value={searchQuery}
 							type="text"
 							placeholder="Search games to add..."
@@ -160,9 +161,9 @@
 				<!-- Selected games -->
 				{#if selectedGames.length > 0}
 					<div>
-						<label class="mb-1.5 block text-xs font-medium text-faint">
+						<span class="mb-1.5 block text-xs font-medium text-faint">
 							Games in Collection ({selectedGames.length})
-						</label>
+						</span>
 						<div class="space-y-1">
 							{#each selectedGames as game (game.id)}
 								<div class="flex items-center gap-2 rounded-lg bg-cream/[0.03] px-3 py-1.5">

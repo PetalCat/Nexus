@@ -4,6 +4,8 @@ import { registry } from '$lib/adapters/registry';
 import { getServiceConfig, getServiceConfigs } from '$lib/server/services';
 import { importJellyfinUser } from '$lib/adapters/overseerr';
 import { invalidatePrefix } from '$lib/server/cache';
+import { getDb, schema } from '$lib/db';
+import { and, eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 /** Invalidate user-specific caches when credentials change. */
@@ -48,6 +50,69 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const adapter = registry.get(config.type);
 	if (!adapter?.userLinkable) {
 		return json({ error: 'This service does not support user-level accounts' }, { status: 400 });
+	}
+
+	// ── Pick flow: user selects from unclaimed service accounts ──────────
+	if (body.pickExternalId) {
+		const adapter = registry.get(config.type);
+		if (!adapter?.resetPassword || !adapter?.authenticateUser) {
+			return json({ error: 'This service does not support account picking' }, { status: 400 });
+		}
+
+		try {
+			// Verify the account exists and is unclaimed
+			if (!adapter.getUsers) {
+				return json({ error: 'Service does not support user listing' }, { status: 400 });
+			}
+			const users = await adapter.getUsers(config);
+			const target = users.find((u) => u.externalId === body.pickExternalId);
+			if (!target) {
+				return json({ error: 'Account not found on service' }, { status: 404 });
+			}
+
+			// Check if already claimed by another user
+			const db = getDb();
+			const existing = db
+				.select()
+				.from(schema.userServiceCredentials)
+				.where(
+					and(
+						eq(schema.userServiceCredentials.serviceId, serviceId),
+						eq(schema.userServiceCredentials.externalUserId, body.pickExternalId)
+					)
+				)
+				.get();
+			if (existing) {
+				return json({ error: 'This account is already claimed by another user' }, { status: 409 });
+			}
+
+			// Reset password, authenticate, store credential
+			const { randomBytes } = await import('crypto');
+			const tempPw = randomBytes(24).toString('base64url');
+			await adapter.resetPassword(config, target.externalId, tempPw);
+			const result = await adapter.authenticateUser(config, target.username, tempPw);
+			upsertUserCredential(locals.user.id, serviceId, {
+				accessToken: result.accessToken,
+				externalUserId: result.externalUserId,
+				externalUsername: result.externalUsername
+			});
+			invalidateUserCaches(locals.user.id);
+
+			// Cascade auto-link for dependent services (e.g., Overseerr via Jellyfin)
+			if (config.type === 'jellyfin') {
+				const { autoLinkJellyfinServices } = await import('$lib/server/services');
+				await autoLinkJellyfinServices(locals.user.id).catch(() => {});
+			}
+
+			return json({
+				serviceId,
+				externalUserId: result.externalUserId,
+				externalUsername: result.externalUsername
+			});
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			return json({ error: msg }, { status: 500 });
+		}
 	}
 
 	// ── Auto-link path: match by Jellyfin user ID ──────────────────────────

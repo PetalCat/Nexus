@@ -112,7 +112,7 @@ export function updateUser(id: string, updates: { displayName?: string; isAdmin?
 export function createSession(userId: string): string {
 	const db = getDb();
 	const token = randomBytes(32).toString('hex');
-	const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000).toISOString();
+	const expiresAt = Date.now() + SESSION_TTL_DAYS * 86_400_000;
 	db.insert(schema.sessions).values({ token, userId, expiresAt }).run();
 	return token;
 }
@@ -126,7 +126,7 @@ export function validateSession(token: string | undefined) {
 		.where(eq(schema.sessions.token, token))
 		.get();
 	if (!session) return null;
-	if (new Date(session.expiresAt) < new Date()) {
+	if (session.expiresAt < Date.now()) {
 		db.delete(schema.sessions).where(eq(schema.sessions.token, token)).run();
 		return null;
 	}
@@ -140,7 +140,7 @@ export function deleteSession(token: string) {
 
 export function purgeExpiredSessions() {
 	const db = getDb();
-	db.delete(schema.sessions).where(lt(schema.sessions.expiresAt, new Date().toISOString())).run();
+	db.delete(schema.sessions).where(lt(schema.sessions.expiresAt, Date.now())).run();
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ export function createInviteLink(
 	const code = randomBytes(12).toString('base64url'); // ~16 char URL-safe code
 	const maxUses = opts?.maxUses ?? 1;
 	const expiresAt = opts?.expiresInHours
-		? new Date(Date.now() + opts.expiresInHours * 3_600_000).toISOString()
+		? Date.now() + opts.expiresInHours * 3_600_000
 		: null;
 	db.insert(schema.inviteLinks).values({ code, createdBy, maxUses, expiresAt }).run();
 	return code;
@@ -170,7 +170,7 @@ export function validateInviteCode(code: string) {
 	const db = getDb();
 	const invite = db.select().from(schema.inviteLinks).where(eq(schema.inviteLinks.code, code)).get();
 	if (!invite) return null;
-	if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) return null;
+	if (invite.expiresAt && invite.expiresAt < Date.now()) return null;
 	if (invite.uses >= invite.maxUses) return null;
 	return invite;
 }

@@ -92,7 +92,7 @@
 		{#if items.length > 1}
 			<div class="absolute right-4 top-4 z-10 flex items-center gap-2 sm:right-6 sm:top-6">
 				<button
-					class="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white/70 backdrop-blur-sm transition-colors hover:bg-black/60 hover:text-white"
+					class="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-cream/70 backdrop-blur-sm transition-colors hover:bg-black/60 hover:text-cream"
 					onclick={() => advance(-1)}
 					aria-label="Previous slide"
 				>
@@ -102,7 +102,7 @@
 				<div class="flex items-center gap-1.5" role="tablist" aria-label="Slide indicators">
 					{#each items as _, i (i)}
 						<button
-							class="h-1.5 rounded-full transition-all duration-300 {i === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40'}"
+							class="h-1.5 rounded-full transition-all duration-300 {i === currentIndex ? 'w-5 bg-cream' : 'w-1.5 bg-cream/40'}"
 							role="tab"
 							aria-selected={i === currentIndex}
 							aria-label="Go to slide {i + 1}"
@@ -112,7 +112,7 @@
 				</div>
 
 				<button
-					class="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white/70 backdrop-blur-sm transition-colors hover:bg-black/60 hover:text-white"
+					class="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-cream/70 backdrop-blur-sm transition-colors hover:bg-black/60 hover:text-cream"
 					onclick={() => advance(1)}
 					aria-label="Next slide"
 				>
@@ -134,14 +134,14 @@
 						{/if}
 						<ServiceBadge type={current.serviceType} />
 						{#if current.year}
-							<span class="text-xs font-medium text-white/50">{current.year}</span>
+							<span class="text-xs font-medium text-cream/50">{current.year}</span>
 						{/if}
 						{#if current.runtime}
-							<span class="text-xs text-white/30">&middot;</span>
-							<span class="text-xs font-medium text-white/50">{current.runtime}</span>
+							<span class="text-xs text-cream/30">&middot;</span>
+							<span class="text-xs font-medium text-cream/50">{current.runtime}</span>
 						{/if}
 						{#if current.rating}
-							<span class="text-xs text-white/30">&middot;</span>
+							<span class="text-xs text-cream/30">&middot;</span>
 							<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-accent)]">
 								&#9733; {current.rating.toFixed(1)}
 							</span>
@@ -149,7 +149,7 @@
 					</div>
 
 					<!-- Title -->
-					<h2 class="text-display mt-2 text-2xl font-bold leading-[1.1] tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)] sm:mt-3 sm:text-3xl md:text-4xl lg:text-5xl">
+					<h2 class="text-display mt-2 text-2xl font-bold leading-[1.1] tracking-tight text-cream drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)] sm:mt-3 sm:text-3xl md:text-4xl lg:text-5xl">
 						{current.title}
 					</h2>
 
@@ -157,9 +157,9 @@
 					{#if current.genres && current.genres.length > 0}
 						<div class="mt-2 flex flex-wrap gap-1">
 							{#each current.genres.slice(0, 3) as genre, i (genre)}
-								<span class="text-xs font-medium text-white/40">{genre}</span>
+								<span class="text-xs font-medium text-cream/40">{genre}</span>
 								{#if i < Math.min(current.genres.length, 3) - 1}
-									<span class="text-xs text-white/20">&middot;</span>
+									<span class="text-xs text-cream/20">&middot;</span>
 								{/if}
 							{/each}
 						</div>
@@ -167,7 +167,7 @@
 
 					<!-- Overview -->
 					{#if current.overview}
-						<p class="mt-2 hidden text-sm leading-relaxed text-white/60 line-clamp-2 sm:block sm:max-w-lg sm:mt-3">
+						<p class="mt-2 hidden text-sm leading-relaxed text-cream/60 line-clamp-2 sm:block sm:max-w-lg sm:mt-3">
 							{current.overview}
 						</p>
 					{/if}

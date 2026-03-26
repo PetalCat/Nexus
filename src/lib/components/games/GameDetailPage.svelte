@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+	import Breadcrumb from '$lib/components/media/Breadcrumb.svelte';
 	import {
 		Star,
 		Clock,
@@ -14,12 +14,12 @@
 	} from 'lucide-svelte';
 	import type { UnifiedMedia, GameSaveData, RomMetadata, PlaySession } from '$lib/types/media-ui';
 	import { MEDIA_TYPE_CONFIG } from '$lib/types/media-ui';
-	import ActionButton from '$lib/components/ActionButton.svelte';
-	import MediaBadge from '$lib/components/MediaBadge.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import FriendsWatchedRow from '$lib/components/FriendsWatchedRow.svelte';
-	import ShareMenu from '$lib/components/ShareMenu.svelte';
-	import SessionPanel from '$lib/components/SessionPanel.svelte';
+	import ActionButton from '$lib/components/media/ActionButton.svelte';
+	import MediaBadge from '$lib/components/media/MediaBadge.svelte';
+	import MediaCard from '$lib/components/media/MediaCard.svelte';
+	import FriendsWatchedRow from '$lib/components/social/FriendsWatchedRow.svelte';
+	import ShareMenu from '$lib/components/social/ShareMenu.svelte';
+	import SessionPanel from '$lib/components/social/SessionPanel.svelte';
 	import { getFriendsWhoWatched, getSessionByMediaId } from '$lib/stores/socialStore.svelte';
 	import SaveSlotCard from './SaveSlotCard.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';

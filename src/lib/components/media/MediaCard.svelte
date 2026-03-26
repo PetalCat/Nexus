@@ -157,8 +157,11 @@
 
 		<!-- Favorite heart -->
 		{#if onfavoritetoggle}
-			<button
+			<div
 				onclick={(e) => { e.stopPropagation(); onfavoritetoggle?.(); }}
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onfavoritetoggle?.(); } }}
+				role="button"
+				tabindex="0"
 				class="absolute right-2 top-2 z-20 rounded-full p-1 transition-all duration-300
 					{isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
 					hover:bg-nexus-void/40"
@@ -169,7 +172,7 @@
 					strokeWidth={1.5}
 					class={isFavorite ? 'fill-warm text-warm' : 'text-cream/70'}
 				/>
-			</button>
+			</div>
 		{/if}
 
 		<!-- Music equalizer bars -->

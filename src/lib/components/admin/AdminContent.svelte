@@ -77,22 +77,22 @@
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 			{#each Array(5) as _, i (i)}
 				<div class="animate-pulse rounded-2xl p-4" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-					<div class="mb-3 h-8 w-8 rounded-lg bg-white/5"></div>
-					<div class="mb-2 h-6 w-12 rounded bg-white/5"></div>
-					<div class="h-3 w-16 rounded bg-white/5"></div>
+					<div class="mb-3 h-8 w-8 rounded-lg bg-cream/5"></div>
+					<div class="mb-2 h-6 w-12 rounded bg-cream/5"></div>
+					<div class="h-3 w-16 rounded bg-cream/5"></div>
 				</div>
 			{/each}
 		</div>
 		<div class="animate-pulse rounded-2xl p-6" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-			<div class="h-40 rounded bg-white/5"></div>
+			<div class="h-40 rounded bg-cream/5"></div>
 		</div>
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
 			{#each Array(10) as _, i (i)}
 				<div class="animate-pulse rounded-2xl" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-					<div class="aspect-[2/3] rounded-t-2xl bg-white/5"></div>
+					<div class="aspect-[2/3] rounded-t-2xl bg-cream/5"></div>
 					<div class="p-3">
-						<div class="mb-2 h-3 w-24 rounded bg-white/5"></div>
-						<div class="h-2 w-16 rounded bg-white/5"></div>
+						<div class="mb-2 h-3 w-24 rounded bg-cream/5"></div>
+						<div class="h-2 w-16 rounded bg-cream/5"></div>
 					</div>
 				</div>
 			{/each}

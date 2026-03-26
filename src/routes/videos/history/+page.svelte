@@ -5,6 +5,7 @@
 	import { History, PlaySquare, X, ArrowLeft } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
 	import { toVideoCardMedia } from '$lib/utils/video-format';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 	let removedIds = $state<string[]>([]);
@@ -12,7 +13,8 @@
 	let extraVideos = $state<UnifiedMedia[]>([]);
 	let currentPage = $state(1);
 	let loadingMore = $state(false);
-	let hasMore = $state(data.hasMore);
+	let hasMore = $state(false);
+	$effect(() => { hasMore = data.hasMore; });
 	const videos = $derived([...data.videos, ...extraVideos].filter((v) => !removedIds.includes(v.id)));
 
 	async function loadMore() {
@@ -27,7 +29,9 @@
 				hasMore = json.hasMore;
 				currentPage = nextPage;
 			}
-		} catch {}
+		} catch {
+			toast.error('Failed to load more history');
+		}
 		loadingMore = false;
 	}
 
@@ -41,7 +45,7 @@
 			await fetch(`/api/video/history/${encodeURIComponent(sourceId)}`, { method: 'DELETE' });
 			removedIds = [...removedIds, videoId];
 		} catch {
-			// silent
+			toast.error('Failed to remove from history');
 		} finally {
 			removingIds = removingIds.filter((id) => id !== videoId);
 		}
@@ -124,7 +128,7 @@
 		{#if hasMore}
 			<div class="mt-6 flex justify-center">
 				<button
-					class="rounded-xl border border-white/[0.08] bg-surface px-6 py-2.5 text-sm text-muted transition-colors hover:bg-raised hover:text-cream disabled:opacity-50"
+					class="rounded-xl border border-cream/[0.08] bg-surface px-6 py-2.5 text-sm text-muted transition-colors hover:bg-raised hover:text-cream disabled:opacity-50"
 					onclick={loadMore}
 					disabled={loadingMore}
 				>

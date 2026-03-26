@@ -1,14 +1,26 @@
 <script lang="ts">
-	import type { MediaEvent } from '$lib/db/schema';
+	interface HistoryEvent {
+		id: string;
+		userId: string;
+		serviceId: string;
+		mediaId: string;
+		mediaType: string;
+		mediaTitle: string | null;
+		timestamp: number;
+		durationMs: number | null;
+		mediaDurationMs: number | null;
+		progress: number | null;
+		completed: number | null;
+	}
 
 	interface Props {
-		events: MediaEvent[];
+		events: HistoryEvent[];
 		serviceUrls?: Record<string, string>;
 	}
 
 	let { events, serviceUrls = {} }: Props = $props();
 
-	function posterUrl(event: MediaEvent): string | null {
+	function posterUrl(event: HistoryEvent): string | null {
 		const baseUrl = serviceUrls[event.serviceId];
 		if (!baseUrl || !event.mediaId) return null;
 		return `${baseUrl}/Items/${event.mediaId}/Images/Primary?maxHeight=88&quality=80`;
@@ -34,7 +46,7 @@
 	};
 
 	const groupedByDay = $derived.by(() => {
-		const groups: { label: string; date: string; events: MediaEvent[] }[] = [];
+		const groups: { label: string; date: string; events: HistoryEvent[] }[] = [];
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(yesterday.getDate() - 1);
@@ -73,10 +85,6 @@
 		return m > 0 ? `${h}h ${m}m` : `${h}h`;
 	}
 
-	function progressPct(pos: number | null, dur: number | null): string | null {
-		if (!pos || !dur || dur <= 0) return null;
-		return `${Math.max(0, Math.min(Math.round((pos / dur) * 100), 100))}%`;
-	}
 </script>
 
 <div class="flex flex-col gap-4">
@@ -88,11 +96,11 @@
 				<p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">{group.label}</p>
 				<div class="flex flex-col gap-1.5">
 					{#each group.events as event (event.id)}
-						{@const progress = progressPct(event.positionTicks, event.durationTicks)}
+						{@const progress = event.progress != null ? `${Math.round(event.progress * 100)}%` : null}
 						{@const poster = posterUrl(event)}
 						<a
 							href="/media/{event.mediaType}/{event.serviceId}:{event.mediaId}"
-							class="flex items-center gap-3 rounded-lg bg-white/[0.02] p-2.5 transition-colors hover:bg-white/[0.04]"
+							class="flex items-center gap-3 rounded-lg bg-cream/[0.02] p-2.5 transition-colors hover:bg-cream/[0.04]"
 						>
 							{#if poster}
 								<img
@@ -112,7 +120,7 @@
 								<p class="truncate text-xs font-medium text-cream/90">{event.mediaTitle ?? 'Untitled'}</p>
 								<p class="text-[10px] text-faint">
 									<span style="color: {TYPE_TEXT_COLORS[event.mediaType] ?? 'inherit'}">{event.mediaType}</span>
-									{#if event.playDurationMs}· {formatDuration(event.playDurationMs)}{/if}
+									{#if event.durationMs}· {formatDuration(event.durationMs)}{/if}
 									{#if progress}· {progress}{/if}
 								</p>
 							</div>

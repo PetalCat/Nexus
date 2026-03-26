@@ -350,12 +350,15 @@
 </script>
 
 {#if palette.open}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-[60] flex items-start justify-center transition-opacity duration-200
 			{mounted ? 'opacity-100' : 'opacity-0'}"
 		style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);"
 		onclick={handleBackdropClick}
+		onkeydown={(e) => e.key === 'Escape' && closePalette()}
+		role="button"
+		tabindex="-1"
+		aria-label="Close search"
 	>
 		<div
 			bind:this={dialogEl}
@@ -364,7 +367,7 @@
 			aria-label="Search Nexus"
 			class="w-full max-w-[640px] flex flex-col overflow-hidden transition-all duration-200 ease-out
 				motion-reduce:transition-none motion-reduce:!transform-none
-				md:mt-0 md:rounded-2xl md:border md:border-white/[0.08]
+				md:mt-0 md:rounded-2xl md:border md:border-cream/[0.08]
 				max-md:fixed max-md:inset-0 max-md:rounded-none max-md:border-none"
 			style="
 				background: rgba(13, 11, 10, 0.85);
@@ -375,7 +378,7 @@
 			style:margin-top="max(15vh, 80px)"
 		>
 			<!-- Input -->
-			<div class="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06]">
+			<div class="flex items-center gap-3 px-5 py-4 border-b border-cream/[0.06]">
 				{#if searching}
 					<Loader2 class="w-5 h-5 text-accent shrink-0 animate-spin" />
 				{:else}
@@ -398,15 +401,15 @@
 				/>
 				<button
 					onclick={() => closePalette()}
-					class="shrink-0 px-2 py-1 rounded-lg text-xs font-mono text-faint border border-white/[0.08]
-						bg-white/[0.03] hover:bg-white/[0.06] hover:text-muted transition-colors"
+					class="shrink-0 px-2 py-1 rounded-lg text-xs font-mono text-faint border border-cream/[0.08]
+						bg-cream/[0.03] hover:bg-cream/[0.06] hover:text-muted transition-colors"
 					aria-label="Close"
 				>Esc</button>
 			</div>
 
 			<!-- Scope Tabs -->
 			<div
-				class="flex items-center gap-1 px-5 py-2.5 border-b border-white/[0.06] overflow-x-auto scrollbar-none"
+				class="flex items-center gap-1 px-5 py-2.5 border-b border-cream/[0.06] overflow-x-auto scrollbar-none"
 				role="tablist" aria-label="Search scope"
 			>
 				{#each SCOPES as scope (scope.label)}
@@ -417,7 +420,7 @@
 						class="px-3 py-1.5 rounded-lg text-sm font-body whitespace-nowrap transition-all duration-150 flex items-center gap-1.5
 							{palette.scope === scope.value
 								? 'bg-accent/15 text-accent font-medium'
-								: 'text-muted hover:text-cream hover:bg-white/[0.04]'}"
+								: 'text-muted hover:text-cream hover:bg-cream/[0.04]'}"
 						onclick={() => { setScope(scope.value); researchIfNeeded(); }}
 					>
 						{scope.label}
@@ -478,7 +481,7 @@
 
 					<!-- Overseerr suggestions (trickle in) -->
 					{#if overseerrSuggestions.length > 0}
-						<div class="px-4 pt-2.5 pb-1 {libraryResults.length > 0 ? 'mt-1 border-t border-white/[0.06]' : ''}">
+						<div class="px-4 pt-2.5 pb-1 {libraryResults.length > 0 ? 'mt-1 border-t border-cream/[0.06]' : ''}">
 							<span class="text-[10px] font-semibold uppercase tracking-widest text-faint">
 								{libraryResults.length > 0 ? 'Not in your library?' : 'Available to request'}
 							</span>
@@ -493,7 +496,7 @@
 								role="option"
 								aria-selected={activeIndex === idx}
 								class="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl cursor-pointer transition-colors duration-100
-									{activeIndex === idx ? 'bg-accent/10' : 'hover:bg-white/[0.04]'}"
+									{activeIndex === idx ? 'bg-accent/10' : 'hover:bg-cream/[0.04]'}"
 								onclick={() => navigateToItem(item)}
 								onmouseenter={() => (activeIndex = idx)}
 							>
@@ -504,7 +507,7 @@
 										{#if item.year}<span class="text-[11px] text-muted flex-shrink-0">{item.year}</span>{/if}
 									</div>
 									<div class="flex items-center gap-2 mt-0.5">
-										<span class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-muted">{typeSingular[item.type] ?? item.type}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-cream/[0.06] text-muted">{typeSingular[item.type] ?? item.type}</span>
 										{#if item.rating}
 											<span class="flex items-center gap-0.5 text-[10px] text-accent">
 												<Star class="w-2.5 h-2.5" fill="currentColor" />{item.rating.toFixed(1)}
@@ -513,6 +516,7 @@
 									</div>
 								</div>
 								<!-- Request button -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div class="flex-shrink-0" onclick={(e) => e.stopPropagation()}>
 									{#if reqState === 'done'}
 										<span class="flex items-center gap-1 text-[11px] font-medium text-steel">
@@ -540,7 +544,7 @@
 						{/each}
 					{:else if searchingDiscover && libraryResults.length < 3}
 						<!-- Discover still loading -->
-						<div class="px-4 pt-2.5 pb-1 {libraryResults.length > 0 ? 'mt-1 border-t border-white/[0.06]' : ''}">
+						<div class="px-4 pt-2.5 pb-1 {libraryResults.length > 0 ? 'mt-1 border-t border-cream/[0.06]' : ''}">
 							<span class="text-[10px] font-semibold uppercase tracking-widest text-faint flex items-center gap-1.5">
 								<Loader2 class="w-3 h-3 animate-spin" />
 								Checking Overseerr...
@@ -561,10 +565,10 @@
 					<div class="px-4 py-2">
 						{#each Array(3) as _, i (i)}
 							<div class="flex items-center gap-3 px-1 py-2">
-								<div class="w-9 h-[54px] rounded-lg bg-white/[0.04] animate-pulse"></div>
+								<div class="w-9 h-[54px] rounded-lg bg-cream/[0.04] animate-pulse"></div>
 								<div class="flex-1 space-y-2">
-									<div class="h-3.5 w-2/3 rounded bg-white/[0.04] animate-pulse"></div>
-									<div class="h-2.5 w-1/3 rounded bg-white/[0.04] animate-pulse"></div>
+									<div class="h-3.5 w-2/3 rounded bg-cream/[0.04] animate-pulse"></div>
+									<div class="h-2.5 w-1/3 rounded bg-cream/[0.04] animate-pulse"></div>
 								</div>
 							</div>
 						{/each}
@@ -583,7 +587,7 @@
 							role="option"
 							aria-selected={activeIndex === i}
 							class="flex items-center gap-3 px-5 py-2.5 cursor-pointer transition-colors duration-100
-								{activeIndex === i ? 'bg-accent/10 text-cream' : 'text-muted hover:bg-white/[0.04] hover:text-cream'}"
+								{activeIndex === i ? 'bg-accent/10 text-cream' : 'text-muted hover:bg-cream/[0.04] hover:text-cream'}"
 							onclick={() => submitSearch(term)}
 							onmouseenter={() => (activeIndex = i)}
 						>
@@ -591,7 +595,7 @@
 							<span class="flex-1 truncate text-sm font-body">{term}</span>
 							<button
 								onclick={(e) => { e.stopPropagation(); removeRecent(term); }}
-								class="shrink-0 p-1 rounded-md text-faint hover:text-warm hover:bg-white/[0.06] transition-colors"
+								class="shrink-0 p-1 rounded-md text-faint hover:text-warm hover:bg-cream/[0.06] transition-colors"
 								aria-label="Remove from recent"
 							><X class="w-3.5 h-3.5" /></button>
 						</div>
@@ -604,7 +608,7 @@
 			</div>
 
 			<!-- Footer -->
-			<div class="flex items-center gap-4 px-5 py-2.5 border-t border-white/[0.06] text-faint text-xs font-mono">
+			<div class="flex items-center gap-4 px-5 py-2.5 border-t border-cream/[0.06] text-faint text-xs font-mono">
 				<span class="inline-flex items-center gap-1.5">
 					<ArrowUp class="w-3 h-3" /><ArrowDown class="w-3 h-3" />
 					<span>navigate</span>
@@ -614,11 +618,11 @@
 					<span>{searched ? 'open' : 'search'}</span>
 				</span>
 				<span class="inline-flex items-center gap-1.5">
-					<span class="px-1 py-0.5 rounded border border-white/[0.08] text-[10px] leading-none">Tab</span>
+					<span class="px-1 py-0.5 rounded border border-cream/[0.08] text-[10px] leading-none">Tab</span>
 					<span>scope</span>
 				</span>
 				<span class="ml-auto inline-flex items-center gap-1.5">
-					<span class="px-1 py-0.5 rounded border border-white/[0.08] text-[10px] leading-none">Esc</span>
+					<span class="px-1 py-0.5 rounded border border-cream/[0.08] text-[10px] leading-none">Esc</span>
 					<span>close</span>
 				</span>
 			</div>
@@ -648,7 +652,7 @@
 		role="option"
 		aria-selected={activeIndex === idx}
 		class="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl cursor-pointer transition-colors duration-100
-			{activeIndex === idx ? 'bg-accent/10' : 'hover:bg-white/[0.04]'}"
+			{activeIndex === idx ? 'bg-accent/10' : 'hover:bg-cream/[0.04]'}"
 		onclick={() => navigateToItem(item)}
 		onmouseenter={() => (activeIndex = idx)}
 	>
@@ -660,7 +664,7 @@
 			</div>
 			<div class="flex items-center gap-2 mt-0.5">
 				{#if !isScoped}
-					<span class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-muted">{typeSingular[item.type] ?? item.type}</span>
+					<span class="text-[10px] px-1.5 py-0.5 rounded bg-cream/[0.06] text-muted">{typeSingular[item.type] ?? item.type}</span>
 				{/if}
 				{#if item.type === 'video'}
 					{#if item.metadata?.author}
@@ -684,6 +688,6 @@
 				{/if}
 			</div>
 		</div>
-		<span class="text-[9px] px-1.5 py-0.5 rounded-md bg-white/[0.04] text-faint flex-shrink-0 capitalize">{item.serviceType}</span>
+		<span class="text-[9px] px-1.5 py-0.5 rounded-md bg-cream/[0.04] text-faint flex-shrink-0 capitalize">{item.serviceType}</span>
 	</div>
 {/snippet}

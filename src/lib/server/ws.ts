@@ -127,7 +127,7 @@ export function broadcastToUser(userId: string, msg: WsMessage): void {
 	if (!entry) return;
 	const payload = JSON.stringify(msg);
 	for (const ws of entry.sockets) {
-		if (ws.readyState === 1) ws.send(payload);
+		if (ws.readyState === 1) try { ws.send(payload); } catch { /* connection closing */ }
 	}
 }
 
@@ -138,7 +138,7 @@ export function broadcastToFriends(userId: string, msg: WsMessage, getFriendIds:
 		const entry = connectedUsers.get(fid);
 		if (!entry) continue;
 		for (const ws of entry.sockets) {
-			if (ws.readyState === 1) ws.send(payload);
+			if (ws.readyState === 1) try { ws.send(payload); } catch { /* connection closing */ }
 		}
 	}
 }
@@ -152,7 +152,7 @@ export function broadcastToSession(sessionId: string, msg: WsMessage, excludeUse
 		// that checks if any connected user is in the session. For efficiency,
 		// we expose this as a targeted broadcast via sessionUserIds.
 		for (const ws of entry.sockets) {
-			if (ws.readyState === 1) ws.send(payload);
+			if (ws.readyState === 1) try { ws.send(payload); } catch { /* connection closing */ }
 		}
 	}
 }
@@ -164,7 +164,7 @@ export function broadcastToUsers(userIds: string[], msg: WsMessage, excludeUserI
 		const entry = connectedUsers.get(uid);
 		if (!entry) continue;
 		for (const ws of entry.sockets) {
-			if (ws.readyState === 1) ws.send(payload);
+			if (ws.readyState === 1) try { ws.send(payload); } catch { /* connection closing */ }
 		}
 	}
 }
@@ -248,7 +248,7 @@ export function broadcastToAll(msg: WsMessage): void {
 	const payload = JSON.stringify(msg);
 	for (const entry of connectedUsers.values()) {
 		for (const ws of entry.sockets) {
-			if (ws.readyState === 1) ws.send(payload);
+			if (ws.readyState === 1) try { ws.send(payload); } catch { /* connection closing */ }
 		}
 	}
 }

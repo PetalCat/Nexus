@@ -55,7 +55,7 @@
 			<button
 				onclick={() => toggleType(mt.id)}
 				class="rounded-lg px-3 py-1.5 text-xs font-medium transition-all
-					{active ? 'bg-accent/15 text-accent' : 'bg-white/[0.04] text-muted hover:text-cream'}"
+					{active ? 'bg-accent/15 text-accent' : 'bg-cream/[0.04] text-muted hover:text-cream'}"
 			>
 				{mt.label}
 			</button>
@@ -89,7 +89,7 @@
 	{/if}
 
 	<!-- View toggle -->
-	<div class="flex gap-0.5 rounded-lg bg-white/[0.04] p-0.5">
+	<div class="flex gap-0.5 rounded-lg bg-cream/[0.04] p-0.5">
 		<button
 			onclick={() => { viewMode = 'feed'; }}
 			class="rounded-md p-1.5 transition-all {viewMode === 'feed' ? 'bg-accent/15 text-accent' : 'text-faint hover:text-cream'}"

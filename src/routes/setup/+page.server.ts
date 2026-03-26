@@ -42,6 +42,6 @@ export const actions: Actions = {
 			maxAge: 60 * 60 * 24 * 30
 		});
 
-		throw redirect(303, '/');
+		throw redirect(303, '/admin/services');
 	}
 };

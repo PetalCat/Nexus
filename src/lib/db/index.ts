@@ -35,8 +35,8 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		username TEXT,
 		password TEXT,
 		enabled INTEGER NOT NULL DEFAULT 1,
-		created_at TEXT NOT NULL DEFAULT (datetime('now')),
-		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+		updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 	)`);
 
 	db.run(`CREATE TABLE IF NOT EXISTS media_items (
@@ -96,8 +96,8 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	db.run(`CREATE TABLE IF NOT EXISTS sessions (
 		token TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
-		expires_at TEXT NOT NULL,
-		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		expires_at INTEGER NOT NULL,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 	)`);
 
 	db.run(`CREATE TABLE IF NOT EXISTS user_service_credentials (
@@ -116,8 +116,8 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		created_by TEXT NOT NULL,
 		max_uses INTEGER NOT NULL DEFAULT 1,
 		uses INTEGER NOT NULL DEFAULT 0,
-		expires_at TEXT,
-		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		expires_at INTEGER,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 	)`);
 
 	// ── Migrations for existing databases ──────────────────────
@@ -129,6 +129,24 @@ function initDb(db: ReturnType<typeof drizzle>) {
 			// Column already exists — ignore
 		}
 	};
+
+	// Safe migration: convert TEXT timestamps to INTEGER (unix ms) if needed
+	const safeConvertTimestamp = (table: string, column: string) => {
+		try {
+			const row = _sqlite!.prepare(`SELECT typeof(${column}) as t FROM ${table} LIMIT 1`).get() as any;
+			if (row?.t === 'text') {
+				_sqlite!.prepare(`UPDATE ${table} SET ${column} = CAST(strftime('%s', ${column}) AS INTEGER) * 1000 WHERE typeof(${column}) = 'text'`).run();
+			}
+		} catch { /* table empty or column doesn't exist */ }
+	};
+
+	// Migrate TEXT timestamps → INTEGER for services, sessions, invite_links
+	safeConvertTimestamp('services', 'created_at');
+	safeConvertTimestamp('services', 'updated_at');
+	safeConvertTimestamp('sessions', 'expires_at');
+	safeConvertTimestamp('sessions', 'created_at');
+	safeConvertTimestamp('invite_links', 'expires_at');
+	safeConvertTimestamp('invite_links', 'created_at');
 
 	// users table — added in multi-user update
 	safeAddColumn('users', 'auth_provider', "TEXT NOT NULL DEFAULT 'local'");
@@ -357,6 +375,19 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id, position)`);
 	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_watchlist_unique ON user_watchlist(user_id, media_id, service_id)`);
+
+	db.run(`CREATE TABLE IF NOT EXISTS user_ratings (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		media_id TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		rating INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_ratings_user ON user_ratings(user_id)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_ratings_unique ON user_ratings(user_id, media_id, service_id)`);
 
 	// Watch sessions migrations
 	safeAddColumn('watch_sessions', 'invited_ids', 'TEXT');

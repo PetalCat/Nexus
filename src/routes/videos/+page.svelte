@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { PlaySquare, TrendingUp, Rss, Search, X, Users, History, ListVideo, ChevronRight } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 	import { formatCount, toVideoCardMedia } from '$lib/utils/video-format';
 
 	let { data }: { data: PageData } = $props();
@@ -131,6 +132,7 @@
 			if (e instanceof DOMException && e.name === 'AbortError') return;
 			searchResults = [];
 			channelResults = [];
+			toast.error('Search failed — try again');
 		} finally {
 			isSearching = false;
 		}
@@ -251,7 +253,7 @@
 					onblur={closeSuggestions}
 					onfocus={() => { if (suggestions.length > 0 && searchQuery.trim()) suggestionsOpen = true; }}
 					placeholder="Search videos & channels..."
-					class="w-full rounded-xl border border-white/[0.06] bg-surface py-2.5 pl-9 pr-9 text-sm text-cream placeholder:text-faint outline-none transition-colors focus:border-accent/40 focus:ring-1 focus:ring-accent/20"
+					class="w-full rounded-xl border border-cream/[0.06] bg-surface py-2.5 pl-9 pr-9 text-sm text-cream placeholder:text-faint outline-none transition-colors focus:border-accent/40 focus:ring-1 focus:ring-accent/20"
 				/>
 				{#if searchQuery || isSearchMode}
 					<button
@@ -267,7 +269,7 @@
 			{#if suggestionsOpen && suggestions.length > 0}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="suggestions-list absolute top-full z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-white/[0.08] bg-surface shadow-2xl"
+					class="suggestions-list absolute top-full z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-cream/[0.08] bg-surface shadow-2xl"
 					onmousedown={(e) => e.preventDefault()}
 				>
 					{#each suggestions as suggestion, i (suggestion)}
@@ -319,7 +321,7 @@
 					<button
 						class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors
 							{searchSort === opt.value ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-raised hover:text-cream'}"
-						onclick={() => { searchSort = opt.value; executeSearch(committedQuery); }}
+						onclick={() => { searchSort = opt.value as typeof searchSort; executeSearch(committedQuery); }}
 					>{opt.label}</button>
 				{/each}
 
@@ -334,7 +336,7 @@
 					<button
 						class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors
 							{searchDuration === opt.value ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-raised hover:text-cream'}"
-						onclick={() => { searchDuration = opt.value; executeSearch(committedQuery); }}
+						onclick={() => { searchDuration = opt.value as typeof searchDuration; executeSearch(committedQuery); }}
 					>{opt.label}</button>
 				{/each}
 			</div>
@@ -362,7 +364,7 @@
 						<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 							{#each channelResults as channel (channel.id)}
 								<button
-									class="group flex items-center gap-3 rounded-xl border border-white/[0.04] bg-surface/50 p-3 text-left transition-colors hover:bg-raised/60"
+									class="group flex items-center gap-3 rounded-xl border border-cream/[0.04] bg-surface/50 p-3 text-left transition-colors hover:bg-raised/60"
 									onclick={() => goto(`/videos/channel/${channel.id}`)}
 								>
 									{#if channel.thumbnail}

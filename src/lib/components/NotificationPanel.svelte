@@ -178,7 +178,7 @@
 						<!-- Icon -->
 						<div class="flex-shrink-0 pt-0.5">
 							<div class="flex h-8 w-8 items-center justify-center rounded-full {bg}">
-								<svelte:component this={iconInfo.component} size={15} class={iconInfo.color} />
+								<iconInfo.component size={15} class={iconInfo.color} />
 							</div>
 						</div>
 

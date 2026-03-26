@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	interface Props {
 		romId: string;
@@ -9,7 +10,8 @@
 
 	let { romId, serviceId, initialContent = '' }: Props = $props();
 
-	let content = $state(initialContent);
+	let content = $state('');
+	$effect(() => { content = initialContent; });
 	let saveStatus = $state<'idle' | 'saving' | 'saved'>('idle');
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let charCount = $derived(content.length);
@@ -31,6 +33,7 @@
 			saveStatus = 'saved';
 		} catch {
 			saveStatus = 'idle';
+			toast.error('Failed to save note');
 		}
 	}
 

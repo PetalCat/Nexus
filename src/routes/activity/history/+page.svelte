@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import type { MediaEvent } from '$lib/db/schema';
 	import HistoryFilters from '$lib/components/history/HistoryFilters.svelte';
 	import HistoryFeed from '$lib/components/history/HistoryFeed.svelte';
 	import HistoryTable from '$lib/components/history/HistoryTable.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -12,9 +12,14 @@
 	let searchQuery = $state('');
 	let selectedService = $state('');
 
-	let allEvents = $state<MediaEvent[]>(data.events as MediaEvent[]);
+	let allEvents = $state<any[]>([]);
 	let loading = $state(false);
-	let hasMore = $state(data.events.length < data.total);
+	let hasMore = $state(false);
+
+	$effect(() => {
+		allEvents = data.events as any[];
+		hasMore = data.events.length < data.total;
+	});
 
 	const filteredEvents = $derived.by(() => {
 		let result = allEvents;
@@ -48,6 +53,7 @@
 			hasMore = allEvents.length < json.total;
 		} catch (e) {
 			console.error('Failed to load more events:', e);
+			toast.error('Failed to load more history');
 		} finally {
 			loading = false;
 		}
@@ -67,6 +73,7 @@
 			hasMore = allEvents.length < json.total;
 		} catch (e) {
 			console.error('Failed to filter events:', e);
+			toast.error('Failed to filter history');
 		} finally {
 			loading = false;
 		}
@@ -102,7 +109,7 @@
 			<button
 				onclick={loadMore}
 				disabled={loading}
-				class="rounded-lg bg-white/[0.04] px-6 py-2 text-xs font-medium text-muted transition-colors hover:bg-white/[0.08] disabled:opacity-50"
+				class="rounded-lg bg-cream/[0.04] px-6 py-2 text-xs font-medium text-muted transition-colors hover:bg-cream/[0.08] disabled:opacity-50"
 			>
 				{loading ? 'Loading...' : 'Load More'}
 			</button>

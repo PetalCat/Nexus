@@ -5,6 +5,7 @@
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
 	import { toVideoCardMedia } from '$lib/utils/video-format';
 	import { page } from '$app/stores';
+	import { toast } from '$lib/stores/toast.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -31,7 +32,7 @@
 				goto('/videos/playlists');
 			}
 		} catch {
-			// silent
+			toast.error('Failed to delete playlist');
 		} finally {
 			deleting = false;
 		}
@@ -50,7 +51,7 @@
 				removedIds = [...removedIds, video.id];
 			}
 		} catch {
-			// silent
+			toast.error('Failed to remove video');
 		} finally {
 			removingIds = removingIds.filter((id) => id !== video.id);
 		}
@@ -100,7 +101,7 @@
 			<button
 				onclick={deletePlaylist}
 				disabled={deleting}
-				class="flex items-center gap-1.5 rounded-lg border border-white/[0.06] px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40"
+				class="flex items-center gap-1.5 rounded-lg border border-cream/[0.06] px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40"
 			>
 				<Trash2 size={14} />
 				Delete

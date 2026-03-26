@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toast } from '$lib/stores/toast.svelte';
 	// ── State ──────────────────────────────────────────────────────────────────
 	let systemData = $state<any>(null);
 	let loading = $state(true);
@@ -15,6 +16,7 @@
 			systemData = await res.json();
 		} catch (e) {
 			console.error('Failed to load system data', e);
+			toast.error('Failed to load system data');
 		} finally {
 			loading = false;
 		}
@@ -40,6 +42,7 @@
 			}, 2000);
 		} catch (e) {
 			console.error('Failed to clear cache', e);
+			toast.error('Failed to clear cache');
 		} finally {
 			cacheClearing = null;
 		}
@@ -53,6 +56,7 @@
 			rebuildResult = await res.json();
 		} catch (e) {
 			console.error('Failed to rebuild stats', e);
+			toast.error('Failed to rebuild stats');
 		} finally {
 			rebuildingStats = false;
 		}
@@ -90,10 +94,10 @@
 	<div class="flex flex-col gap-6">
 		{#each Array(4) as _}
 			<div class="animate-pulse rounded-2xl p-6" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
-				<div class="mb-4 h-4 w-32 rounded bg-white/10"></div>
+				<div class="mb-4 h-4 w-32 rounded bg-cream/10"></div>
 				<div class="space-y-3">
-					<div class="h-10 rounded-lg bg-white/5"></div>
-					<div class="h-10 rounded-lg bg-white/5"></div>
+					<div class="h-10 rounded-lg bg-cream/5"></div>
+					<div class="h-10 rounded-lg bg-cream/5"></div>
 				</div>
 			</div>
 		{/each}
@@ -174,7 +178,7 @@
 			<h2 class="mb-4 text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Database</h2>
 			<div class="rounded-2xl overflow-hidden" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
 				<!-- DB info header -->
-				<div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
+				<div class="flex items-center justify-between border-b border-cream/5 px-5 py-4">
 					<div>
 						<p class="text-xs text-[var(--color-muted)]">File</p>
 						<p class="mt-0.5 text-sm font-mono">{systemData.db?.path ?? 'Unknown'}</p>
@@ -189,7 +193,7 @@
 				{#if systemData.db?.rowCounts}
 					<div class="divide-y" style="divide-color: rgba(255,255,255,0.04)">
 						{#each Object.entries(systemData.db.rowCounts) as [table, count], i (table)}
-							<div class="flex items-center justify-between px-5 py-2.5 {i % 2 === 0 ? 'bg-white/[0.01]' : ''}">
+							<div class="flex items-center justify-between px-5 py-2.5 {i % 2 === 0 ? 'bg-cream/[0.01]' : ''}">
 								<span class="text-xs text-[var(--color-muted)]">{tableNames[table] ?? formatTableName(table)}</span>
 								<span class="text-xs font-bold tabular-nums">{typeof count === 'number' ? count.toLocaleString() : count}</span>
 							</div>
@@ -282,7 +286,7 @@
 				{#if systemData.appSettings && Object.keys(systemData.appSettings).length > 0}
 					<div class="divide-y" style="divide-color: rgba(255,255,255,0.04)">
 						{#each Object.entries(systemData.appSettings) as [key, value], i (key)}
-							<div class="flex items-center justify-between px-5 py-3 {i % 2 === 0 ? 'bg-white/[0.01]' : ''}">
+							<div class="flex items-center justify-between px-5 py-3 {i % 2 === 0 ? 'bg-cream/[0.01]' : ''}">
 								<span class="text-xs font-mono text-[var(--color-muted)]">{key}</span>
 								<span class="text-xs font-medium tabular-nums">{value}</span>
 							</div>
