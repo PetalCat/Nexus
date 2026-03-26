@@ -76,6 +76,7 @@ export const activity = sqliteTable('activity', {
 	type: text('type').notNull(), // 'watch' | 'read' | 'play' | 'listen'
 	progress: real('progress').notNull().default(0), // 0-1 float
 	positionTicks: integer('position_ticks'), // for Jellyfin compat
+	position: text('position'), // CFI (EPUB) or page number (PDF)
 	completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
 	lastActivity: text('last_activity')
 		.notNull()
@@ -508,6 +509,8 @@ export const bookNotes = sqliteTable('book_notes', {
 	bookId: text('book_id').notNull(),
 	serviceId: text('service_id').notNull(),
 	content: text('content').notNull(),
+	cfi: text('cfi'),
+	chapter: text('chapter'),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
 });

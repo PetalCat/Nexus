@@ -437,6 +437,11 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// Add is_collaborative column to existing playlists (migration-safe)
 	try { db.run(`ALTER TABLE music_playlists ADD COLUMN is_collaborative INTEGER NOT NULL DEFAULT 0`); } catch { /* column exists */ }
 
+	// Books UI redesign — position sync + positioned notes
+	try { db.run(`ALTER TABLE activity ADD COLUMN position TEXT`); } catch { /* column exists */ }
+	try { db.run(`ALTER TABLE book_notes ADD COLUMN cfi TEXT`); } catch { /* column exists */ }
+	try { db.run(`ALTER TABLE book_notes ADD COLUMN chapter TEXT`); } catch { /* column exists */ }
+
 	// ── Notifications ───────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS notifications (
 		id TEXT PRIMARY KEY,
