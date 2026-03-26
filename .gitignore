@@ -38,6 +38,9 @@ cookies.txt
 npm-debug.log*
 pnpm-debug.log*
 
+# Generated assets
+static/pdf.worker.min.mjs
+
 # Rust / Cargo build artefacts
 stream-proxy/target/
 

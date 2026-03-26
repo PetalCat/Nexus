@@ -13,7 +13,8 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs static/pdf.worker.min.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.2.0",
@@ -41,6 +42,7 @@
 		"epubjs": "^0.3.93",
 		"hls.js": "^1.6.15",
 		"lucide-svelte": "0.469.0",
+		"pdfjs-dist": "5.5.207",
 		"ws": "^8.19.0"
 	}
 }
