@@ -5,10 +5,12 @@
 	import type { BookBookmark, BookHighlight } from '$lib/db/schema';
 	import * as pdfjsLib from 'pdfjs-dist';
 	import { TextLayer } from 'pdfjs-dist';
-	import {
-		ArrowLeft, Maximize, Minimize, ChevronLeft, ChevronRight, Loader2
-	} from 'lucide-svelte';
+	import { Loader2 } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
+	import PdfToolbar from './PdfToolbar.svelte';
+	import PdfSidebar from './PdfSidebar.svelte';
+	import ReaderProgressBar from './ReaderProgressBar.svelte';
+	import TimeEstimate from './TimeEstimate.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────
 	interface Props {
@@ -51,6 +53,12 @@
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let loadProgress = $state(0);
+	let pdfOutline = $state<Array<{ title: string; dest: any; items?: any[] }>>([]);
+	let isBookmarked = $state(false);
+	let searchQuery = $state('');
+	let searchResultCount = $state(0);
+	let searchIndex = $state(0);
+	let prevScale = $state(1);
 
 	// ── Internal refs & tracking ───────────────────────────────────
 	let viewportEl = $state<HTMLDivElement | null>(null);
@@ -72,6 +80,7 @@
 	// ── Derived ────────────────────────────────────────────────────
 	let progress = $derived(numPages > 0 ? currentPage / numPages : 0);
 	let progressPercent = $derived(Math.round(progress * 100));
+	let remainingPages = $derived(Math.max(0, numPages - currentPage));
 
 	// ── Navigation ─────────────────────────────────────────────────
 	function closeReader() {
@@ -93,6 +102,77 @@
 		if (wrapper) {
 			wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		}
+	}
+
+	// ── Zoom functions ────────────────────────────────────────────
+	function zoomIn() {
+		fitMode = 'custom';
+		scale *= 1.25;
+	}
+
+	function zoomOut() {
+		fitMode = 'custom';
+		scale *= 0.8;
+	}
+
+	function fitWidth() {
+		if (!pdfDoc || pageViewports.length === 0) return;
+		const vp = pageViewports[0];
+		const sidebarWidth = showSidebar ? 190 : 0;
+		const containerWidth = (viewportEl?.clientWidth ?? 800) - sidebarWidth;
+		scale = (containerWidth - 80) / vp.width;
+		fitMode = 'width';
+	}
+
+	function fitPage() {
+		if (!pdfDoc || pageViewports.length === 0 || !viewportEl) return;
+		const vp = pageViewports[0];
+		const containerWidth = viewportEl.clientWidth - 80;
+		const containerHeight = viewportEl.clientHeight - 80;
+		const scaleW = containerWidth / vp.width;
+		const scaleH = containerHeight / vp.height;
+		scale = Math.min(scaleW, scaleH);
+		fitMode = 'page';
+	}
+
+	function handleFitMode(mode: 'width' | 'page') {
+		if (mode === 'width') fitWidth();
+		else fitPage();
+	}
+
+	function handleSpreadMode(mode: 'single' | 'dual') {
+		spreadMode = mode;
+	}
+
+	function handleDarkMode(mode: 'light' | 'dark' | 'sepia') {
+		darkMode = mode;
+	}
+
+	function handleSearch(query: string) {
+		searchQuery = query;
+		// Search implementation will be added in Task 8
+	}
+
+	function handleSearchNext() {
+		if (searchResultCount > 0) {
+			searchIndex = (searchIndex + 1) % searchResultCount;
+		}
+	}
+
+	function handleSearchPrev() {
+		if (searchResultCount > 0) {
+			searchIndex = (searchIndex - 1 + searchResultCount) % searchResultCount;
+		}
+	}
+
+	function handleBookmark() {
+		isBookmarked = !isBookmarked;
+		// Bookmark persistence will be added in Task 9
+	}
+
+	function handleProgressSeek(position: number) {
+		const targetPage = Math.max(1, Math.min(numPages, Math.round(position * numPages)));
+		goToPage(targetPage);
 	}
 
 	// ── Toolbar auto-hide ──────────────────────────────────────────
@@ -129,6 +209,24 @@
 			case 'End':
 				e.preventDefault();
 				goToPage(numPages);
+				break;
+			case '+':
+			case '=':
+				if (e.ctrlKey || e.metaKey) {
+					e.preventDefault();
+					zoomIn();
+				}
+				break;
+			case '-':
+				if (e.ctrlKey || e.metaKey) {
+					e.preventDefault();
+					zoomOut();
+				}
+				break;
+			case 's':
+				if (!e.ctrlKey && !e.metaKey) {
+					showSidebar = !showSidebar;
+				}
 				break;
 		}
 	}
@@ -230,6 +328,15 @@
 		renderingPages.delete(pageNum);
 	}
 
+	// ── Invalidate all rendered pages (for scale change) ──────────
+	function invalidateAllPages() {
+		for (const pageNum of [...renderedPages]) {
+			cleanupPage(pageNum);
+		}
+		renderQueue = [];
+		scheduleBufferRender();
+	}
+
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
 		if (!pdfDoc || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
@@ -257,7 +364,7 @@
 			ctx.scale(dpr, dpr);
 
 			// Render canvas
-			const renderTask = page.render({ canvasContext: ctx, viewport });
+			const renderTask = page.render({ canvasContext: ctx, viewport, canvas } as any);
 			activeRenderTasks.set(pageNum, renderTask);
 
 			await renderTask.promise;
@@ -305,6 +412,26 @@
 		}
 	}
 
+	// ── Load PDF outline ──────────────────────────────────────────
+	async function loadOutline(doc: pdfjsLib.PDFDocumentProxy) {
+		try {
+			const outline = await doc.getOutline();
+			if (outline) {
+				pdfOutline = outline.map((item: any) => ({
+					title: item.title,
+					dest: item.dest,
+					items: item.items?.map((child: any) => ({
+						title: child.title,
+						dest: child.dest,
+						items: child.items
+					}))
+				}));
+			}
+		} catch {
+			// Outline not available
+		}
+	}
+
 	// ── Initialize PDF ─────────────────────────────────────────────
 	async function initPdf() {
 		if (!browser) return;
@@ -329,8 +456,12 @@
 			// Pre-fetch page viewports for sizing
 			await initPageViewports(doc);
 
+			// Load outline
+			await loadOutline(doc);
+
 			// Calculate fit-width scale
 			scale = await calculateFitWidthScale(doc);
+			prevScale = scale;
 
 			loading = false;
 
@@ -394,6 +525,17 @@
 		});
 	}
 
+	// ── Re-render on scale change ─────────────────────────────────
+	$effect(() => {
+		// Track scale changes — re-render visible pages
+		const currentScale = scale;
+		if (currentScale !== prevScale && pdfDoc && !loading) {
+			prevScale = currentScale;
+			// Use untrack to avoid recursive triggering
+			invalidateAllPages();
+		}
+	});
+
 	// ── Fullscreen listener ────────────────────────────────────────
 	$effect(() => {
 		if (!browser) return;
@@ -435,6 +577,15 @@
 			height: vp.height * scale
 		};
 	}
+
+	// Dark mode filter for pages
+	let pageFilter = $derived.by(() => {
+		switch (darkMode) {
+			case 'dark': return 'invert(0.88) hue-rotate(180deg)';
+			case 'sepia': return 'sepia(0.3) brightness(0.95)';
+			default: return 'none';
+		}
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -445,84 +596,100 @@
 	role="presentation"
 >
 	<!-- ── Top Toolbar ─────────────────────────────────────────── -->
-	<div
-		class="toolbar-top"
-		class:toolbar-hidden={!showToolbar}
-	>
-		<button onclick={closeReader} class="toolbar-btn" title="Back (Esc)">
-			<ArrowLeft size={20} strokeWidth={1.5} />
-		</button>
+	<PdfToolbar
+		visible={showToolbar}
+		bookTitle={book.title}
+		bookAuthor={book.metadata?.author as string | undefined}
+		{currentPage}
+		totalPages={numPages}
+		{scale}
+		{fitMode}
+		{spreadMode}
+		{darkMode}
+		{showSidebar}
+		{searchQuery}
+		{searchResultCount}
+		{searchIndex}
+		{isBookmarked}
+		onBack={closeReader}
+		onToggleSidebar={() => (showSidebar = !showSidebar)}
+		onZoomIn={zoomIn}
+		onZoomOut={zoomOut}
+		onFitMode={handleFitMode}
+		onSpreadMode={handleSpreadMode}
+		onDarkMode={handleDarkMode}
+		onSearch={handleSearch}
+		onSearchNext={handleSearchNext}
+		onSearchPrev={handleSearchPrev}
+		onBookmark={handleBookmark}
+		onToggleShortcuts={() => (showShortcuts = !showShortcuts)}
+		onFullscreen={toggleFullscreen}
+	/>
 
-		<div class="toolbar-title">
-			<div class="title-text">{book.title}</div>
-			{#if numPages > 0}
-				<div class="title-sub">Page {currentPage} of {numPages}</div>
+	<!-- ── Content area (sidebar + viewport) ──────────────────── -->
+	<div class="content-area">
+		<!-- ── Sidebar ─────────────────────────────────────────── -->
+		<PdfSidebar
+			visible={showSidebar}
+			totalPages={numPages}
+			{currentPage}
+			outline={pdfOutline}
+			onPageClick={goToPage}
+		/>
+
+		<!-- ── Main Viewport ──────────────────────────────────── -->
+		<div
+			class="viewport"
+			bind:this={viewportEl}
+			onscroll={handleScroll}
+		>
+			{#if loading}
+				<div class="loading-state">
+					<div class="loading-spinner">
+						<Loader2 size={32} strokeWidth={1.5} />
+					</div>
+					<div class="loading-text">Loading PDF...</div>
+					{#if loadProgress > 0 && loadProgress < 1}
+						<div class="loading-bar-track">
+							<div class="loading-bar-fill" style="width: {loadProgress * 100}%"></div>
+						</div>
+					{/if}
+				</div>
+			{:else if loadError}
+				<div class="error-state">
+					<div class="error-icon">
+						<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" stroke-width="1.5" stroke-linecap="round">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="8" x2="12" y2="12"/>
+							<line x1="12" y1="16" x2="12.01" y2="16"/>
+						</svg>
+					</div>
+					<p class="error-title">Failed to load PDF</p>
+					<p class="error-detail">{loadError}</p>
+					<button onclick={() => initPdf()} class="error-retry">Retry</button>
+				</div>
+			{:else}
+				<div class="pages-container" class:spread-dual={spreadMode === 'dual'}>
+					{#each Array(numPages) as _, i (i)}
+						{@const dims = getPageDims(i)}
+						<div
+							class="page-wrapper"
+							data-page={i + 1}
+							style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
+							bind:this={pageWrappers[i]}
+						>
+							<canvas bind:this={canvasRefs[i]}></canvas>
+							<div class="text-layer" bind:this={textLayerRefs[i]}></div>
+							{#if !renderedPages.has(i + 1)}
+								<div class="page-placeholder">
+									<span class="page-placeholder-num">{i + 1}</span>
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
 			{/if}
 		</div>
-
-		<div class="toolbar-actions">
-			<button onclick={toggleFullscreen} class="toolbar-btn" title="Fullscreen (F)">
-				{#if isFullscreen}
-					<Minimize size={18} strokeWidth={1.5} />
-				{:else}
-					<Maximize size={18} strokeWidth={1.5} />
-				{/if}
-			</button>
-		</div>
-	</div>
-
-	<!-- ── Main Viewport ──────────────────────────────────────── -->
-	<div
-		class="viewport"
-		bind:this={viewportEl}
-		onscroll={handleScroll}
-	>
-		{#if loading}
-			<div class="loading-state">
-				<div class="loading-spinner">
-					<Loader2 size={32} strokeWidth={1.5} />
-				</div>
-				<div class="loading-text">Loading PDF...</div>
-				{#if loadProgress > 0 && loadProgress < 1}
-					<div class="loading-bar-track">
-						<div class="loading-bar-fill" style="width: {loadProgress * 100}%"></div>
-					</div>
-				{/if}
-			</div>
-		{:else if loadError}
-			<div class="error-state">
-				<div class="error-icon">
-					<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" stroke-width="1.5" stroke-linecap="round">
-						<circle cx="12" cy="12" r="10"/>
-						<line x1="12" y1="8" x2="12" y2="12"/>
-						<line x1="12" y1="16" x2="12.01" y2="16"/>
-					</svg>
-				</div>
-				<p class="error-title">Failed to load PDF</p>
-				<p class="error-detail">{loadError}</p>
-				<button onclick={() => initPdf()} class="error-retry">Retry</button>
-			</div>
-		{:else}
-			<div class="pages-container">
-				{#each Array(numPages) as _, i (i)}
-					{@const dims = getPageDims(i)}
-					<div
-						class="page-wrapper"
-						data-page={i + 1}
-						style="width: {dims.width}px; height: {dims.height}px;"
-						bind:this={pageWrappers[i]}
-					>
-						<canvas bind:this={canvasRefs[i]}></canvas>
-						<div class="text-layer" bind:this={textLayerRefs[i]}></div>
-						{#if !renderedPages.has(i + 1)}
-							<div class="page-placeholder">
-								<span class="page-placeholder-num">{i + 1}</span>
-							</div>
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{/if}
 	</div>
 
 	<!-- ── Bottom Bar ─────────────────────────────────────────── -->
@@ -531,30 +698,16 @@
 			class="toolbar-bottom"
 			class:toolbar-hidden={!showToolbar}
 		>
-			<button
-				class="nav-btn"
-				disabled={currentPage <= 1}
-				onclick={() => goToPage(currentPage - 1)}
-				title="Previous page"
-			>
-				<ChevronLeft size={16} strokeWidth={2} />
-			</button>
-
-			<div class="progress-section">
-				<div class="progress-bar-track">
-					<div class="progress-bar-fill" style="width: {progressPercent}%"></div>
-				</div>
-				<span class="progress-label">{currentPage} / {numPages} ({progressPercent}%)</span>
+			<ReaderProgressBar
+				{progress}
+				chapters={[]}
+				{currentPage}
+				totalPages={numPages}
+				onSeek={handleProgressSeek}
+			/>
+			<div class="bottom-extra">
+				<TimeEstimate {remainingPages} />
 			</div>
-
-			<button
-				class="nav-btn"
-				disabled={currentPage >= numPages}
-				onclick={() => goToPage(currentPage + 1)}
-				title="Next page"
-			>
-				<ChevronRight size={16} strokeWidth={2} />
-			</button>
 		</div>
 	{/if}
 </div>
@@ -571,69 +724,11 @@
 		font-family: var(--font-body);
 	}
 
-	/* ── Top toolbar ────────────────────────────────────── */
-	.toolbar-top {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		z-index: 60;
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
-		background: rgba(13, 11, 10, 0.85);
-		backdrop-filter: blur(20px) saturate(1.3);
-		transition: opacity 0.3s, transform 0.3s;
-	}
-
-	.toolbar-hidden {
-		opacity: 0;
-		pointer-events: none;
-		transform: translateY(-100%);
-	}
-
-	.toolbar-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.5rem;
-		border: none;
-		border-radius: 0.5rem;
-		background: transparent;
-		color: var(--color-muted);
-		cursor: pointer;
-		transition: background 0.15s, color 0.15s;
-	}
-
-	.toolbar-btn:hover {
-		background: rgba(240, 235, 227, 0.06);
-		color: var(--color-cream);
-	}
-
-	.toolbar-title {
+	/* ── Content area (sidebar + viewport) ──────────────── */
+	.content-area {
 		flex: 1;
-		min-width: 0;
-	}
-
-	.title-text {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: var(--color-cream);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.title-sub {
-		font-size: 0.75rem;
-		color: var(--color-faint);
-	}
-
-	.toolbar-actions {
 		display: flex;
-		align-items: center;
-		gap: 0.25rem;
+		min-height: 0;
 	}
 
 	/* ── Main viewport ──────────────────────────────────── */
@@ -654,6 +749,13 @@
 		padding: 72px 40px 80px;
 	}
 
+	.pages-container.spread-dual {
+		flex-direction: row;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 8px 16px;
+	}
+
 	/* ── Page wrapper ───────────────────────────────────── */
 	.page-wrapper {
 		position: relative;
@@ -662,6 +764,7 @@
 		border-radius: 2px;
 		overflow: hidden;
 		flex-shrink: 0;
+		transition: filter 0.3s ease;
 	}
 
 	.page-wrapper canvas {
@@ -803,11 +906,10 @@
 		right: 0;
 		z-index: 60;
 		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.625rem 1rem;
-		background: rgba(13, 11, 10, 0.85);
-		backdrop-filter: blur(20px) saturate(1.3);
+		flex-direction: column;
+		background: linear-gradient(0deg, rgba(13, 11, 10, 0.96), rgba(13, 11, 10, 0.92));
+		backdrop-filter: blur(24px) saturate(1.4);
+		border-top: 1px solid rgba(240, 235, 227, 0.04);
 		transition: opacity 0.3s, transform 0.3s;
 	}
 
@@ -817,57 +919,9 @@
 		transform: translateY(100%);
 	}
 
-	.nav-btn {
+	.bottom-extra {
 		display: flex;
-		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
-		border: none;
-		border-radius: 0.5rem;
-		background: transparent;
-		color: var(--color-muted);
-		cursor: pointer;
-		transition: background 0.15s, color 0.15s;
-	}
-
-	.nav-btn:hover:not(:disabled) {
-		background: rgba(240, 235, 227, 0.06);
-		color: var(--color-cream);
-	}
-
-	.nav-btn:disabled {
-		opacity: 0.3;
-		cursor: default;
-	}
-
-	.progress-section {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.progress-bar-track {
-		width: 100%;
-		height: 3px;
-		border-radius: 2px;
-		background: var(--color-surface);
-		overflow: hidden;
-	}
-
-	.progress-bar-fill {
-		height: 100%;
-		border-radius: 2px;
-		background: var(--color-accent);
-		transition: width 0.15s ease;
-	}
-
-	.progress-label {
-		font-family: var(--font-mono);
-		font-size: 0.6875rem;
-		color: var(--color-faint);
-		user-select: none;
+		padding: 0 16px 6px;
 	}
 </style>
