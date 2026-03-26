@@ -29,7 +29,10 @@
 			serviceId={data.serviceId}
 			format={data.format}
 			initialProgress={data.progress}
+			savedPosition={data.savedPosition}
 			availableFormats={data.availableFormats}
+			bookmarks={data.bookmarks}
+			highlights={data.highlights}
 		/>
 	{/if}
 </div>

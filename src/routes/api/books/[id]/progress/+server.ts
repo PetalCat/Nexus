@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
 export const PUT: RequestHandler = async ({ params, locals, request }) => {
 	if (!locals.user) throw error(401);
-	const { progress, cfi, serviceId } = await request.json();
+	const { progress, cfi, page, serviceId } = await request.json();
 	if (typeof progress !== 'number') throw error(400, 'progress required');
 
 	const db = getDb();
@@ -38,7 +38,7 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 	const now = new Date().toISOString();
 	if (existing) {
 		db.update(schema.activity)
-			.set({ progress, completed: progress >= 1, lastActivity: now })
+			.set({ progress, completed: progress >= 1, lastActivity: now, position: cfi ?? page?.toString() ?? null })
 			.where(eq(schema.activity.id, existing.id))
 			.run();
 	} else {
@@ -50,7 +50,8 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 				type: 'read',
 				progress,
 				completed: progress >= 1,
-				lastActivity: now
+				lastActivity: now,
+				position: cfi ?? page?.toString() ?? null
 			})
 			.run();
 	}
