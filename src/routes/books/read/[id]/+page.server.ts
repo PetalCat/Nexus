@@ -54,7 +54,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	// CFI is stored in the progress endpoint's metadata — we don't have a metadata column on activity,
 	// so we fetch it from the progress API pattern. For now, use the activity row if it exists.
-	const savedPosition: string | undefined = undefined;
+	const savedPosition: string | undefined = activityRow?.position ?? undefined;
 
 	// Determine format to read — default to EPUB, allow ?format=pdf etc
 	const requestedFormat = (url.searchParams.get('format') ?? 'epub').toLowerCase();
