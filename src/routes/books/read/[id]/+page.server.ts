@@ -62,7 +62,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const format = availableFormats.map(f => f.toLowerCase()).includes(requestedFormat) ? requestedFormat : 'epub';
 	const bookUrl = format === 'epub'
 		? `/api/books/${params.id}/read`
-		: `/api/books/${params.id}/download/${format}`;
+		: `/api/books/${params.id}/download/${format}?view=true`;
 
 	return {
 		book: item,
