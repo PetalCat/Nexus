@@ -161,7 +161,7 @@
 	{#if data.series.length > 0 || data.authors.length > 1}
 		<div class="{data.total >= 5 ? 'mt-8' : 'mt-4'} border-b border-[var(--color-surface)] px-3 sm:px-4 lg:px-6">
 			<nav class="flex gap-0">
-				{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t}
+				{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t (t.id)}
 					{#if t.id === 'all' || (t.id === 'series' && data.series.length > 0) || (t.id === 'authors' && data.authors.length > 1)}
 						<a
 							href={buildUrl({ tab: t.id })}
