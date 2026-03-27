@@ -181,7 +181,7 @@ export function getUserLinkableServices() {
  * Special case: StreamyStats authenticates via Jellyfin user tokens (not its own),
  * so we look up the user's Jellyfin credential instead.
  */
-function resolveUserCred(config: ServiceConfig, userId?: string): UserCredential | undefined {
+export function resolveUserCred(config: ServiceConfig, userId?: string): UserCredential | undefined {
 	if (!userId) return undefined;
 	// StreamyStats has no user accounts — it authenticates via the user's Jellyfin token.
 	// Handle before the userLinkable gate since streamystats.userLinkable is intentionally false.
