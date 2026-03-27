@@ -208,6 +208,16 @@
 			});
 			const d = await res.json();
 			autoLinkResults = d.results ?? d;
+			const linked = (autoLinkResults ?? []).filter((r: any) => r.status === 'linked').length;
+			if (linked > 0) {
+				toast.success(`Linked ${linked} user${linked > 1 ? 's' : ''} successfully`);
+				// Re-fetch preview so table shows updated statuses
+				const refreshRes = await fetch(`/api/admin/autolink?serviceId=${encodeURIComponent(serviceId)}`);
+				if (refreshRes.ok) {
+					autoLinkPreview = await refreshRes.json();
+					manualMappings = {};
+				}
+			}
 		} catch (e) {
 			console.error('Auto-link execute failed', e);
 			toast.error('Auto-link failed');
@@ -758,7 +768,7 @@
 				<div class="mt-4 rounded-xl p-3" style="background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15)">
 					<p class="mb-2 text-xs font-medium text-[#34d399]">Auto-Link Complete</p>
 					<div class="flex flex-col gap-1">
-						{#each autoLinkResults as r}
+						{#each autoLinkResults as r (r.externalId)}
 							<div class="flex items-center gap-2 text-[10px]">
 								{#if r.status === 'linked'}
 									<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#34d399" stroke-width="1.5"><circle cx="5" cy="5" r="4" /><path d="M3.5 5l1 1L6.5 4" stroke-linecap="round" /></svg>
