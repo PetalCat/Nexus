@@ -118,27 +118,26 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		upstream.searchParams.set('DeviceId', `nexus-${config.id}`);
 		upstream.searchParams.set('PlaySessionId', `nexus-${Date.now()}`);
 
-		// Prefer direct stream — only transcode when the browser can't play the codec natively.
-		// Allow both H.264 and H.265/HEVC so compatible content isn't needlessly re-encoded.
-		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264,h265,hevc,av1');
-		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus,flac,vorbis');
+		// Codec negotiation — H.264 baseline for broadest compatibility, let Jellyfin transcode
+		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264');
+		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3');
 		if (!url.searchParams.has('TranscodingMaxAudioChannels'))
-			upstream.searchParams.set('TranscodingMaxAudioChannels', '6'); // preserve 5.1 surround
+			upstream.searchParams.set('TranscodingMaxAudioChannels', '6');
 		if (!url.searchParams.has('MaxStreamingBitrate'))
-			upstream.searchParams.set('MaxStreamingBitrate', '120000000'); // 120 Mbps — effectively uncapped
+			upstream.searchParams.set('MaxStreamingBitrate', '120000000');
 		if (!url.searchParams.has('TranscodingProtocol'))
 			upstream.searchParams.set('TranscodingProtocol', 'hls');
 		if (!url.searchParams.has('TranscodingContainer'))
 			upstream.searchParams.set('TranscodingContainer', 'ts');
+		// Allow direct stream (remux) but not direct play (raw file) — ensures HLS wrapper
 		if (!url.searchParams.has('EnableDirectStream'))
 			upstream.searchParams.set('EnableDirectStream', 'true');
 		if (!url.searchParams.has('EnableDirectPlay'))
-			upstream.searchParams.set('EnableDirectPlay', 'true');
+			upstream.searchParams.set('EnableDirectPlay', 'false');
 		upstream.searchParams.set('BreakOnNonKeyFrames', 'true');
 		// Deliver subtitles as separate HLS WebVTT tracks so the player can toggle them
 		if (!url.searchParams.has('SubtitleMethod'))
 			upstream.searchParams.set('SubtitleMethod', 'Hls');
-		// Request subtitle delivery in the manifest
 		upstream.searchParams.set('SubtitleStreamIndex', url.searchParams.get('SubtitleStreamIndex') ?? '-1');
 		upstream.searchParams.set('RequireNonAnamorphic', 'false');
 	}
@@ -235,6 +234,63 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 				/URI="\/Videos\/([a-f0-9-]+)\//gi,
 				`URI="/api/stream/${serviceId}/$1/`
 			);
+
+			// ── Synthesize quality tiers for master.m3u8 ─────────────────
+			// Jellyfin returns a single variant. We add lower-quality tiers
+			// so the player can offer quality selection (720p, 480p, 360p).
+			if (upstreamPath.endsWith('/master.m3u8')) {
+				const streamLines = body.split('\n');
+				const streamInfCount = streamLines.filter(l => l.startsWith('#EXT-X-STREAM-INF')).length;
+
+				if (streamInfCount === 1) {
+					// Find the original STREAM-INF and its main.m3u8 URL
+					const infIdx = streamLines.findIndex(l => l.startsWith('#EXT-X-STREAM-INF'));
+					const origInf = streamLines[infIdx];
+					const origUrl = streamLines[infIdx + 1];
+
+					// Parse source resolution
+					const resMatch = origInf.match(/RESOLUTION=(\d+)x(\d+)/);
+					const sourceHeight = resMatch ? parseInt(resMatch[2]) : 1080;
+
+					// Extract subtitle group reference if present
+					const subsMatch = origInf.match(/,SUBTITLES="([^"]+)"/);
+					const subsGroup = subsMatch ? `,SUBTITLES="${subsMatch[1]}"` : '';
+
+					// Extract codec string
+					const codecMatch = origInf.match(/CODECS="([^"]+)"/);
+					const codecs = codecMatch ? codecMatch[1] : 'avc1.640029,mp4a.40.2';
+
+					// Quality tiers: only add tiers below source resolution
+					const tiers = [
+						{ height: 2160, width: 3840, bitrate: 40_000_000, label: '4K' },
+						{ height: 1080, width: 1920, bitrate: 10_000_000, label: '1080p' },
+						{ height: 720,  width: 1280, bitrate: 4_000_000,  label: '720p' },
+						{ height: 480,  width: 854,  bitrate: 1_500_000,  label: '480p' },
+						{ height: 360,  width: 640,  bitrate: 800_000,    label: '360p' },
+					].filter(t => t.height < sourceHeight);
+
+					// Build synthetic variants — each points to main.m3u8 with a MaxStreamingBitrate cap
+					const extraVariants: string[] = [];
+					for (const tier of tiers) {
+						// Replace existing MaxStreamingBitrate or append
+						const tierUrl = origUrl.replace(
+							/MaxStreamingBitrate=\d+/,
+							`MaxStreamingBitrate=${tier.bitrate}`
+						);
+						extraVariants.push(
+							`#EXT-X-STREAM-INF:BANDWIDTH=${tier.bitrate},AVERAGE-BANDWIDTH=${tier.bitrate},VIDEO-RANGE=SDR,CODECS="${codecs}",RESOLUTION=${tier.width}x${tier.height},FRAME-RATE=23.976${subsGroup}`,
+							tierUrl
+						);
+					}
+
+					// Re-label the original as "Original" quality with real bitrate estimate
+					// Insert extra variants after the original
+					if (extraVariants.length > 0) {
+						streamLines.splice(infIdx + 2, 0, ...extraVariants);
+						body = streamLines.join('\n');
+					}
+				}
+			}
 
 			return new Response(body, {
 				status: 200,
