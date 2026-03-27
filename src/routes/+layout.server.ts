@@ -2,6 +2,8 @@ import { registry } from '$lib/adapters/registry';
 import { getEnabledConfigs, needsAutoLink, autoLinkJellyfinServices } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
 import { getUnreadCount } from '$lib/server/notifications';
+import { getDb, schema } from '$lib/db';
+import { eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -15,6 +17,18 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	let unreadNotifications = 0;
 	if (locals.user) {
 		unreadNotifications = getUnreadCount(locals.user.id);
+	}
+
+	// Autoplay trailers preference — defaults to true (desktop overrides to false on mobile client-side)
+	let autoplayTrailers = true;
+	if (locals.user) {
+		const db = getDb();
+		const setting = db
+			.select({ value: schema.appSettings.value })
+			.from(schema.appSettings)
+			.where(eq(schema.appSettings.key, `user:${locals.user.id}:autoplayTrailers`))
+			.get();
+		if (setting) autoplayTrailers = setting.value === 'true';
 	}
 
 	// Pending request count — streamed, NEVER blocks navigation
@@ -38,6 +52,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	return {
 		user: locals.user ?? null,
 		unreadNotifications,
+		autoplayTrailers,
 		// Streamed — never blocks page navigation
 		pendingRequests: fetchPendingRequests()
 	};
