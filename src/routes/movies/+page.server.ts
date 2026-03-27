@@ -8,6 +8,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const sortBy = url.searchParams.get('sort') || 'title';
 	const userId = locals.user?.id;
+	const hasLibraryService = getEnabledConfigs().some((c) => c.type === 'jellyfin');
 
 	// Fast: library movies (Jellyfin, local network) — await immediately
 	const { items: libraryItems, total } = await getLibraryItems(
@@ -63,6 +64,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		libraryItems,
 		total,
 		sortBy,
+		hasLibraryService,
 		hasOverseerr,
 		// Streamed — page renders immediately, these fill in when ready
 		popularMovies: fetchPopular(),

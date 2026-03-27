@@ -130,9 +130,11 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let selectedSeason: number | null = null;
 
 	if (item.type === 'show' && resolvedServiceType === 'jellyfin') {
+		const seriesId = item.sourceId;
+
 		// Show page — fetch all seasons, then episodes for the selected season
 		try {
-			seasons = await getJellyfinSeasons(config, params.id, userCred);
+			seasons = await getJellyfinSeasons(config, seriesId, userCred);
 		} catch { /* silent */ }
 
 		if (seasons.length > 0) {
@@ -147,7 +149,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 			try {
 				if (adapter.getSeasonEpisodes) {
-					episodes = await adapter.getSeasonEpisodes(config, params.id, selectedSeason!, userCred);
+					episodes = await adapter.getSeasonEpisodes(config, seriesId, selectedSeason!, userCred);
 				}
 			} catch { /* silent */ }
 		}

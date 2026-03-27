@@ -42,7 +42,13 @@
 
 <div class="flex flex-col gap-10 pb-10">
 	<!-- Hero (streamed from Overseerr trending — renders when ready) -->
-	{#await data.trendingMovies then trendingMovies}
+	{#await data.trendingMovies}
+		{#if data.hasOverseerr}
+			<div class="mx-3 mt-4 rounded-2xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-surface)]/70 px-5 py-4 text-sm text-[var(--color-muted)] sm:mx-4 lg:mx-6">
+				Loading trending movies...
+			</div>
+		{/if}
+	{:then trendingMovies}
 		{@const h = pickHero(trendingMovies)}
 		{#if h}
 			<div
@@ -116,6 +122,12 @@
 				</div>
 			</div>
 		{/if}
+	{:catch}
+		{#if data.hasOverseerr}
+			<div class="mx-3 mt-4 rounded-2xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-surface)]/70 px-5 py-4 text-sm text-[var(--color-muted)] sm:mx-4 lg:mx-6">
+				Trending movie recommendations are unavailable right now.
+			</div>
+		{/if}
 	{/await}
 
 	<!-- In Your Library -->
@@ -174,10 +186,12 @@
 				<p class="font-medium">No movies found</p>
 				<p class="mt-1 text-sm text-[var(--color-muted)]">
 					{data.libraryItems.length === 0
-						? 'Connect a media service to populate your library.'
+						? data.hasLibraryService
+							? 'Your movie library is empty, still syncing, or your media service is unavailable right now.'
+							: 'Connect a media service to populate your library.'
 						: 'Try adjusting your filters.'}
 				</p>
-				{#if data.libraryItems.length === 0}
+				{#if data.libraryItems.length === 0 && !data.hasLibraryService}
 					<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 				{/if}
 			</div>
@@ -193,9 +207,17 @@
 	</div>
 
 	<!-- Popular Movies row (streamed from Overseerr) -->
-	{#await data.popularMovies then popularMovies}
+	{#await data.popularMovies}
+		{#if data.hasOverseerr}
+			<div class="px-3 text-sm text-[var(--color-muted)] sm:px-4 lg:px-6">Loading popular movies...</div>
+		{/if}
+	{:then popularMovies}
 		{#if popularMovies.length > 0}
 			<MediaRow row={{ id: 'popular-movies', title: 'Popular Movies', subtitle: 'Most watched movies this week', items: popularMovies }} />
+		{/if}
+	{:catch}
+		{#if data.hasOverseerr}
+			<div class="px-3 text-sm text-[var(--color-muted)] sm:px-4 lg:px-6">Popular movies are unavailable right now.</div>
 		{/if}
 	{/await}
 </div>
