@@ -137,7 +137,7 @@ export function cwToItem(item: UnifiedMedia): HomepageItem {
 		serviceType: item.serviceType,
 		title: item.title,
 		poster: homepageImage(item.poster, item.serviceId, 'poster'),
-		backdrop: homepageImage(item.backdrop ?? item.thumb, item.serviceId, 'thumb-backdrop'),
+		backdrop: homepageImage(item.thumb ?? item.backdrop, item.serviceId, 'thumb-backdrop'),
 		year: item.year,
 		mediaType: item.type,
 		genres: item.genres,
