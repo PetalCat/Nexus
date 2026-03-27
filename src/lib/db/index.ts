@@ -24,6 +24,14 @@ export function getRawDb(): InstanceType<typeof Database> {
 	return _sqlite!;
 }
 
+export function closeDb(): void {
+	if (_sqlite) {
+		_sqlite.close();
+		_sqlite = null;
+		_db = null;
+	}
+}
+
 function initDb(db: ReturnType<typeof drizzle>) {
 	// Create tables if they don't exist
 	db.run(`CREATE TABLE IF NOT EXISTS services (
