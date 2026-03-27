@@ -27,14 +27,14 @@ export async function resolveTrailerUrl(
 		const youtubeId = extractYouTubeId(metadataTrailerUrl);
 
 		if (youtubeId) {
-			// Use the existing stream proxy — no need to resolve raw URLs
-			return `/api/stream/${inv.serviceId}/${youtubeId}/stream`;
+			// Use the existing Invidious video stream proxy
+			return `/api/video/stream/${youtubeId}`;
 		}
 
 		// Step 2: No Jellyfin trailer — search Invidious for one
 		const searchedId = await searchInvidiousTrailer(inv, title, year);
 		if (searchedId) {
-			return `/api/stream/${inv.serviceId}/${searchedId}/stream`;
+			return `/api/video/stream/${searchedId}`;
 		}
 
 		return null;
