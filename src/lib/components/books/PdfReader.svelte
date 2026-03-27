@@ -12,6 +12,10 @@
 	import ReaderProgressBar from './ReaderProgressBar.svelte';
 	import TimeEstimate from './TimeEstimate.svelte';
 	import AnnotationPopup from './AnnotationPopup.svelte';
+	import ReadingRuler from './ReadingRuler.svelte';
+	import KeyboardShortcuts from './KeyboardShortcuts.svelte';
+	import PdfMinimap from './PdfMinimap.svelte';
+	import MarginNotes from './MarginNotes.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────
 	interface Props {
@@ -55,7 +59,6 @@
 	let loadError = $state<string | null>(null);
 	let loadProgress = $state(0);
 	let pdfOutline = $state<Array<{ title: string; dest: any; items?: any[] }>>([]);
-	let isBookmarked = $derived(localBookmarks.has(currentPage));
 	let searchQuery = $state('');
 	let searchResults = $state<Array<{ page: number; text: string }>>([]);
 	let searchResultCount = $derived(searchResults.length);
@@ -72,7 +75,34 @@
 	let noteInputText = $state('');
 	let localHighlights = $state<Array<{ page: number; text: string; color: string }>>([]);
 	let localBookmarks = new SvelteSet<number>();
+	let isBookmarked = $derived(localBookmarks.has(currentPage));
 	let highlightedPages = $derived(new Set(localHighlights.map((h) => h.page)));
+	let highlightedPagesList = $derived(localHighlights.map((h) => h.page));
+	let bookmarkedPagesList = $derived([...localBookmarks]);
+
+	// ── Reading ruler state ──────────────────────────────────────
+	let rulerY = $state(0);
+
+	// ── Margin notes data ────────────────────────────────────────
+	let marginHighlights = $derived(
+		localHighlights.map((h) => ({ page: h.page, text: h.text, color: h.color, createdAt: undefined as number | undefined }))
+	);
+	let marginNotes = $state<Array<{ page: number; content: string; createdAt?: number }>>([]);
+
+	// ── Keyboard shortcuts list ──────────────────────────────────
+	const shortcuts = [
+		{ label: 'Next page', key: '\u2192' },
+		{ label: 'Previous page', key: '\u2190' },
+		{ label: 'Toggle sidebar', key: 'S' },
+		{ label: 'Bookmark page', key: 'B' },
+		{ label: 'Search', key: '\u2318F' },
+		{ label: 'Zoom in', key: '\u2318+' },
+		{ label: 'Zoom out', key: '\u2318-' },
+		{ label: 'Fullscreen', key: 'F' },
+		{ label: 'Dark mode', key: 'D' },
+		{ label: 'Reading ruler', key: 'R' },
+		{ label: 'Shortcuts', key: '?' }
+	];
 
 	// ── Internal refs & tracking ───────────────────────────────────
 	let viewportEl = $state<HTMLDivElement | null>(null);
@@ -391,6 +421,11 @@
 		hideTimer = setTimeout(() => { showToolbar = false; }, 4000);
 	}
 
+	function handleMouseMove(e: MouseEvent) {
+		rulerY = e.clientY;
+		resetHideTimer();
+	}
+
 	// ── Keyboard shortcuts ─────────────────────────────────────────
 	function handleKeydown(e: KeyboardEvent) {
 		switch (e.key) {
@@ -436,6 +471,22 @@
 				if (!e.ctrlKey && !e.metaKey) {
 					showSidebar = !showSidebar;
 				}
+				break;
+			case 'b':
+				if (!e.ctrlKey && !e.metaKey) handleBookmark();
+				break;
+			case 'd':
+				if (!e.ctrlKey && !e.metaKey) {
+					const modes: Array<'light' | 'dark' | 'sepia'> = ['light', 'dark', 'sepia'];
+					const idx = modes.indexOf(darkMode);
+					darkMode = modes[(idx + 1) % modes.length];
+				}
+				break;
+			case 'r':
+				if (!e.ctrlKey && !e.metaKey) showRuler = !showRuler;
+				break;
+			case '?':
+				showShortcuts = !showShortcuts;
 				break;
 		}
 	}
@@ -809,6 +860,30 @@
 		return () => document.removeEventListener('fullscreenchange', handleFs);
 	});
 
+	// ── Progress saving (debounced) ───────────────────────────────
+	let saveTimer: ReturnType<typeof setTimeout>;
+
+	$effect(() => {
+		const page = currentPage;
+		const total = numPages;
+		if (!page || !total) return;
+
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			fetch(`/api/books/${book.sourceId}/progress`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					progress: page / total,
+					page: page,
+					serviceId: serviceId
+				})
+			});
+		}, 3000);
+
+		return () => clearTimeout(saveTimer);
+	});
+
 	// ── PDF initialization effect ──────────────────────────────────
 	$effect(() => {
 		if (!browser) return;
@@ -857,7 +932,7 @@
 
 <div
 	class="pdf-reader"
-	onmousemove={resetHideTimer}
+	onmousemove={handleMouseMove}
 	role="presentation"
 >
 	<!-- ── Top Toolbar ─────────────────────────────────────────── -->
@@ -993,7 +1068,28 @@
 					</div>
 				{/if}
 			{/if}
+
+			<!-- ── Reading Ruler ──────────────────────────────────── -->
+			<ReadingRuler y={rulerY} visible={showRuler} />
+
+			<!-- ── Minimap ────────────────────────────────────────── -->
+			{#if numPages > 0}
+				<PdfMinimap
+					{numPages}
+					{currentPage}
+					highlightedPages={highlightedPagesList}
+					bookmarkedPages={bookmarkedPagesList}
+					onNavigate={goToPage}
+				/>
+			{/if}
 		</div>
+
+		<!-- ── Margin Notes (Tufte sidenotes) ─────────────────── -->
+		<MarginNotes
+			highlights={marginHighlights}
+			notes={marginNotes}
+			{currentPage}
+		/>
 	</div>
 
 	<!-- ── Bottom Bar ─────────────────────────────────────────── -->
@@ -1046,6 +1142,13 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- ── Keyboard Shortcuts Panel ──────────────────────────── -->
+	<KeyboardShortcuts
+		{shortcuts}
+		visible={showShortcuts}
+		onClose={() => (showShortcuts = false)}
+	/>
 </div>
 
 <style>
@@ -1069,6 +1172,7 @@
 
 	/* ── Main viewport ──────────────────────────────────── */
 	.viewport {
+		position: relative;
 		flex: 1;
 		overflow-y: auto;
 		overflow-x: hidden;
