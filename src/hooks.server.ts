@@ -9,6 +9,7 @@ import { startHealthWatchdog, onServiceRecovery } from '$lib/server/health-watch
 import { broadcastToAll } from '$lib/server/ws';
 import { startStreamProxy } from '$lib/server/stream-proxy';
 import { getEnabledConfigs } from '$lib/server/services';
+import { registerShutdownHandler } from '$lib/server/shutdown';
 
 // Start background analytics
 startSessionPoller();
@@ -33,6 +34,9 @@ onServiceRecovery((recoveredIds) => {
 
 // Register social WS event handlers
 initSocialWsHandlers();
+
+// Register graceful shutdown handler for SIGTERM/SIGINT
+registerShutdownHandler();
 
 /** Paths that never require auth (login/setup flows) */
 const NO_AUTH_PATHS = ['/login', '/setup', '/invite', '/register', '/pending-approval', '/reset-password', '/api/ingest/webhook'];
