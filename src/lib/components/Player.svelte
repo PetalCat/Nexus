@@ -31,6 +31,7 @@
 		mode?: 'hls' | 'direct';
 		formats?: VideoFormat[];
 		captions?: CaptionTrack[];
+		maxBitrate?: number;
 		inline?: boolean;
 		onclose?: () => void;
 	}
@@ -50,6 +51,7 @@
 		mode = 'hls',
 		formats = [],
 		captions = [],
+		maxBitrate = 120_000_000,
 		inline = false,
 		onclose
 	}: Props = $props();
@@ -268,7 +270,7 @@
 	const isVideo = $derived(!isAudio);
 	const isDirectMode = $derived(mode === 'direct');
 	const theaterActive = $derived(isVideo && hasStarted && !inline);
-	const hlsUrl = $derived(streamUrl + '/master.m3u8');
+	const hlsUrl = $derived(streamUrl + `/master.m3u8?MaxStreamingBitrate=${maxBitrate}`);
 	const directUrl = $derived(isDirectMode ? streamUrl : streamUrl + '/stream');
 	const audioUrl = $derived(streamUrl.replace(/\/([^/]+)$/, '/audio/$1') + '/universal');
 
@@ -536,7 +538,16 @@
 			activePanel = 'none';
 			return;
 		}
-		if (hls) { hls.currentLevel = index; currentQuality = index; }
+		if (hls) {
+			hls.currentLevel = index;
+			currentQuality = index;
+			// Persist quality preference
+			if (index === -1) {
+				localStorage.removeItem('nexus:preferred-quality');
+			} else {
+				localStorage.setItem('nexus:preferred-quality', String(qualityLevels[index]?.height ?? 0));
+			}
+		}
 		activePanel = 'none';
 	}
 
@@ -896,6 +907,18 @@
 						height: l.height ?? 0,
 						bitrate: l.bitrate ?? 0
 					}));
+
+					// Restore saved quality preference
+					const savedQuality = localStorage.getItem('nexus:preferred-quality');
+					if (savedQuality && qualityLevels.length > 1) {
+						const preferredHeight = parseInt(savedQuality);
+						const match = qualityLevels.findIndex(l => l.height === preferredHeight);
+						if (match >= 0) {
+							hls.currentLevel = match;
+							currentQuality = match;
+						}
+					}
+
 					if (progress > 0 && totalDuration > 0) videoEl!.currentTime = progress * totalDuration;
 					else if (progress > 0 && duration > 0) videoEl!.currentTime = progress * duration;
 					videoEl!.play().catch(() => {});
