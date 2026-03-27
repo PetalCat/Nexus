@@ -1,110 +1,87 @@
 # Nexus
 
-Your unified, self-hosted media platform. One interface for all your media servers.
+A unified self-hosted media platform.
 
-Nexus aggregates content from your self-hosted services — Jellyfin, Calibre-Web, RomM, Invidious, and more — into a single, polished dashboard with social features, in-browser playback, and personalized recommendations.
+![CI](https://github.com/parkerbugg/nexus/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/github/license/parkerbugg/nexus)
+
+<!-- TODO: add screenshot -->
 
 ## Features
 
-### Media
+- **Dashboard** — Continue watching, recently added, personalized recommendations
+- **Movies & Shows** — Browse and stream via Jellyfin
+- **Books** — In-browser EPUB and PDF reader
+- **Games** — In-browser retro emulation via EmulatorJS (RomM)
+- **Video** — YouTube alternative frontend via Invidious
+- **Music** — Browse and stream via Jellyfin
+- **Social** — Friends, watch parties, presence
+- **Analytics** — Play history, stats, yearly wrapped
+- **Requests** — Overseerr integration for media requests
+- **Search** — Unified cross-service search
 
-- Unified dashboard with continue watching, recently added, and personalized recommendations
-- Browse and search across movies, shows, music, books, games, and videos
-- Rich detail pages with metadata, ratings, and related content
-- Media requesting via Overseerr integration
-- Live TV from Jellyfin
+## Quick Start — Docker (recommended)
 
-### Books
-
-- In-browser EPUB reader (epub.js) with highlights, bookmarks, and notes
-- Skeuomorphic bookshelf view, series browsing, author pages
-- Reading statistics, goals, and session tracking
-- Notes & highlights hub with Markdown/JSON export
-
-### Games
-
-- In-browser retro game emulation via EmulatorJS
-- Save state management (upload, download, sync to RomM)
-- RetroAchievements + HowLongToBeat metadata display
-- Collections, advanced filtering, platform pages
-
-### Video
-
-- YouTube alternative frontend via Invidious
-- Subscriptions, playlists, watch history
-- Video streaming with HLS support
-
-### Social
-
-- Friend system with presence (online/away/DND)
-- Watch parties, listen parties, co-op gaming sessions
-- Activity feed and shared items
-
-### Other
-
-- Invite-based registration with admin approval
-- Command palette (Cmd/Ctrl+K) for quick navigation
-- Real-time WebSocket notifications
-- Background analytics and recommendation engine
-- Responsive dark theme with warm color palette
-
-## Integrations
-
-| Service | Type | Features |
-|---|---|---|
-| Jellyfin | Media server | Movies, shows, music, live TV, streaming, auth |
-| Overseerr | Requests | Discover, request, approve/deny media |
-| Sonarr | TV management | Library, queue, calendar |
-| Radarr | Movie management | Library, queue, calendar |
-| Lidarr | Music management | Artists, albums, queue |
-| Prowlarr | Indexers | Indexer stats (admin) |
-| Bazarr | Subtitles | Subtitle status for Sonarr/Radarr |
-| Calibre-Web | Books | Library, reading, OPDS |
-| Invidious | Videos | YouTube browsing, subscriptions, playlists |
-| RomM | Games | ROM library, emulation, saves |
-| StreamyStats | Analytics | Personalized recommendations |
-
-## Quick Start
-
-```sh
-# Install dependencies
-pnpm install
-
-# Start development server
-pnpm dev
+```bash
+mkdir nexus && cd nexus
+wget https://raw.githubusercontent.com/parkerbugg/nexus/main/docker-compose.yml
+wget https://raw.githubusercontent.com/parkerbugg/nexus/main/.env.example
+cp .env.example .env
+docker compose up -d
 ```
 
-On first visit, you'll be redirected to `/setup` to create the admin account. Then configure your services via Settings.
+Visit `http://localhost:8585` and create your admin account.
 
-## Environment Variables
+## Quick Start — From Source
+
+```bash
+git clone https://github.com/parkerbugg/nexus.git && cd nexus
+cp .env.example .env
+pnpm install
+pnpm build
+PORT=8585 node build/index.js
+```
+
+## Supported Services
+
+| Service | Type | Required | Notes |
+|---------|------|----------|-------|
+| Jellyfin | Media Server | Yes | Core media source |
+| Overseerr | Requests | No | Media requests |
+| Sonarr | TV Management | No | Show metadata |
+| Radarr | Movie Management | No | Movie metadata |
+| Lidarr | Music Management | No | Music metadata |
+| Bazarr | Subtitles | No | Subtitle enrichment |
+| Prowlarr | Indexer | No | Search indexers |
+| RomM | Games | No | ROM management |
+| StreamyStats | Analytics | No | Recommendations |
+| Calibre-Web | Books | No | Book library — or use built-in reader |
+
+## Configuration
+
+All service connections are configured through the web UI after first-run setup.
+
+**Environment variables:**
 
 | Variable | Default | Description |
-|---|---|---|
+|----------|---------|-------------|
 | `DATABASE_URL` | `./nexus.db` | Path to the SQLite database file |
+| `PORT` | `3000` | HTTP port |
+| `ORIGIN` | — | Public URL (required for production) |
 
-All service connections (URLs, API keys, credentials) are configured through the Settings UI and stored in the database.
-
-## Scripts
-
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start dev server |
-| `pnpm build` | Production build |
-| `pnpm preview` | Preview production build |
-| `pnpm check` | Type-check with svelte-check |
-| `pnpm db:generate` | Generate Drizzle migrations |
-| `pnpm db:migrate` | Run database migrations |
-| `pnpm db:studio` | Open Drizzle Studio |
-| `pnpm format` | Format with Prettier |
+See `.env.example` for the full list.
 
 ## Tech Stack
 
-- **SvelteKit** (v2) + **Svelte 5** — Framework
-- **TypeScript** — Language
-- **Tailwind CSS** v4 — Styling
-- **SQLite** + **Drizzle ORM** — Database
-- **WebSockets** (ws) — Real-time
-- **epub.js** — Book reader
-- **hls.js** — Video streaming
-- **EmulatorJS** (CDN) — Game emulation
+- **SvelteKit 2** + **Svelte 5**
+- **Tailwind CSS 4**
+- **SQLite** + **Drizzle ORM**
+- **better-sqlite3**
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+
+## License
+
+See LICENSE file.
