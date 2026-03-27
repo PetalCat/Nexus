@@ -17,6 +17,7 @@ export interface HeroItem {
 	reason: string;
 	provider: string;
 	streamUrl?: string;
+	trailerUrl?: string;
 }
 
 export interface HomepageItem {

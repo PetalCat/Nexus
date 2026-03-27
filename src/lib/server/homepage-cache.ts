@@ -108,7 +108,8 @@ function recToHero(rec: ScoredRecommendation): HeroItem {
 		genres: item.genres,
 		reason: rec.reason,
 		provider: rec.provider,
-		streamUrl: item.streamUrl
+		streamUrl: item.streamUrl,
+		trailerUrl: (item.metadata?.trailerUrl as string) ?? undefined
 	};
 }
 
