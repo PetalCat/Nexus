@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import type { BookBookmark, BookHighlight } from '$lib/db/schema';
 	import {
 		ArrowLeft, List, Bookmark, BookmarkCheck, Settings, Search, X,
-		ChevronLeft, ChevronRight, Maximize, Minimize, Type, Sun, Moon, Sunset,
+		ChevronLeft, ChevronRight, Maximize, Minimize, Type, Sun, Moon, Sunset, Monitor,
 		ChevronDown
 	} from 'lucide-svelte';
 
@@ -43,20 +42,18 @@
 	}
 
 	// ── Core state ──
-	let container: HTMLElement | undefined = $state();
-	let epubBook: any = $state(null);
-	let rendition: any = $state(null);
+	let view: any = $state(null);
 	let ready = $state(false);
-	let locationsReady = $state(false);
+	let loading = $state(true);
+	let loadError = $state('');
 	let currentCfi = $state('');
 	let currentProgress = $state(0);
 	let currentChapter = $state('');
-	let toc = $state<Array<{ id: string; href: string; label: string; subitems?: any[] }>>([]);
+	let toc = $state<Array<{ label: string; href: string; subitems?: any[] }>>([]);
 	let bookmarkList = $state<BookBookmark[]>([]);
 	let highlightList = $state<BookHighlight[]>([]);
-	$effect(() => { currentProgress = initialProgress; });
-	$effect(() => { bookmarkList = [...initialBookmarks]; });
-	$effect(() => { highlightList = [...initialHighlights]; });
+
+	// Props are synced in the initFoliateReader action
 
 	// UI panels
 	let showToolbar = $state(true);
@@ -70,25 +67,25 @@
 	let highlightPopup = $state<{ x: number; y: number; cfi: string; text: string } | null>(null);
 
 	// Reader settings (persisted in localStorage)
-	let readerTheme = $state<'dark' | 'light' | 'sepia'>('dark');
+	let readerTheme = $state<'dark' | 'light' | 'sepia' | 'oled'>('dark');
 	let fontFamily = $state<'serif' | 'sans' | 'mono'>('serif');
 	let fontSize = $state(18);
 	let lineHeight = $state(1.6);
-	let flow = $state<'paginated' | 'scrolled-doc'>('paginated');
+	let flow = $state<'paginated' | 'scrolled'>('paginated');
 
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Check if any panel is open
 	const anyPanelOpen = $derived(showToc || showSettings || showBookmarks || showSearch || showFormatMenu);
 
-	const themes = {
+	const themes: Record<string, { bg: string; text: string; link: string }> = {
 		dark: { bg: '#181514', text: '#f0ebe3', link: '#d4a253' },
 		light: { bg: '#faf8f5', text: '#1a1a1a', link: '#b8862e' },
-		sepia: { bg: '#f4ecd8', text: '#5b4636', link: '#8b6914' }
+		sepia: { bg: '#f4ecd8', text: '#5b4636', link: '#8b6914' },
+		oled: { bg: '#000000', text: '#b0b0b0', link: '#d4a253' }
 	};
 
-	const fonts = {
+	const fonts: Record<string, string> = {
 		serif: "'Playfair Display', Georgia, serif",
 		sans: "'DM Sans', system-ui, sans-serif",
 		mono: "'JetBrains Mono', monospace"
@@ -101,14 +98,15 @@
 		pink: 'rgba(251, 113, 133, 0.3)'
 	};
 
+	// ── Settings persistence ──
 	function loadSettings() {
 		if (!browser) return;
 		try {
 			const saved = localStorage.getItem('nexus-reader-settings');
 			if (saved) {
 				const s = JSON.parse(saved);
-				if (s.theme) readerTheme = s.theme;
-				if (s.fontFamily) fontFamily = s.fontFamily;
+				if (s.theme && s.theme in themes) readerTheme = s.theme;
+				if (s.fontFamily && s.fontFamily in fonts) fontFamily = s.fontFamily;
 				if (s.fontSize) fontSize = s.fontSize;
 				if (s.lineHeight) lineHeight = s.lineHeight;
 				if (s.flow) flow = s.flow;
@@ -123,66 +121,63 @@
 		}));
 	}
 
-	function applyTheme() {
-		if (!rendition) return;
+	// ── Build CSS for foliate-js renderer ──
+	function getReaderCSS(): string {
 		const t = themes[readerTheme];
-		rendition.themes.default({
-			body: {
-				'background-color': `${t.bg} !important`,
-				color: `${t.text} !important`,
-				'font-family': fonts[fontFamily],
-				'font-size': `${fontSize}px !important`,
-				'line-height': `${lineHeight} !important`,
-				'padding': '0 !important',
-				'margin': '0 !important',
-				'word-wrap': 'break-word !important',
-				'overflow-wrap': 'break-word !important'
-			},
-			'p, div, span, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, figcaption, section, article': {
-				color: `${t.text} !important`,
-				'max-width': '100% !important'
-			},
-			'p': {
-				'orphans': '2',
-				'widows': '2'
-			},
-			'a': { color: `${t.link} !important` },
-			'img': {
-				'max-width': '100% !important',
-				'max-height': '85vh !important',
-				'height': 'auto !important',
-				'width': 'auto !important',
-				'object-fit': 'contain !important',
-				'display': 'block !important',
-				'margin': '0 auto !important'
-			},
-			'svg': {
-				'max-width': '100% !important',
-				'height': 'auto !important'
-			},
-			'[class*="cover"] img, [id*="cover"] img, .sgc-toc-level img': {
-				'max-height': '80vh !important',
-				'width': 'auto !important',
-				'margin': '1rem auto !important'
+		return `
+			@namespace epub "http://www.idpf.org/2007/ops";
+			html {
+				color-scheme: ${readerTheme === 'light' || readerTheme === 'sepia' ? 'light' : 'dark'};
 			}
-		});
+			html, body {
+				background-color: ${t.bg} !important;
+				color: ${t.text} !important;
+				font-family: ${fonts[fontFamily]} !important;
+				font-size: ${fontSize}px !important;
+			}
+			p, li, blockquote, dd {
+				line-height: ${lineHeight} !important;
+				text-align: start;
+				-webkit-hyphens: auto;
+				hyphens: auto;
+				hanging-punctuation: allow-end last;
+				widows: 2;
+				orphans: 2;
+			}
+			a:link, a:visited {
+				color: ${t.link} !important;
+			}
+			img, svg {
+				max-width: 100% !important;
+				height: auto !important;
+				object-fit: contain !important;
+			}
+			pre {
+				white-space: pre-wrap !important;
+			}
+			aside[epub|type~="endnote"],
+			aside[epub|type~="footnote"],
+			aside[epub|type~="note"],
+			aside[epub|type~="rearnote"] {
+				display: none;
+			}
+		`;
+	}
+
+	function applyStyles() {
+		if (!view?.renderer?.setStyles) return;
+		view.renderer.setStyles(getReaderCSS());
 		persistSettings();
 	}
 
-	function getCurrentChapter(href: string): string {
-		if (!toc.length) return '';
-		const clean = href.split('#')[0];
-		for (const item of toc) {
-			const itemHref = item.href.split('#')[0];
-			if (clean.endsWith(itemHref) || itemHref.endsWith(clean)) return item.label;
-			if (item.subitems) {
-				for (const sub of item.subitems) {
-					const subHref = sub.href.split('#')[0];
-					if (clean.endsWith(subHref) || subHref.endsWith(clean)) return sub.label;
-				}
-			}
-		}
-		return '';
+	// ── Flatten TOC for display ──
+	function flattenToc(items: any[]): Array<{ label: string; href: string; subitems?: any[] }> {
+		if (!items) return [];
+		return items.map((item: any) => ({
+			label: typeof item.label === 'object' ? Object.values(item.label)[0] as string : item.label ?? '',
+			href: item.href ?? '',
+			subitems: item.subitems?.length ? flattenToc(item.subitems) : undefined
+		}));
 	}
 
 	// ── Toolbar auto-hide ──
@@ -190,7 +185,7 @@
 		if (hideTimer) clearTimeout(hideTimer);
 		hideTimer = setTimeout(() => {
 			if (!anyPanelOpen) showToolbar = false;
-		}, 3000);
+		}, 4000);
 	}
 
 	function handleReaderMouseMove() {
@@ -210,12 +205,31 @@
 	}
 
 	// ── Navigation ──
-	function prevPage() { rendition?.prev(); }
-	function nextPage() { rendition?.next(); }
+	function prevPage() { view?.prev(); }
+	function nextPage() { view?.next(); }
 
 	function goToChapter(href: string) {
-		rendition?.display(href);
+		view?.goTo(href);
 		showToc = false;
+	}
+
+	// ── Touch/swipe handling ──
+	let touchStartX = 0;
+	let touchStartY = 0;
+
+	function handleTouchStart(e: TouchEvent) {
+		touchStartX = e.changedTouches[0].clientX;
+		touchStartY = e.changedTouches[0].clientY;
+	}
+
+	function handleTouchEnd(e: TouchEvent) {
+		const dx = e.changedTouches[0].clientX - touchStartX;
+		const dy = e.changedTouches[0].clientY - touchStartY;
+		if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+			if (dx > 0) prevPage(); else nextPage();
+		} else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+			toggleToolbar();
+		}
 	}
 
 	// ── Progress ──
@@ -233,11 +247,10 @@
 	}
 
 	function jumpToProgress(e: MouseEvent) {
-		if (!epubBook || !locationsReady) return;
+		if (!view) return;
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		const pct = (e.clientX - rect.left) / rect.width;
-		const cfi = epubBook.locations?.cfiFromPercentage(pct);
-		if (cfi) rendition?.display(cfi);
+		const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+		view.goToFraction(frac);
 	}
 
 	// ── Bookmarks ──
@@ -269,11 +282,13 @@
 	}
 
 	async function addHighlight(color: string) {
-		if (!highlightPopup) return;
+		if (!highlightPopup || !view) return;
 		const { cfi, text } = highlightPopup;
-		rendition.annotations.highlight(cfi, {}, () => {}, '', {
-			fill: highlightColors[color], 'fill-opacity': '1', 'mix-blend-mode': 'multiply'
-		});
+		// Add annotation to foliate view
+		try {
+			const { Overlayer } = await import('$lib/vendor/foliate-js/overlayer.js');
+			view.addAnnotation({ value: cfi }, false);
+		} catch { /* ignore */ }
 		const res = await fetch(`/api/books/${book.sourceId}/highlights`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -287,26 +302,35 @@
 	}
 
 	// ── Search ──
+	let searching = $state(false);
+
 	async function doSearch() {
-		if (!epubBook || !searchQuery.trim()) return;
+		if (!view || !searchQuery.trim()) return;
+		searching = true;
 		searchResults = [];
-		const spine = epubBook.spine;
 		const results: Array<{ cfi: string; excerpt: string }> = [];
-		for (let i = 0; i < spine.items.length && results.length < 50; i++) {
-			const item = spine.items[i];
-			if (!item) continue;
-			try {
-				await item.load(epubBook.load.bind(epubBook));
-				const found = await item.find(searchQuery);
-				for (const f of found) results.push({ cfi: f.cfi, excerpt: f.excerpt });
-				item.unload();
-			} catch { /* skip */ }
+		try {
+			for await (const result of view.search({ query: searchQuery })) {
+				if (result === 'done') break;
+				if (result.subitems) {
+					for (const item of result.subitems) {
+						results.push({ cfi: item.cfi, excerpt: item.excerpt });
+						if (results.length >= 50) break;
+					}
+				} else if (result.cfi) {
+					results.push({ cfi: result.cfi, excerpt: result.excerpt });
+				}
+				if (results.length >= 50) break;
+			}
+		} catch (err) {
+			console.error('Search error:', err);
 		}
 		searchResults = results;
+		searching = false;
 	}
 
 	function goToSearchResult(cfi: string) {
-		rendition?.display(cfi);
+		view?.goTo(cfi);
 		showSearch = false;
 	}
 
@@ -348,178 +372,123 @@
 		}
 	}
 
-	onMount(() => {
+	// ── Svelte action for foliate-js lifecycle ──
+	function initFoliateReader(node: HTMLElement) {
 		loadSettings();
+
+		// Sync initial prop values
+		currentProgress = initialProgress;
+		bookmarkList = [...initialBookmarks];
+		highlightList = [...initialHighlights];
+
 		const handleFs = () => { isFullscreen = !!document.fullscreenElement; };
 		document.addEventListener('fullscreenchange', handleFs);
-		return () => {
-			document.removeEventListener('fullscreenchange', handleFs);
-			if (hideTimer) clearTimeout(hideTimer);
-			if (saveTimer) clearTimeout(saveTimer);
-		};
-	});
 
-	// ── epub.js init ──
-	$effect(() => {
-		if (!browser || !container) return;
 		let destroyed = false;
-		let bookInstance: any = null;
+		let viewInstance: any = null;
 
 		(async () => {
-			const ePub = (await import('epubjs')).default;
-			if (destroyed) return;
+			try {
+				// Import the foliate-view custom element (registers itself)
+				await import('$lib/vendor/foliate-js/view.js');
 
-			const res = await fetch(epubUrl);
-			if (!res.ok) throw new Error(`Failed to load EPUB: ${res.status}`);
-			const arrayBuffer = await res.arrayBuffer();
-			if (destroyed) return;
-
-			bookInstance = ePub(arrayBuffer);
-			epubBook = bookInstance;
-
-			const rend = bookInstance.renderTo(container!, {
-				width: '100%',
-				height: '100%',
-				spread: 'none',
-				flow: flow,
-				allowScriptedContent: false,
-				manager: 'default'
-			});
-			rendition = rend;
-
-			// Inject CSS into each epub iframe for things the themes API can't handle
-			rend.hooks.content.register((contents: any) => {
-				const doc = contents.document;
-				if (!doc) return;
-				const style = doc.createElement('style');
-				style.textContent = `
-					/* Fix cover SVGs that use preserveAspectRatio="none" */
-					svg[preserveAspectRatio="none"] {
-						max-width: 100% !important;
-						max-height: 90vh !important;
-					}
-					/* Ensure images don't overflow columns */
-					img {
-						max-width: 100% !important;
-						box-sizing: border-box !important;
-						page-break-inside: avoid !important;
-						break-inside: avoid !important;
-					}
-				`;
-				doc.head.appendChild(style);
-
-				// Fix SVG preserveAspectRatio="none" to "xMidYMid meet"
-				const svgs = doc.querySelectorAll('svg[preserveAspectRatio="none"]');
-				svgs.forEach((svg: Element) => {
-					svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-					svg.setAttribute('width', '100%');
-					svg.removeAttribute('height');
-				});
-
-				// Listen for mousemove inside iframe to show toolbar
-				doc.addEventListener('mousemove', () => {
-					handleReaderMouseMove();
-				});
-			});
-
-			applyTheme();
-
-			if (savedPosition) rend.display(savedPosition);
-			else rend.display();
-
-			bookInstance.loaded.navigation.then((nav: any) => {
-				toc = nav.toc ?? [];
-			});
-
-			// Generate locations for progress bar scrubbing
-			bookInstance.ready.then(() => {
 				if (destroyed) return;
+
+				// Create and mount the foliate-view custom element
+				viewInstance = document.createElement('foliate-view') as any;
+				viewInstance.style.cssText = 'width: 100%; height: 100%;';
+				node.appendChild(viewInstance);
+
+				// Open the book from URL (makeBook handles fetch internally)
+				await viewInstance.open(epubUrl);
+
+				if (destroyed) return;
+
+				view = viewInstance;
+
+				// Extract TOC
+				const bookObj = viewInstance.book;
+				if (bookObj?.toc) {
+					toc = flattenToc(bookObj.toc);
+				}
+
+				// Set flow mode
+				viewInstance.renderer.setAttribute('flow', flow);
+
+				// Apply reading styles
+				applyStyles();
+
+				// Handle load events (new section loaded)
+				viewInstance.addEventListener('load', (e: CustomEvent) => {
+					if (destroyed) return;
+					const { doc } = e.detail;
+					doc.addEventListener('mousemove', () => handleReaderMouseMove());
+					doc.addEventListener('keydown', (ke: KeyboardEvent) => handleKeydown(ke));
+				});
+
+				// Handle relocate events (position changed)
+				viewInstance.addEventListener('relocate', (e: CustomEvent) => {
+					if (destroyed) return;
+					const location = e.detail;
+					if (location.cfi) currentCfi = location.cfi;
+					if (location.fraction != null) {
+						currentProgress = location.fraction;
+					}
+					if (location.tocItem?.label) {
+						currentChapter = typeof location.tocItem.label === 'object'
+							? Object.values(location.tocItem.label)[0] as string
+							: location.tocItem.label;
+					}
+					saveProgress();
+				});
+
+				// Navigate to saved position or start
+				if (savedPosition) {
+					await viewInstance.init({ lastLocation: savedPosition });
+				} else {
+					await viewInstance.init({ showTextStart: true });
+				}
+
 				ready = true;
-				// Start toolbar auto-hide now that content is visible
+				loading = false;
 				startHideTimer();
 
-				// Generate locations (async, ~1-2s for large books)
-				bookInstance.locations.generate(1024).then(() => {
-					if (!destroyed) locationsReady = true;
-				});
-
-				// Apply existing highlights
-				for (const h of initialHighlights) {
-					try {
-						rend.annotations.highlight(h.cfi, {}, () => {}, '', {
-							fill: highlightColors[h.color ?? 'yellow'],
-							'fill-opacity': '1',
-							'mix-blend-mode': 'multiply'
-						});
-					} catch { /* skip invalid CFIs */ }
+			} catch (err) {
+				console.error('Failed to initialize EPUB reader:', err);
+				if (!destroyed) {
+					loadError = err instanceof Error ? err.message : 'Failed to load book';
+					loading = false;
 				}
-			});
-
-			rend.on('relocated', (location: any) => {
-				if (destroyed) return;
-				currentCfi = location.start.cfi;
-				if (locationsReady && bookInstance.locations) {
-					currentProgress = bookInstance.locations.percentageFromCfi(location.start.cfi) ?? 0;
-				} else {
-					currentProgress = location.start.percentage ?? 0;
-				}
-				currentChapter = getCurrentChapter(location.start.href);
-				saveProgress();
-			});
-
-			rend.on('selected', (cfiRange: string) => {
-				try {
-					const range = rend.getRange(cfiRange);
-					const text = range?.toString() ?? '';
-					if (text.length > 2) showHighlightMenu(cfiRange, text);
-				} catch { /* ignore */ }
-			});
-
-			// Touch handling
-			let touchStartX = 0;
-			let touchStartY = 0;
-			rend.on('touchstart', (e: TouchEvent) => {
-				touchStartX = e.changedTouches[0].clientX;
-				touchStartY = e.changedTouches[0].clientY;
-			});
-			rend.on('touchend', (e: TouchEvent) => {
-				const dx = e.changedTouches[0].clientX - touchStartX;
-				const dy = e.changedTouches[0].clientY - touchStartY;
-				if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
-					if (dx > 0) prevPage(); else nextPage();
-				} else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-					toggleToolbar();
-				}
-			});
-
-			// Mouse click inside epub iframe for toolbar toggle
-			rend.on('click', () => {
-				if (!anyPanelOpen) toggleToolbar();
-			});
-
+			}
 		})();
 
-		return () => {
-			destroyed = true;
-			bookInstance?.destroy();
-			epubBook = null;
-			rendition = null;
-			ready = false;
-			locationsReady = false;
+		return {
+			destroy() {
+				destroyed = true;
+				document.removeEventListener('fullscreenchange', handleFs);
+				if (viewInstance) {
+					try { viewInstance.close(); } catch { /* ignore */ }
+					try { viewInstance.remove(); } catch { /* ignore */ }
+				}
+				view = null;
+				ready = false;
+				if (hideTimer) clearTimeout(hideTimer);
+				if (saveTimer) clearTimeout(saveTimer);
+			}
 		};
-	});
+	}
 
-	// Re-apply theme on settings change
+	// Re-apply styles on settings change
 	$effect(() => {
 		void readerTheme; void fontFamily; void fontSize; void lineHeight;
-		if (rendition && ready) applyTheme();
+		if (view && ready) applyStyles();
 	});
 
 	// Handle flow change
 	$effect(() => {
-		if (!rendition || !ready) return;
+		if (!view || !ready) return;
 		void flow;
-		rendition.flow(flow);
+		view.renderer.setAttribute('flow', flow);
 		persistSettings();
 	});
 
@@ -541,7 +510,7 @@
 	</button>
 
 	<div class="min-w-0 flex-1">
-		<div class="truncate text-sm font-medium text-cream/90">{book.title}</div>
+		<div class="truncate font-display text-sm font-medium text-cream/90">{book.title}</div>
 		{#if currentChapter}
 			<div class="truncate text-xs text-cream/50">{currentChapter}</div>
 		{/if}
@@ -565,7 +534,7 @@
 			<Settings size={18} strokeWidth={1.5} />
 		</button>
 
-		<!-- Format switcher (always visible if other formats exist) -->
+		<!-- Format switcher -->
 		{#if otherFormats.length > 0}
 			<div class="relative ml-1">
 				<button
@@ -621,24 +590,28 @@
 	style="background-color: {themes[readerTheme].bg};"
 	onmousemove={handleReaderMouseMove}
 >
-	<!-- epub.js container -->
+	<!-- foliate-js container -->
 	<div
-		bind:this={container}
+		use:initFoliateReader
 		class="absolute overflow-hidden"
-		style="top: 48px; bottom: 52px; left: 4%; right: 4%;"
+		style="top: 0; bottom: 0; left: 0; right: 0;"
 	></div>
 
-	<!-- Page turn click zones (don't overlap toolbar areas) -->
+	<!-- Click zone overlay for navigation (only outside the iframe) -->
 	<button
-		class="absolute left-0 top-12 z-10 w-[12%] cursor-w-resize opacity-0 sm:w-[18%]"
-		style="bottom: 48px;"
+		class="absolute left-0 top-12 z-10 w-[20%] cursor-w-resize opacity-0"
+		style="bottom: 52px;"
 		onclick={prevPage}
+		ontouchstart={handleTouchStart}
+		ontouchend={handleTouchEnd}
 		aria-label="Previous page"
 	></button>
 	<button
-		class="absolute right-0 top-12 z-10 w-[12%] cursor-e-resize opacity-0 sm:w-[18%]"
-		style="bottom: 48px;"
+		class="absolute right-0 top-12 z-10 w-[20%] cursor-e-resize opacity-0"
+		style="bottom: 52px;"
 		onclick={nextPage}
+		ontouchstart={handleTouchStart}
+		ontouchend={handleTouchEnd}
 		aria-label="Next page"
 	></button>
 </div>
@@ -667,7 +640,12 @@
 		></div>
 	</button>
 
-	<span class="min-w-[3rem] text-right text-xs tabular-nums text-cream/50">{progressPercent}%</span>
+	<div class="flex items-center gap-2">
+		{#if currentChapter}
+			<span class="hidden max-w-[120px] truncate text-xs text-cream/40 sm:block">{currentChapter}</span>
+		{/if}
+		<span class="min-w-[3rem] text-right text-xs tabular-nums text-cream/50">{progressPercent}%</span>
+	</div>
 
 	<button onclick={nextPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream">
 		<ChevronRight size={16} strokeWidth={1.5} />
@@ -732,11 +710,11 @@
 			<!-- Theme -->
 			<div class="mb-5">
 				<span class="mb-2 block text-xs font-medium uppercase tracking-wider text-cream/40">Theme</span>
-				<div class="flex gap-2">
-					{#each [{ key: 'dark', label: 'Dark', Icon: Moon }, { key: 'light', label: 'Light', Icon: Sun }, { key: 'sepia', label: 'Sepia', Icon: Sunset }] as { key, label, Icon }}
+				<div class="grid grid-cols-4 gap-2">
+					{#each [{ key: 'dark', label: 'Dark', Icon: Moon }, { key: 'light', label: 'Light', Icon: Sun }, { key: 'sepia', label: 'Sepia', Icon: Sunset }, { key: 'oled', label: 'OLED', Icon: Monitor }] as { key, label, Icon }}
 						<button
-							class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
-							onclick={() => readerTheme = key as 'dark' | 'light' | 'sepia'}
+							class="flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs transition-colors {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+							onclick={() => { readerTheme = key as typeof readerTheme; }}
 						>
 							<Icon size={14} /> {label}
 						</button>
@@ -752,7 +730,7 @@
 						<button
 							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
 							style="font-family: {font};"
-							onclick={() => fontFamily = key as 'serif' | 'sans' | 'mono'}
+							onclick={() => { fontFamily = key as typeof fontFamily; }}
 						>{label}</button>
 					{/each}
 				</div>
@@ -786,11 +764,11 @@
 				<div class="flex gap-2">
 					<button
 						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
-						onclick={() => flow = 'paginated'}
+						onclick={() => { flow = 'paginated'; }}
 					>Paginated</button>
 					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'scrolled-doc' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
-						onclick={() => flow = 'scrolled-doc'}
+						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+						onclick={() => { flow = 'scrolled'; }}
 					>Scrolling</button>
 				</div>
 			</div>
@@ -800,7 +778,6 @@
 
 <!-- Bookmarks Panel -->
 {#if showBookmarks}
-	
 	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showBookmarks = false} onkeydown={(e) => { if (e.key === 'Escape') showBookmarks = false; }} role="button" tabindex="-1" aria-label="Close bookmarks">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
@@ -829,7 +806,7 @@
 					{#each bookmarkList as bm}
 						<button
 							class="w-full rounded-lg px-3 py-2 text-left text-sm text-cream/60 transition-colors hover:bg-cream/[0.04] hover:text-cream"
-							onclick={() => { rendition?.display(bm.cfi); showBookmarks = false; }}
+							onclick={() => { view?.goTo(bm.cfi); showBookmarks = false; }}
 						>
 							<div class="font-medium">{bm.label || 'Bookmark'}</div>
 							<div class="text-xs text-cream/30">{new Date(bm.createdAt).toLocaleDateString()}</div>
@@ -845,7 +822,7 @@
 						{#each highlightList as hl}
 							<button
 								class="w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-cream/[0.04]"
-								onclick={() => { rendition?.display(hl.cfi); showBookmarks = false; }}
+								onclick={() => { view?.goTo(hl.cfi); showBookmarks = false; }}
 							>
 								<div class="mb-1 flex items-center gap-2">
 									<span class="h-2 w-2 rounded-full" style="background: {highlightColors[hl.color ?? 'yellow']};"></span>
@@ -873,7 +850,7 @@
 			<div class="mx-auto max-w-xl">
 				<div class="mb-4 flex items-center gap-2">
 					<Search size={16} class="text-cream/30" />
-ttttt<!-- svelte-ignore a11y_autofocus -->
+					<!-- svelte-ignore a11y_autofocus -->
 					<input
 						type="text"
 						bind:value={searchQuery}
@@ -882,6 +859,9 @@ ttttt<!-- svelte-ignore a11y_autofocus -->
 						onkeydown={(e) => { if (e.key === 'Enter') doSearch(); }}
 						autofocus
 					/>
+					{#if searching}
+						<div class="h-4 w-4 animate-spin rounded-full border-2 border-cream/10 border-t-[var(--color-accent)]"></div>
+					{/if}
 					<button onclick={() => showSearch = false} class="rounded-lg p-1.5 text-cream/50 hover:text-cream">
 						<X size={16} strokeWidth={1.5} />
 					</button>
@@ -893,11 +873,11 @@ ttttt<!-- svelte-ignore a11y_autofocus -->
 								class="w-full rounded-lg px-3 py-2 text-left text-sm text-cream/60 transition-colors hover:bg-cream/[0.04] hover:text-cream"
 								onclick={() => goToSearchResult(result.cfi)}
 							>
-								<span class="line-clamp-2">{@html result.excerpt}</span>
+								<span class="line-clamp-2">{result.excerpt}</span>
 							</button>
 						{/each}
 					</div>
-				{:else if searchQuery}
+				{:else if searchQuery && !searching}
 					<p class="text-center text-sm text-cream/30">Press Enter to search</p>
 				{/if}
 			</div>
@@ -938,11 +918,26 @@ ttttt<!-- svelte-ignore a11y_autofocus -->
 {/if}
 
 <!-- Loading state -->
-{#if !ready}
+{#if loading}
 	<div class="fixed inset-0 z-[55] flex items-center justify-center" style="background-color: {themes[readerTheme].bg};">
 		<div class="text-center">
-			<div class="mb-3 mx-auto h-8 w-8 animate-spin rounded-full border-2 border-cream/10 border-t-[var(--color-accent)]"></div>
+			<div class="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-cream/10 border-t-[var(--color-accent)]"></div>
 			<p class="text-sm text-cream/50">Loading book...</p>
+		</div>
+	</div>
+{/if}
+
+<!-- Error state -->
+{#if loadError}
+	<div class="fixed inset-0 z-[55] flex items-center justify-center" style="background-color: {themes[readerTheme].bg};">
+		<div class="text-center">
+			<div class="mx-auto mb-3 text-4xl">!</div>
+			<p class="mb-2 text-sm text-cream/70">Failed to load book</p>
+			<p class="mb-4 text-xs text-cream/40">{loadError}</p>
+			<button
+				onclick={closeReader}
+				class="rounded-lg border border-cream/10 px-4 py-2 text-sm text-cream/60 transition-colors hover:bg-cream/[0.04] hover:text-cream"
+			>Go back</button>
 		</div>
 	</div>
 {/if}
