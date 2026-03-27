@@ -3,7 +3,7 @@
 A unified self-hosted media platform.
 
 ![CI](https://github.com/parkerbugg/nexus/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/github/license/parkerbugg/nexus)
+
 
 <!-- TODO: add screenshot -->
 
@@ -84,4 +84,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-See LICENSE file.
+All rights reserved. Copyright 2026.
