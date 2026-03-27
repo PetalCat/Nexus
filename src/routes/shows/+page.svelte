@@ -42,7 +42,13 @@
 
 <div class="flex flex-col gap-10 pb-10">
 	<!-- Hero (streamed from Overseerr trending) -->
-	{#await data.trendingTV then trendingTV}
+	{#await data.trendingTV}
+		{#if data.hasOverseerr}
+			<div class="mx-3 mt-4 rounded-2xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-surface)]/70 px-5 py-4 text-sm text-[var(--color-muted)] sm:mx-4 lg:mx-6">
+				Loading trending shows...
+			</div>
+		{/if}
+	{:then trendingTV}
 		{@const h = pickHero(trendingTV)}
 		{#if h}
 			<div
@@ -90,6 +96,12 @@
 				</div>
 			</div>
 		{/if}
+	{:catch}
+		{#if data.hasOverseerr}
+			<div class="mx-3 mt-4 rounded-2xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-surface)]/70 px-5 py-4 text-sm text-[var(--color-muted)] sm:mx-4 lg:mx-6">
+				Trending shows are unavailable right now.
+			</div>
+		{/if}
 	{/await}
 
 	<!-- In Your Library -->
@@ -126,9 +138,13 @@
 				</div>
 				<p class="font-medium">No shows found</p>
 				<p class="mt-1 text-sm text-[var(--color-muted)]">
-					{data.libraryItems.length === 0 ? 'Connect a media service to populate your library.' : 'Try adjusting your filters.'}
+					{data.libraryItems.length === 0
+						? data.hasLibraryService
+							? 'Your TV library is empty, still syncing, or your media service is unavailable right now.'
+							: 'Connect a media service to populate your library.'
+						: 'Try adjusting your filters.'}
 				</p>
-				{#if data.libraryItems.length === 0}
+				{#if data.libraryItems.length === 0 && !data.hasLibraryService}
 					<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 				{/if}
 			</div>
@@ -142,9 +158,17 @@
 	</div>
 
 	<!-- Popular TV Shows row (streamed from Overseerr) -->
-	{#await data.popularTV then popularTV}
+	{#await data.popularTV}
+		{#if data.hasOverseerr}
+			<div class="px-3 text-sm text-[var(--color-muted)] sm:px-4 lg:px-6">Loading popular shows...</div>
+		{/if}
+	{:then popularTV}
 		{#if popularTV.length > 0}
 			<MediaRow row={{ id: 'popular-tv', title: 'Popular TV Shows', subtitle: 'Series everyone is watching', items: popularTV }} />
+		{/if}
+	{:catch}
+		{#if data.hasOverseerr}
+			<div class="px-3 text-sm text-[var(--color-muted)] sm:px-4 lg:px-6">Popular shows are unavailable right now.</div>
 		{/if}
 	{/await}
 </div>

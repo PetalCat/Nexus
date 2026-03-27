@@ -10,6 +10,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = locals.user?.id;
 
 	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const hasGameService = rommConfigs.length > 0;
 
 	// Resolve user credentials for each RomM instance
 	const rommCreds = rommConfigs.map((c) =>
@@ -40,6 +41,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		items: libraryResult.items,
 		total: libraryResult.total,
 		sortBy,
+		hasGameService,
 		platforms,
 		selectedPlatform: platformId ?? null,
 		collections

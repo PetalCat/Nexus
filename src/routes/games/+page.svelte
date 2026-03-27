@@ -393,9 +393,13 @@
 			</div>
 			<p class="font-medium">No games found</p>
 			<p class="mt-1 text-sm text-[var(--color-muted)]">
-				{data.items.length === 0 ? 'Connect RomM to see your game collection here.' : 'Try adjusting your search or filter.'}
+				{data.items.length === 0
+					? data.hasGameService
+						? 'Your game library is empty, still syncing, or RomM is unavailable right now.'
+						: 'Connect RomM to see your game collection here.'
+					: 'Try adjusting your search or filter.'}
 			</p>
-			{#if data.items.length === 0}
+			{#if data.items.length === 0 && !data.hasGameService}
 				<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 			{/if}
 		</div>
