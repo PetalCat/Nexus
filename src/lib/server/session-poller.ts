@@ -1,4 +1,5 @@
 import { getEnabledConfigs } from './services';
+import { logger } from './logger';
 import {
 	resolveNexusUserId,
 	getCredsForService,
@@ -310,7 +311,7 @@ async function pollJellyfinSessions() {
 			}
 		} catch (e) {
 			failedServiceIds.add(config.id);
-			console.error(`[poller] Failed to poll ${config.name}:`, e instanceof Error ? e.message : e);
+			logger.error('Failed to poll Jellyfin sessions', { service: config.name, err: e instanceof Error ? e.message : String(e) });
 		}
 	}
 
@@ -334,7 +335,7 @@ async function pollJellyfinSessions() {
 			closeSession(session.dbId, capDuration(session.durationMs, session.mediaDurationMs), null, false);
 			updateActivityPresence(session.userId, null);
 			activeSessions.delete(key);
-			console.log(`[poller] Auto-closed stale session for ${session.mediaTitle} (${key})`);
+			logger.info('Auto-closed stale session', { title: session.mediaTitle, key });
 		}
 	}
 }
@@ -458,7 +459,7 @@ async function pollRommStatuses() {
 					}
 				}
 			} catch (e) {
-				console.error(`[poller] RomM poll error for ${config.name}:`, e instanceof Error ? e.message : e);
+				logger.error('RomM poll error', { service: config.name, err: e instanceof Error ? e.message : String(e) });
 			}
 		}
 	}
@@ -472,13 +473,13 @@ const POLL_INTERVAL_MS = 10_000;
 
 export function startSessionPoller() {
 	if (pollInterval) return;
-	console.log('[poller] Starting session poller (Jellyfin 10s, RomM 60s)');
+	logger.info('Starting session poller', { jellyfin: '10s', romm: '60s' });
 	pollInterval = setInterval(() => {
 		pollJellyfinSessions().catch((e) =>
-			console.error('[poller] Jellyfin error:', e)
+			logger.error('Jellyfin poll error', { err: e instanceof Error ? e.message : String(e) })
 		);
 		pollRommStatuses().catch((e) =>
-			console.error('[poller] RomM error:', e)
+			logger.error('RomM poll error', { err: e instanceof Error ? e.message : String(e) })
 		);
 	}, POLL_INTERVAL_MS);
 	// Run immediately on start
@@ -489,6 +490,6 @@ export function stopSessionPoller() {
 	if (pollInterval) {
 		clearInterval(pollInterval);
 		pollInterval = null;
-		console.log('[poller] Session poller stopped');
+		logger.info('Session poller stopped');
 	}
 }

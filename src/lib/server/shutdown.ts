@@ -4,6 +4,7 @@ import { stopStatsScheduler } from './stats-scheduler';
 import { stopRecScheduler } from './rec-scheduler';
 import { stopVideoNotificationPoller } from './video-notifications';
 import { stopHealthWatchdog } from './health-watchdog';
+import { logger } from './logger';
 
 let shuttingDown = false;
 
@@ -15,7 +16,7 @@ export function registerShutdownHandler(): void {
 	const shutdown = (signal: string) => {
 		if (shuttingDown) return;
 		shuttingDown = true;
-		console.log(`[shutdown] Received ${signal}, shutting down gracefully...`);
+		logger.info('Graceful shutdown initiated', { signal });
 
 		try { stopSessionPoller(); } catch { /* already stopped */ }
 		try { stopStatsScheduler(); } catch { /* already stopped */ }
@@ -24,7 +25,7 @@ export function registerShutdownHandler(): void {
 		try { stopHealthWatchdog(); } catch { /* already stopped */ }
 		try { closeDb(); } catch { /* already closed */ }
 
-		console.log('[shutdown] Cleanup complete, exiting.');
+		logger.info('Shutdown cleanup complete, exiting');
 		process.exit(0);
 	};
 

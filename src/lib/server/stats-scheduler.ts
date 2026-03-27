@@ -1,4 +1,5 @@
 import { getActiveUserIds, rebuildStatsForUser, buildAndCacheStats } from './stats-engine';
+import { logger } from './logger';
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
@@ -24,14 +25,14 @@ function runScheduledRebuilds() {
 				rebuildStatsForUser(userId);
 			}
 		} catch (e) {
-			console.error(`[stats-scheduler] Error for user ${userId}:`, e);
+			logger.error('Stats rebuild error', { userId, err: e instanceof Error ? e.message : String(e) });
 		}
 	}
 }
 
 export function startStatsScheduler() {
 	if (schedulerInterval) return;
-	console.log('[stats-scheduler] Starting stats rebuild scheduler (5min interval)');
+	logger.info('Starting stats rebuild scheduler', { interval: '5min' });
 	schedulerInterval = setInterval(runScheduledRebuilds, 5 * 60 * 1000);
 	// Run first rebuild after 30 seconds (let the app finish booting)
 	setTimeout(runScheduledRebuilds, 30_000);
