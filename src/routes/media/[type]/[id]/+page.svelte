@@ -976,7 +976,7 @@
 	<div class="page-body">
 
 		<!-- ─── SEASON PICKER + EPISODES ─── -->
-		{#if seasons.length > 0 || episodes.length > 0}
+		{#if item.type === 'show' || item.type === 'episode' || seasons.length > 0 || episodes.length > 0}
 			<section class="sect">
 				<!-- Season tabs -->
 				{#if seasons.length > 1}
@@ -1081,6 +1081,10 @@
 						</a>
 					{/each}
 				</div>
+				{:else if item.type === 'show' || item.type === 'episode'}
+					<div class="rounded-2xl border border-[rgba(240,235,227,0.08)] bg-[var(--color-surface)]/70 px-5 py-6 text-sm text-[var(--color-muted)]">
+						Episode data is unavailable right now. The title loaded, but season details did not come back from Jellyfin.
+					</div>
 				{/if}
 			</section>
 		{/if}
@@ -1469,32 +1473,49 @@
 				</section>
 			{/if}
 
+			<!-- Format pills -->
+			{#if bookFormats.length > 0}
+				<section class="sect">
+					<div class="book-format-pills">
+						{#each bookFormats as fmt (fmt.name)}
+							{@const fmtUpper = fmt.name.toUpperCase()}
+							{@const isReadable = fmtUpper === 'EPUB' || fmtUpper === 'PDF'}
+							<a
+								href={isReadable ? `/books/read/${item.sourceId}?service=${data.serviceId}&format=${fmt.name.toLowerCase()}` : `/api/books/${item.sourceId}/download/${fmt.name}`}
+								class="book-format-pill"
+							>
+								{#if fmtUpper === 'EPUB'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+								{:else if fmtUpper === 'PDF'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+								{:else}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+								{/if}
+								{fmtUpper}
+							</a>
+						{/each}
+					</div>
+				</section>
+			{/if}
+
+			<!-- Reading progress -->
+			{#if item.progress != null && item.progress > 0 && item.progress < 1}
+				<section class="sect">
+					<div class="book-progress-track">
+						<div class="book-progress-fill" style="width: {item.progress * 100}%"></div>
+					</div>
+					<div class="book-progress-actions">
+						<a href="/books/read/{item.sourceId}?service={data.serviceId}" class="book-continue-btn">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
+							Continue Reading ({Math.round(item.progress * 100)}%)
+						</a>
+					</div>
+				</section>
+			{/if}
+
 			<!-- Book actions -->
 			<section class="sect">
-				<!-- Format picker: always show available formats -->
-				{#if bookFormats.length > 0}
-					<div class="book-format-picker">
-						<span class="book-format-label">Available formats</span>
-						<div class="book-format-options">
-							{#each bookFormats as fmt}
-								{@const fmtUpper = fmt.name.toUpperCase()}
-								{@const isReadable = fmtUpper === 'EPUB' || fmtUpper === 'PDF'}
-								<a href="/books/read/{item.sourceId}?service={data.serviceId}&format={fmt.name.toLowerCase()}" class="book-format-chip {fmtUpper === 'EPUB' ? 'book-format-chip--active' : ''}">
-									{#if fmtUpper === 'EPUB'}
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-									{:else if fmtUpper === 'PDF'}
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-									{:else}
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-									{/if}
-									{isReadable ? `Read ${fmtUpper}` : `Download ${fmtUpper}`}
-								</a>
-							{/each}
-						</div>
-					</div>
-				{/if}
-
-				<div class="book-actions" style="margin-top: 0.75rem">
+				<div class="book-actions">
 					<button
 						class="book-action-btn"
 						class:book-action-btn--read={currentReadStatus}
@@ -1570,7 +1591,7 @@
 				</div>
 				{#if bookNotes.length > 0}
 					<div class="book-notes-list">
-						{#each bookNotes as note}
+						{#each bookNotes as note (note.id ?? note.updatedAt)}
 							<div class="book-note-card">
 								<p class="book-note-text">{note.content}</p>
 								<span class="book-note-date">{new Date(note.updatedAt).toLocaleDateString()}</span>
@@ -1580,23 +1601,30 @@
 				{/if}
 			</section>
 
-			<!-- Highlights -->
-			{#if bookHighlights.length > 0}
+			<!-- Annotations (Highlights + Bookmarks) -->
+			{#if bookHighlights.length > 0 || bookBookmarks.length > 0}
 				<section class="sect">
 					<h2 class="sect__title" style="margin-bottom:0.75rem">
-						Highlights
-						<span class="sect__count">{bookHighlights.length}</span>
+						Your Annotations
+						<span class="sect__count">{bookHighlights.length + bookBookmarks.length}</span>
 					</h2>
-					<div class="book-highlights-list">
-						{#each bookHighlights as hl}
+					<div class="book-annotations-list">
+						{#each bookHighlights as hl (hl.id)}
 							<div class="book-highlight-card" style="border-left-color: {hl.color ?? 'var(--color-accent)'}">
+								<div class="book-annotation-meta">
+									<span class="book-highlight-dot" style="background: {hl.color ?? 'var(--color-accent)'}"></span>
+									{hl.chapter ?? 'Highlight'}
+								</div>
 								<p class="book-highlight-text">"{hl.text}"</p>
-								{#if hl.chapter}
-									<span class="book-highlight-chapter">{hl.chapter}</span>
-								{/if}
 								{#if hl.note}
 									<p class="book-highlight-note">{hl.note}</p>
 								{/if}
+							</div>
+						{/each}
+						{#each bookBookmarks as b (b.id)}
+							<div class="book-bookmark-card">
+								<span class="book-bookmark-icon">&#128278;</span>
+								<span class="book-bookmark-label">{b.label ?? b.cfi}</span>
 							</div>
 						{/each}
 					</div>
@@ -1610,22 +1638,22 @@
 						In This Series
 						<span class="sect__count">{bookRelated.sameSeries.length + 1} books</span>
 					</h2>
-					<div class="sim-scroll">
-						{#each bookRelated.sameSeries as book}
+					<div class="book-series-scroll">
+						{#each bookRelated.sameSeries as book (book.id)}
 							{@const isCurrent = book.sourceId === item.sourceId}
-							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="sim" class:sim--current={isCurrent}>
-								<div class="sim__poster">
+							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="book-series-item" class:book-series-item--current={isCurrent}>
+								<div class="book-series-poster">
 									{#if book.poster}
 										<img src={book.poster} alt={book.title} loading="lazy" />
 									{:else}
-										<div class="sim__empty">
-											<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+										<div class="book-series-empty">
+											<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
 										</div>
 									{/if}
 								</div>
-								<p class="sim__name">{book.title}</p>
+								<p class="book-series-name">{book.title}</p>
 								{#if book.metadata?.seriesIndex}
-									<p class="sim__year">Book {book.metadata.seriesIndex}</p>
+									<p class="book-series-idx">Book {book.metadata.seriesIndex}</p>
 								{/if}
 							</a>
 						{/each}
@@ -1637,23 +1665,23 @@
 			{#if bookRelated.sameAuthor && bookRelated.sameAuthor.length > 0}
 				<section class="sect">
 					<h2 class="sect__title" style="margin-bottom:0.75rem">
-						More by {bookAuthor}
+						More by {bookAuthor || 'This Author'}
 						<span class="sect__count">{bookRelated.sameAuthor.length} books</span>
 					</h2>
-					<div class="sim-scroll">
-						{#each bookRelated.sameAuthor as book}
-							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="sim">
-								<div class="sim__poster">
+					<div class="book-series-scroll">
+						{#each bookRelated.sameAuthor as book (book.id)}
+							<a href="/media/book/{book.sourceId}?service={book.serviceId}" class="book-series-item">
+								<div class="book-series-poster">
 									{#if book.poster}
 										<img src={book.poster} alt={book.title} loading="lazy" />
 									{:else}
-										<div class="sim__empty">
-											<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+										<div class="book-series-empty">
+											<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.15"><path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/></svg>
 										</div>
 									{/if}
 								</div>
-								<p class="sim__name">{book.title}</p>
-								{#if book.year}<p class="sim__year">{book.year}</p>{/if}
+								<p class="book-series-name">{book.title}</p>
+								{#if book.year}<p class="book-series-idx">{book.year}</p>{/if}
 							</a>
 						{/each}
 					</div>
@@ -2967,19 +2995,39 @@
 	.book-action-btn--primary { background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.2); color: var(--color-accent); }
 	.book-action-btn--primary:hover { background: rgba(212,162,83,0.2); border-color: rgba(212,162,83,0.3); }
 	.book-action-btn--read { color: var(--color-steel); border-color: rgba(61,143,132,0.2); background: rgba(61,143,132,0.08); }
-	.book-format-picker { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-	.book-format-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-muted); }
-	.book-format-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-	.book-format-chip {
-		display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; border-radius: 10px;
-		font-size: 0.8rem; font-weight: 500; text-decoration: none; transition: all 0.15s ease;
-		background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); color: var(--color-cream);
+	/* Format pills */
+	.book-format-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+	.book-format-pill {
+		display: inline-flex; align-items: center; gap: 0.35rem;
+		padding: 0.375rem 0.75rem; border-radius: 9999px;
+		font-size: 0.75rem; font-weight: 500; text-decoration: none;
+		background: var(--color-surface, rgba(255,255,255,0.03));
+		border: 1px solid rgba(255,255,255,0.08);
+		color: var(--color-muted); transition: all 0.15s ease;
 	}
-	.book-format-chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
-	.book-format-chip--active {
-		background: rgba(212,162,83,0.12); border-color: rgba(212,162,83,0.25); color: var(--color-accent);
+	.book-format-pill:hover {
+		border-color: rgba(212,162,83,0.2);
+		color: var(--color-cream);
 	}
-	.book-format-chip--active:hover { background: rgba(212,162,83,0.2); border-color: rgba(212,162,83,0.35); }
+	/* Reading progress */
+	.book-progress-track {
+		height: 6px; width: 100%; border-radius: 9999px;
+		background: var(--color-surface, rgba(255,255,255,0.04));
+	}
+	.book-progress-fill {
+		height: 100%; border-radius: 9999px;
+		background: var(--color-accent);
+		transition: width 0.3s ease;
+	}
+	.book-progress-actions { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+	.book-continue-btn {
+		display: inline-flex; align-items: center; gap: 0.5rem;
+		padding: 0.625rem 1.25rem; border-radius: 12px;
+		font-size: 0.82rem; font-weight: 500; text-decoration: none;
+		background: var(--color-accent); color: var(--color-void, #0a0a12);
+		transition: background 0.2s;
+	}
+	.book-continue-btn:hover { filter: brightness(1.1); }
 	.book-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
 	.book-meta-card { padding: 0.65rem 0.85rem; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); }
 	.book-meta-label { display: block; font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); margin-bottom: 0.25rem; }
@@ -2997,15 +3045,49 @@
 	.book-note-card { padding: 0.75rem 1rem; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); }
 	.book-note-text { font-size: 0.82rem; color: var(--color-cream); line-height: 1.5; margin: 0; }
 	.book-note-date { display: block; margin-top: 0.35rem; font-size: 0.68rem; color: var(--color-faint); }
-	.book-highlights-list { display: flex; flex-direction: column; gap: 0.5rem; }
+	.book-annotations-list { display: flex; flex-direction: column; gap: 0.5rem; }
 	.book-highlight-card {
 		padding: 0.75rem 1rem; border-radius: 8px;
 		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
 		border-left: 3px solid var(--color-accent);
 	}
-	.book-highlight-text { font-size: 0.82rem; color: var(--color-cream); line-height: 1.5; font-style: italic; margin: 0; }
-	.book-highlight-chapter { display: inline-block; margin-top: 0.35rem; font-size: 0.68rem; color: var(--color-muted); font-weight: 500; }
+	.book-annotation-meta {
+		display: flex; align-items: center; gap: 0.5rem;
+		font-size: 0.68rem; color: var(--color-faint);
+	}
+	.book-highlight-dot {
+		display: inline-block; width: 8px; height: 8px; border-radius: 9999px; flex-shrink: 0;
+	}
+	.book-highlight-text { font-size: 0.82rem; color: var(--color-cream); line-height: 1.5; font-style: italic; margin: 0.35rem 0 0; }
 	.book-highlight-note { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--color-muted); line-height: 1.4; }
+	.book-bookmark-card {
+		display: flex; align-items: center; gap: 0.5rem;
+		padding: 0.75rem 1rem; border-radius: 8px;
+		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
+		font-size: 0.82rem; color: var(--color-muted);
+	}
+	.book-bookmark-icon { font-size: 0.9rem; }
+	.book-bookmark-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	/* Series / Author scroll */
+	.book-series-scroll {
+		display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem;
+		scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
+	}
+	.book-series-item {
+		flex-shrink: 0; width: 5rem; text-align: center; text-decoration: none;
+	}
+	.book-series-item--current { opacity: 0.6; pointer-events: none; }
+	.book-series-poster {
+		aspect-ratio: 2/3; width: 100%; border-radius: 8px; overflow: hidden;
+		background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
+	}
+	.book-series-poster img { width: 100%; height: 100%; object-fit: cover; }
+	.book-series-empty { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+	.book-series-item--current .book-series-poster {
+		outline: 2px solid var(--color-accent); outline-offset: 2px;
+	}
+	.book-series-name { margin-top: 0.25rem; font-size: 0.72rem; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.book-series-idx { font-size: 0.65rem; color: var(--color-faint); margin: 0; }
 	.sim--current { opacity: 0.5; pointer-events: none; }
 	.sim--current .sim__poster { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 8px; }
 </style>
