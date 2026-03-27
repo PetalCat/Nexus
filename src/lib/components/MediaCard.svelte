@@ -69,6 +69,8 @@
 				class="h-full w-full object-cover transition-opacity duration-300"
 				onerror={() => (imgError = true)}
 				loading="lazy"
+				decoding="async"
+				fetchpriority="low"
 			/>
 		{:else}
 			<div class="flex h-full w-full flex-col items-center justify-center gap-3 p-4">

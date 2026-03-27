@@ -1,14 +1,7 @@
 <script lang="ts">
-	import {
-		Chart as ChartJS,
-		DoughnutController,
-		ArcElement,
-		Tooltip,
-		Legend
-	} from 'chart.js';
+	import { browser } from '$app/environment';
 	import type { ComputedStats } from '$lib/server/stats-engine';
-
-	ChartJS.register(DoughnutController, ArcElement, Tooltip, Legend);
+	import type { Chart as ChartJS } from 'chart.js';
 
 	interface Props {
 		stats: ComputedStats;
@@ -51,12 +44,31 @@
 
 	let canvas: HTMLCanvasElement;
 	let chart: ChartJS | undefined;
+	let chartReady = $state(false);
 
-	function buildChart() {
+	async function ensureChartJs() {
+		if (chartReady || !browser) return;
+
+		const {
+			Chart,
+			DoughnutController,
+			ArcElement,
+			Tooltip,
+			Legend
+		} = await import('chart.js');
+
+		Chart.register(DoughnutController, ArcElement, Tooltip, Legend);
+		chartReady = true;
+		return Chart;
+	}
+
+	async function buildChart() {
 		if (!canvas) return;
+		const Chart = await ensureChartJs();
+		if (!Chart || !canvas) return;
 		chart?.destroy();
 
-		chart = new ChartJS(canvas, {
+		chart = new Chart(canvas, {
 			type: 'doughnut',
 			data: {
 				labels: chartInfo.labels,
@@ -87,8 +99,9 @@
 	}
 
 	$effect(() => {
+		if (!browser) return;
 		stats; // track reactivity
-		buildChart();
+		void buildChart();
 		return () => chart?.destroy();
 	});
 </script>

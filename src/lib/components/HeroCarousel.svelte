@@ -33,23 +33,15 @@
 		}
 	}
 
-	// Auto-advance timer
+	// Avoid rotating during initial page load. Competing hero requests hurt LCP.
 	$effect(() => {
 		if (paused || items.length <= 1) return;
 
 		const interval = setInterval(() => {
 			currentIndex = (currentIndex + 1) % items.length;
-		}, autoAdvanceMs);
+		}, Math.max(autoAdvanceMs, 15000));
 
 		return () => clearInterval(interval);
-	});
-
-	// Preload next backdrop image
-	$effect(() => {
-		if (nextItem?.backdrop) {
-			const img = new Image();
-			img.src = nextItem.backdrop;
-		}
 	});
 </script>
 
@@ -76,6 +68,9 @@
 					alt={current.title}
 					class="hero-fade absolute inset-0 h-full w-full object-cover"
 					style="transform: scale(1.02)"
+					loading={currentIndex === 0 ? 'eager' : 'lazy'}
+					fetchpriority={currentIndex === 0 ? 'high' : 'auto'}
+					decoding="async"
 				/>
 			{:else}
 				<div class="hero-fade absolute inset-0" style="background: linear-gradient(135deg, var(--color-raised) 0%, var(--color-deep) 50%, var(--color-base) 100%)">

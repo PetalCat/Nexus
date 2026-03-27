@@ -26,9 +26,17 @@
 					<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
 				</svg>
 			</div>
-			<h2 class="text-display text-xl font-semibold">No services connected</h2>
-			<p class="mt-2 text-sm text-[var(--color-muted)]">Add your media services to populate your dashboard.</p>
-			<a href="/settings/accounts" class="btn btn-primary mt-6">Configure Services</a>
+			<h2 class="text-display text-xl font-semibold">
+				{data.hasServices ? 'Your dashboard is still warming up' : 'No services connected'}
+			</h2>
+			<p class="mt-2 text-sm text-[var(--color-muted)]">
+				{data.hasServices
+					? 'Your services are connected, but there is no dashboard content available yet. They may still be syncing or temporarily unavailable.'
+					: 'Add your media services to populate your dashboard.'}
+			</p>
+			{#if !data.hasServices}
+				<a href="/settings/accounts" class="btn btn-primary mt-6">Configure Services</a>
+			{/if}
 		</div>
 	{:else}
 		<div class="mt-6 flex flex-col gap-10 pb-8">
