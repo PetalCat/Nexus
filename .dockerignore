@@ -1,0 +1,14 @@
+# .dockerignore
+node_modules
+.svelte-kit
+build
+.git
+*.db
+*.db-wal
+*.db-shm
+docs
+e2e
+.github
+.env
+.env.*
+!.env.example
