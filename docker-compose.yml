@@ -1,0 +1,19 @@
+# docker-compose.yml
+services:
+  nexus:
+    image: ghcr.io/parkerbugg/nexus:latest
+    build: .
+    ports:
+      - "${PORT:-8585}:${PORT:-8585}"
+    volumes:
+      - nexus-data:/app/data
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${PORT:-8585}/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  nexus-data:
