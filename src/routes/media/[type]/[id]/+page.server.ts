@@ -8,6 +8,7 @@ import { getRomSaves, getRomStates, getRomScreenshots } from '$lib/adapters/romm
 import { isPlayableInBrowser } from '$lib/emulator/cores';
 import { getRelatedBooks, getCalibreBookFormats } from '$lib/adapters/calibre';
 import { emitMediaAction } from '$lib/server/analytics';
+import { resolveTrailerUrl } from '$lib/server/trailers';
 import { getUserWatchlist } from '$lib/server/social';
 import { getUserRating, getMediaRatingStats } from '$lib/server/ratings';
 import type { UnifiedMedia } from '$lib/adapters/types';
@@ -376,6 +377,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const userRating = userId ? getUserRating(userId, params.id, serviceId) : null;
 	const ratingStats = await getMediaRatingStats(params.id, serviceId);
 
+	// ── Trailer resolution ──────────────────────────────────────────────
+	const trailerUrl = await resolveTrailerUrl(
+		params.id,
+		serviceId,
+		item.title,
+		item.year,
+		(item.metadata?.trailerUrl as string) ?? null,
+		userId
+	);
+
 	return {
 		item,
 		serviceType: resolvedServiceType,
@@ -406,6 +417,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		inWatchlist,
 		watchlistItemId,
 		userRating,
-		ratingStats
+		ratingStats,
+		trailerUrl
 	};
 };
