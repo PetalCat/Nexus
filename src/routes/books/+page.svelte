@@ -7,8 +7,10 @@
 	import BookshelfView from '$lib/components/books/BookshelfView.svelte';
 	import BookListRow from '$lib/components/books/BookListRow.svelte';
 	import SeriesCard from '$lib/components/books/SeriesCard.svelte';
+	import SeriesCollapsedCard from '$lib/components/books/SeriesCollapsedCard.svelte';
 	import AuthorCard from '$lib/components/books/AuthorCard.svelte';
-	// ReadingStatsWidget imported lazily only when there's reading data
+	import BookCardSkeleton from '$lib/components/books/BookCardSkeleton.svelte';
+	import ReadingStatsCard from '$lib/components/books/ReadingStatsCard.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -27,6 +29,7 @@
 
 	let viewMode = $state<'grid' | 'list' | 'shelf'>('grid');
 	let localQuery = $state('');
+	let collapseSeries = $state(false);
 
 	const filtered = $derived(
 		localQuery
@@ -35,6 +38,77 @@
 	);
 
 	const activeTab = $derived(data.tab);
+
+	type DisplayEntry = { type: 'book'; item: UnifiedMedia } | { type: 'series'; name: string; books: UnifiedMedia[] };
+
+	const displayItems: DisplayEntry[] = $derived.by(() => {
+		if (!collapseSeries || activeTab !== 'all') return filtered.map(item => ({ type: 'book' as const, item }));
+
+		const seriesMap = new Map<string, UnifiedMedia[]>();
+		const standalone: DisplayEntry[] = [];
+
+		for (const item of filtered) {
+			const series = item.metadata?.series as string | undefined;
+			if (series) {
+				if (!seriesMap.has(series)) seriesMap.set(series, []);
+				seriesMap.get(series)!.push(item);
+			} else {
+				standalone.push({ type: 'book', item });
+			}
+		}
+
+		const result: DisplayEntry[] = [];
+		for (const [name, books] of seriesMap) {
+			if (books.length > 1) {
+				result.push({ type: 'series', name, books });
+			} else {
+				result.push({ type: 'book', item: books[0] });
+			}
+		}
+		return [...result, ...standalone];
+	});
+
+	// --- Virtual scrolling for grid view ---
+	const CARD_HEIGHT = 240;
+	const VIRTUAL_THRESHOLD = 100;
+
+	let gridContainer = $state<HTMLDivElement | undefined>(undefined);
+	let visibleRange = $state({ start: 0, end: 60 });
+
+	const useVirtualScrolling = $derived(viewMode === 'grid' && displayItems.length >= VIRTUAL_THRESHOLD);
+
+	const cols = $derived.by(() => {
+		if (!gridContainer) return 4;
+		return Math.max(1, Math.floor(gridContainer.clientWidth / 160));
+	});
+
+	function updateVisibleRange() {
+		if (!gridContainer) return;
+		const scrollTop = window.scrollY;
+		const containerTop = gridContainer.getBoundingClientRect().top + scrollTop;
+		const relativeScroll = scrollTop - containerTop;
+		const viewportHeight = window.innerHeight;
+		const currentCols = Math.max(1, Math.floor(gridContainer.clientWidth / 160));
+		const startRow = Math.floor(Math.max(0, relativeScroll - viewportHeight) / CARD_HEIGHT);
+		const endRow = Math.ceil((relativeScroll + viewportHeight * 2) / CARD_HEIGHT);
+		visibleRange = {
+			start: Math.max(0, startRow * currentCols),
+			end: Math.min(displayItems.length, endRow * currentCols + currentCols)
+		};
+	}
+
+	$effect(() => {
+		if (!useVirtualScrolling) return;
+		updateVisibleRange();
+		const onScroll = () => updateVisibleRange();
+		const onResize = () => updateVisibleRange();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		window.addEventListener('resize', onResize, { passive: true });
+		return () => {
+			window.removeEventListener('scroll', onScroll);
+			window.removeEventListener('resize', onResize);
+		};
+	});
 
 	// Build query string preserving current params
 	function buildUrl(overrides: Record<string, string>): string {
@@ -73,6 +147,13 @@
 	{#if data.recentlyAdded.length > 0 && data.total >= 10}
 		<div class="mt-6">
 			<MediaRow row={{ id: 'recently-added', title: 'Recently Added', subtitle: 'Latest additions to your library', items: data.recentlyAdded }} />
+		</div>
+	{/if}
+
+	<!-- Reading Stats -->
+	{#if data.readingStats && (data.readingStats.booksThisYear > 0 || data.readingStats.pagesThisMonth > 0)}
+		<div class="mt-6 px-3 sm:px-4 lg:px-6">
+			<ReadingStatsCard {...data.readingStats} />
 		</div>
 	{/if}
 
@@ -197,6 +278,22 @@
 				<!-- Spacer -->
 				<div class="hidden sm:flex sm:flex-1"></div>
 
+				<!-- Collapse series toggle -->
+				{#if data.series.length > 0}
+					<button
+						onclick={() => collapseSeries = !collapseSeries}
+						class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all {collapseSeries
+							? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+							: 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
+						aria-label="Collapse series"
+					>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M4 6h4v4H4zM4 14h4v4H4zM14 6h6M14 10h4M14 14h6M14 18h4"/>
+						</svg>
+						Series
+					</button>
+				{/if}
+
 				<!-- View mode toggle -->
 				<div class="flex items-center gap-1 rounded-lg bg-[var(--color-surface)] p-1">
 					<button
@@ -247,9 +344,13 @@
 					</div>
 					<p class="font-medium">No books found</p>
 					<p class="mt-1 text-sm text-[var(--color-muted)]">
-						{data.items.length === 0 ? 'Connect Calibre to see your book collection here.' : 'Try adjusting your filters.'}
+						{data.items.length === 0
+							? data.hasBookService
+								? 'Your book library is empty, still syncing, or Calibre is unavailable right now.'
+								: 'Connect Calibre to see your book collection here.'
+							: 'Try adjusting your filters.'}
 					</p>
-					{#if data.items.length === 0}
+					{#if data.items.length === 0 && !data.hasBookService}
 						<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
 					{/if}
 				</div>
@@ -262,10 +363,62 @@
 					{/each}
 				</div>
 			{:else}
-				<div class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4">
-					{#each filtered as item (item.id)}
-						<MediaCard {item} />
-					{/each}
+				<div
+					bind:this={gridContainer}
+					class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4"
+				>
+					{#if useVirtualScrolling}
+						{@const beforeHeight = Math.floor(visibleRange.start / cols) * CARD_HEIGHT}
+						{@const afterItems = displayItems.length - visibleRange.end}
+						{@const afterHeight = Math.ceil(Math.max(0, afterItems) / cols) * CARD_HEIGHT}
+						{#if beforeHeight > 0}
+							<div style="height: {beforeHeight}px; grid-column: 1 / -1;"></div>
+						{/if}
+						{#each displayItems.slice(visibleRange.start, visibleRange.end) as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
+							{#if entry.type === 'series'}
+								<SeriesCollapsedCard
+									seriesName={entry.name}
+									books={entry.books}
+									onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
+								/>
+							{:else}
+								<div class="relative">
+									<MediaCard item={entry.item} />
+									{#if entry.item.metadata?.formats}
+										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
+											{#each (entry.item.metadata.formats as string[]).slice(0, 3) as fmt (fmt)}
+												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt}</span>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{/each}
+						{#if afterHeight > 0}
+							<div style="height: {afterHeight}px; grid-column: 1 / -1;"></div>
+						{/if}
+					{:else}
+						{#each displayItems as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
+							{#if entry.type === 'series'}
+								<SeriesCollapsedCard
+									seriesName={entry.name}
+									books={entry.books}
+									onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
+								/>
+							{:else}
+								<div class="relative">
+									<MediaCard item={entry.item} />
+									{#if entry.item.metadata?.formats}
+										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
+											{#each (entry.item.metadata.formats as string[]).slice(0, 3) as fmt (fmt)}
+												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt}</span>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{/each}
+					{/if}
 				</div>
 			{/if}
 		</div>
