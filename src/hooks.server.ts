@@ -1,4 +1,5 @@
 import { redirect, type Handle } from '@sveltejs/kit';
+import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
 import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
 import { startSessionPoller } from '$lib/server/session-poller';
 import { startStatsScheduler } from '$lib/server/stats-scheduler';
@@ -47,6 +48,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Always allow pre-auth paths through without session checks
 	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
 		return resolve(event);
+	}
+
+	// Rate limiting — skip health endpoint to avoid interfering with uptime checks
+	if (!path.startsWith('/api/health')) {
+		const clientIp = getClientIp(event.request);
+		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
+			(p) => path.startsWith(p)
+		);
+		const limit = isAuthEndpoint ? 10 : 60;
+		const window = 60_000; // 1 minute
+
+		if (!checkRateLimit(clientIp, limit, window)) {
+			return new Response(JSON.stringify({ error: 'Too many requests' }), {
+				status: 429,
+				headers: { 'Content-Type': 'application/json', 'Retry-After': '60' }
+			});
+		}
 	}
 
 	// First-run: no users yet → must set up an account
