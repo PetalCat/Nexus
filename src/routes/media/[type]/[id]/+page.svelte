@@ -10,6 +10,7 @@
 	import AchievementProgress from '$lib/components/games/AchievementProgress.svelte';
 	import AchievementCard from '$lib/components/games/AchievementCard.svelte';
 	import GameNotes from '$lib/components/games/GameNotes.svelte';
+	import HeroSection from '$lib/components/HeroSection.svelte';
 	import WatchlistButton from '$lib/components/WatchlistButton.svelte';
 	import AddToCollectionModal from '$lib/components/AddToCollectionModal.svelte';
 	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo, FolderPlus } from 'lucide-svelte';
@@ -650,17 +651,11 @@
 	     HERO
 	     ═══════════════════════════════════════════ -->
 	{#if !(isPlayable && !isAudioType && (showPlayer || autoplay))}
-		<header class="hero">
-			<!-- Backdrop -->
-			<div class="hero__bg">
-				{#if item.backdrop}
-					<img src={item.backdrop} alt="" class="hero__bg-img" />
-				{:else if item.poster}
-					<img src={item.poster} alt="" class="hero__bg-img hero__bg-img--blur" />
-				{/if}
-				<div class="hero__grad"></div>
-			</div>
-
+		<HeroSection
+			mode="detail"
+			backdrop={item.backdrop ?? item.poster}
+			trailerUrl={data.trailerUrl}
+		>
 			<!-- Play trigger overlay (playable video only) -->
 			{#if isPlayable && !isAudioType}
 				<button
@@ -967,7 +962,7 @@
 
 				</div>
 			</div>
-		</header>
+		</HeroSection>
 	{/if}
 
 	<!-- ═══════════════════════════════════════════
@@ -1918,14 +1913,6 @@
 		from { opacity: 0; transform: translateY(26px); }
 		to   { opacity: 1; transform: translateY(0); }
 	}
-	@keyframes heroIn {
-		from { opacity: 0; transform: scale(1.06); }
-		to   { opacity: 0.55; transform: scale(1); }
-	}
-	@keyframes heroInBlur {
-		from { opacity: 0; transform: scale(1.1); }
-		to   { opacity: 0.3; transform: scale(1.05); }
-	}
 	@keyframes glowPulse {
 		0%, 100% { box-shadow: 0 0 0 0 rgba(124, 108, 248, 0.35); }
 		50%      { box-shadow: 0 0 0 14px rgba(124, 108, 248, 0); }
@@ -1953,49 +1940,8 @@
 	.detail-page { min-height: 100vh; }
 
 	/* ═══════════════════════════════════════
-	   HERO
+	   HERO (content layer — backdrop & gradients handled by HeroSection)
 	   ═══════════════════════════════════════ */
-	.hero {
-		position: relative;
-		min-height: 55vh;
-		display: flex;
-		align-items: flex-end;
-		overflow: hidden;
-	}
-	@media (min-width: 768px)  { .hero { min-height: 72vh; } }
-	@media (min-width: 1024px) { .hero { min-height: 78vh; } }
-
-	/* Backdrop image */
-	.hero__bg {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-	}
-	.hero__bg-img {
-		width: 100%; height: 100%;
-		object-fit: cover;
-		opacity: 0;
-		animation: heroIn 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
-	}
-	.hero__bg-img--blur {
-		filter: blur(48px) saturate(1.3);
-		animation-name: heroInBlur;
-	}
-	.hero__grad {
-		position: absolute; inset: 0;
-		background:
-			linear-gradient(to top,
-				var(--color-void) 0%,
-				color-mix(in oklch, var(--color-void) 92%, transparent) 12%,
-				color-mix(in oklch, var(--color-void) 65%, transparent) 35%,
-				transparent 60%),
-			linear-gradient(to right,
-				color-mix(in oklch, var(--color-void) 88%, transparent) 0%,
-				transparent 65%),
-			linear-gradient(to bottom,
-				color-mix(in oklch, var(--color-void) 35%, transparent) 0%,
-				transparent 18%);
-	}
 
 	/* Play trigger */
 	.hero__play-trigger {
@@ -2034,9 +1980,12 @@
 		height: 100%; background: var(--color-accent); border-radius: 2px;
 	}
 
-	/* Hero content overlay */
+	/* Hero content overlay — sits inside HeroSection's .hero-content (relative, z-index:5, height:100%) */
 	.hero__content {
-		position: relative; z-index: 10; width: 100%;
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: flex-end;
 		padding: 1.75rem 1.25rem;
 	}
 	@media (min-width: 640px) { .hero__content { padding: 2.25rem 1.75rem; } }
