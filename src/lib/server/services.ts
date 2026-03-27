@@ -4,9 +4,9 @@ import { registry } from '../adapters/registry';
 import type { DashboardRow, ServiceConfig, ServiceHealth, UnifiedMedia, UserCredential } from '../adapters/types';
 import { getStreamyStatsRecommendations } from '../adapters/streamystats';
 import { importJellyfinUser } from '../adapters/overseerr';
-import { getDb, schema } from '../db';
+import { getDb, getRawDb, schema } from '../db';
 import { getAllUsers, getUserCredentialForService, upsertUserCredential } from './auth';
-import { withCache, invalidate } from './cache';
+import { withCache, withStaleCache, invalidate } from './cache';
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -209,9 +209,9 @@ export async function getDashboardFast(userId?: string): Promise<DashboardRow[]>
 
 	const [continueWatching, newInLibrary] = await Promise.all([
 		userId
-			? withCache(`cw:${userId}`, 30_000, () => aggregateContinueWatching(configs, userId))
+			? withStaleCache(`cw:${userId}`, 30_000, 5 * 60_000, () => aggregateContinueWatching(configs, userId))
 			: Promise.resolve([]),
-		withCache('new-in-library', 60_000, () => aggregateRecentlyAdded(libraryConfigs, userId))
+		withStaleCache('new-in-library', 60_000, 10 * 60_000, () => aggregateRecentlyAdded(libraryConfigs, userId))
 	]);
 
 	const rows: DashboardRow[] = [];
@@ -375,6 +375,93 @@ async function aggregateRecentlyAdded(configs: ServiceConfig[], userId?: string)
 	return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
 }
 
+function getCachedLibraryItemsFromDb(opts?: {
+	type?: string;
+	limit?: number;
+	offset?: number;
+	sortBy?: string;
+}): { items: UnifiedMedia[]; total: number } | null {
+	if (!opts?.type || !['movie', 'show'].includes(opts.type)) return null;
+
+	const jellyfinServiceIds = getEnabledConfigs()
+		.filter((c) => c.type === 'jellyfin')
+		.map((c) => c.id);
+
+	if (jellyfinServiceIds.length === 0) return null;
+
+	const raw = getRawDb();
+	const placeholders = jellyfinServiceIds.map(() => '?').join(', ');
+	const sortBy = opts.sortBy ?? 'title';
+	const orderBy = sortBy === 'year'
+		? 'year DESC, sort_title COLLATE NOCASE ASC, title COLLATE NOCASE ASC'
+		: sortBy === 'rating'
+			? 'rating DESC, sort_title COLLATE NOCASE ASC, title COLLATE NOCASE ASC'
+			: sortBy === 'added'
+				? 'cached_at DESC, title COLLATE NOCASE ASC'
+				: 'sort_title COLLATE NOCASE ASC, title COLLATE NOCASE ASC';
+
+	const totalRow = raw.prepare(
+		`SELECT COUNT(*) as count
+		 FROM media_items
+		 WHERE type = ?
+		   AND service_id IN (${placeholders})`
+	).get(opts.type, ...jellyfinServiceIds) as { count: number } | undefined;
+
+	const rows = raw.prepare(
+		`SELECT source_id as sourceId, service_id as serviceId, type, title, sort_title as sortTitle,
+		        description, poster, backdrop, year, rating, genres, studios, duration, status
+		 FROM media_items
+		 WHERE type = ?
+		   AND service_id IN (${placeholders})
+		 ORDER BY ${orderBy}
+		 LIMIT ? OFFSET ?`
+	).all(
+		opts.type,
+		...jellyfinServiceIds,
+		opts.limit ?? 50,
+		opts.offset ?? 0
+	) as Array<{
+		sourceId: string;
+		serviceId: string;
+		type: string;
+		title: string;
+		sortTitle: string | null;
+		description: string | null;
+		poster: string | null;
+		backdrop: string | null;
+		year: number | null;
+		rating: number | null;
+		genres: string | null;
+		studios: string | null;
+		duration: number | null;
+		status: string | null;
+	}>;
+
+	if ((totalRow?.count ?? 0) === 0) return null;
+
+	return {
+		items: rows.map((row) => ({
+			id: `${row.sourceId}:${row.serviceId}`,
+			sourceId: row.sourceId,
+			serviceId: row.serviceId,
+			serviceType: 'jellyfin',
+			type: row.type as UnifiedMedia['type'],
+			title: row.title,
+			sortTitle: row.sortTitle ?? undefined,
+			description: row.description ?? undefined,
+			poster: row.poster ?? undefined,
+			backdrop: row.backdrop ?? undefined,
+			year: row.year ?? undefined,
+			rating: row.rating ?? undefined,
+			genres: row.genres ? JSON.parse(row.genres) as string[] : [],
+			studios: row.studios ? JSON.parse(row.studios) as string[] : [],
+			duration: row.duration ?? undefined,
+			status: (row.status ?? 'available') as UnifiedMedia['status']
+		})),
+		total: totalRow?.count ?? 0
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Library browsing
 // ---------------------------------------------------------------------------
@@ -386,6 +473,9 @@ export async function getLibraryItems(opts?: {
 	sortBy?: string;
 	platformId?: number;
 }, userId?: string): Promise<{ items: UnifiedMedia[]; total: number }> {
+	const dbCached = getCachedLibraryItemsFromDb(opts);
+	if (dbCached) return dbCached;
+
 	// Library only shows content from actual media servers — not discovery or automation services
 	let configs = getEnabledConfigs().filter((c) => LIBRARY_TYPES.has(c.type));
 	// When filtering by media type, only query adapters that provide that type
@@ -395,8 +485,8 @@ export async function getLibraryItems(opts?: {
 			return adapter?.mediaTypes?.includes(opts.type as any);
 		});
 	}
-	const cacheKey = `library:${opts?.type ?? 'all'}:${opts?.offset ?? 0}:${opts?.limit ?? 50}:${opts?.sortBy ?? 'default'}:${opts?.platformId ?? ''}`;
-	return withCache(cacheKey, 60_000, async () => {
+	const cacheKey = `library:${userId ?? 'anon'}:${opts?.type ?? 'all'}:${opts?.offset ?? 0}:${opts?.limit ?? 50}:${opts?.sortBy ?? 'default'}:${opts?.platformId ?? ''}`;
+	return withStaleCache(cacheKey, 300_000, 30 * 60_000, async () => {
 	const results = await Promise.allSettled(
 		configs.map(async (config) => {
 			const adapter = registry.get(config.type);

@@ -2,6 +2,7 @@ import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getSession as getCalibreSession } from '$lib/adapters/calibre';
+import { withStaleCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
 /**
@@ -41,6 +42,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		} else if (config.username && config.password) {
 			headers['Authorization'] = 'Basic ' + btoa(`${config.username}:${config.password}`);
 		}
+	} else if (config.type === 'jellyfin') {
+		const token = userCred?.accessToken ?? config.apiKey ?? '';
+		headers['Authorization'] = `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-image-${config.id}", Version="1.0.0", Token="${token}"`;
+		headers['X-Emby-Token'] = token;
 	} else if (config.type === 'calibre') {
 		// Calibre-Web uses session cookies — reuse the adapter's session manager
 		try {
@@ -59,26 +64,37 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	}
 
 	const imageUrl = `${config.url}${imagePath}`;
+const cacheKey = `media-image:${locals.user.id}:${serviceId}:${imagePath}`;
+	const imageTtlMs = 15 * 60 * 1000;
+	const imageStaleTtlMs = 24 * 60 * 60 * 1000;
 
 	try {
-		const res = await fetch(imageUrl, {
-			headers,
-			signal: AbortSignal.timeout(10_000),
-			redirect: 'follow'
+		const cached = await withStaleCache(cacheKey, imageTtlMs, imageStaleTtlMs, async () => {
+			const res = await fetch(imageUrl, {
+				headers,
+				signal: AbortSignal.timeout(20_000),
+				redirect: 'follow'
+			});
+
+			if (!res.ok) {
+				throw new Error(`upstream:${res.status}`);
+			}
+
+			return {
+				body: await res.arrayBuffer(),
+				contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
+				contentLength: res.headers.get('Content-Length'),
+				lastModified: res.headers.get('Last-Modified')
+			};
 		});
 
-		if (!res.ok) {
-			return new Response('Image not found', { status: res.status });
-		}
-
 		const responseHeaders = new Headers();
-		const ct = res.headers.get('Content-Type');
-		if (ct) responseHeaders.set('Content-Type', ct);
-		const cl = res.headers.get('Content-Length');
-		if (cl) responseHeaders.set('Content-Length', cl);
-		responseHeaders.set('Cache-Control', 'public, max-age=86400');
+		responseHeaders.set('Content-Type', cached.contentType);
+		if (cached.contentLength) responseHeaders.set('Content-Length', cached.contentLength);
+		if (cached.lastModified) responseHeaders.set('Last-Modified', cached.lastModified);
+		responseHeaders.set('Cache-Control', 'private, max-age=604800, stale-while-revalidate=86400');
 
-		return new Response(res.body, { status: 200, headers: responseHeaders });
+		return new Response(cached.body.slice(0), { status: 200, headers: responseHeaders });
 	} catch {
 		return new Response('Failed to fetch image', { status: 502 });
 	}
