@@ -2,6 +2,8 @@ import { getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getAllBooks, getCalibreSeries, getCalibreCategories, getCalibreAuthors } from '$lib/adapters/calibre';
+import { getDb, schema } from '$lib/db';
+import { eq, and } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
@@ -13,7 +15,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const status = url.searchParams.get('status') ?? '';
 	const tab = url.searchParams.get('tab') ?? 'all';
 
-	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[] };
+	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[], hasBookService: false, readingStats: { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 } };
 
 	const configs = getEnabledConfigs();
 	const calibreConfig = configs.find(c => c.type === 'calibre');
@@ -58,9 +60,37 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	// Continue reading
 	const continueReading = allBooks.filter(i => i.progress && i.progress > 0 && i.progress < 1);
 
+	// Reading stats
+	let readingStats = { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 };
+	if (userId) {
+		const db = getDb();
+		const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+		const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+
+		const booksThisYear = db.select().from(schema.activity)
+			.where(and(
+				eq(schema.activity.userId, userId),
+				eq(schema.activity.type, 'read'),
+				eq(schema.activity.completed, true)
+			))
+			.all()
+			.filter(a => new Date(a.lastActivity).getTime() >= yearStart)
+			.length;
+
+		const sessionsThisMonth = db.select().from(schema.bookReadingSessions)
+			.where(eq(schema.bookReadingSessions.userId, userId))
+			.all()
+			.filter(s => s.startedAt >= monthStart);
+
+		const pagesThisMonth = sessionsThisMonth.reduce((sum, s) => sum + (s.pagesRead ?? 0), 0);
+
+		readingStats = { booksThisYear, pagesThisMonth, currentStreak: 0 };
+	}
+
 	return {
 		items: filtered,
 		total: allBooks.length,
+		hasBookService: true,
 		sortBy,
 		tab,
 		categories,
@@ -71,6 +101,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		status,
 		featuredBook,
 		recentlyAdded,
-		continueReading
+		continueReading,
+		readingStats
 	};
 };
