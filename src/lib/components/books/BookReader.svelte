@@ -5,8 +5,8 @@
 	import type { BookBookmark, BookHighlight } from '$lib/db/schema';
 	import {
 		ArrowLeft, List, Bookmark, BookmarkCheck, Settings, Search, X,
-		ChevronLeft, ChevronRight, Maximize, Minimize, Type, Sun, Moon, Sunset, Monitor,
-		ChevronDown
+		ChevronLeft, ChevronRight, Maximize, Minimize, Type,
+		ChevronDown, AlignLeft, AlignJustify
 	} from 'lucide-svelte';
 
 	interface Props {
@@ -68,9 +68,11 @@
 
 	// Reader settings (persisted in localStorage)
 	let readerTheme = $state<'dark' | 'light' | 'sepia' | 'oled'>('dark');
-	let fontFamily = $state<'serif' | 'sans' | 'mono'>('serif');
+	let fontFamily = $state<'serif' | 'sans' | 'mono' | 'display'>('serif');
 	let fontSize = $state(18);
 	let lineHeight = $state(1.6);
+	let margins = $state<'narrow' | 'medium' | 'wide'>('medium');
+	let textAlign = $state<'start' | 'justify'>('start');
 	let flow = $state<'paginated' | 'scrolled'>('paginated');
 
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,9 +88,16 @@
 	};
 
 	const fonts: Record<string, string> = {
-		serif: "'Playfair Display', Georgia, serif",
-		sans: "'DM Sans', system-ui, sans-serif",
-		mono: "'JetBrains Mono', monospace"
+		serif: "Georgia, 'Times New Roman', serif",
+		sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+		mono: "'JetBrains Mono', 'Fira Code', monospace",
+		display: "'Playfair Display', Georgia, serif"
+	};
+
+	const marginValues: Record<string, string> = {
+		narrow: '2%',
+		medium: '6%',
+		wide: '12%'
 	};
 
 	const highlightColors: Record<string, string> = {
@@ -109,6 +118,8 @@
 				if (s.fontFamily && s.fontFamily in fonts) fontFamily = s.fontFamily;
 				if (s.fontSize) fontSize = s.fontSize;
 				if (s.lineHeight) lineHeight = s.lineHeight;
+				if (s.margins && s.margins in marginValues) margins = s.margins;
+				if (s.textAlign === 'start' || s.textAlign === 'justify') textAlign = s.textAlign;
 				if (s.flow) flow = s.flow;
 			}
 		} catch { /* ignore */ }
@@ -117,13 +128,14 @@
 	function persistSettings() {
 		if (!browser) return;
 		localStorage.setItem('nexus-reader-settings', JSON.stringify({
-			theme: readerTheme, fontFamily, fontSize, lineHeight, flow
+			theme: readerTheme, fontFamily, fontSize, lineHeight, margins, textAlign, flow
 		}));
 	}
 
 	// ── Build CSS for foliate-js renderer ──
 	function getReaderCSS(): string {
 		const t = themes[readerTheme];
+		const m = marginValues[margins];
 		return `
 			@namespace epub "http://www.idpf.org/2007/ops";
 			html {
@@ -134,10 +146,12 @@
 				color: ${t.text} !important;
 				font-family: ${fonts[fontFamily]} !important;
 				font-size: ${fontSize}px !important;
+				padding-left: ${m} !important;
+				padding-right: ${m} !important;
 			}
 			p, li, blockquote, dd {
 				line-height: ${lineHeight} !important;
-				text-align: start;
+				text-align: ${textAlign} !important;
 				-webkit-hyphens: auto;
 				hyphens: auto;
 				hanging-punctuation: allow-end last;
@@ -480,7 +494,7 @@
 
 	// Re-apply styles on settings change
 	$effect(() => {
-		void readerTheme; void fontFamily; void fontSize; void lineHeight;
+		void readerTheme; void fontFamily; void fontSize; void lineHeight; void margins; void textAlign;
 		if (view && ready) applyStyles();
 	});
 
@@ -709,14 +723,18 @@
 
 			<!-- Theme -->
 			<div class="mb-5">
-				<span class="mb-2 block text-xs font-medium uppercase tracking-wider text-cream/40">Theme</span>
+				<span class="settings-label">Theme</span>
 				<div class="grid grid-cols-4 gap-2">
-					{#each [{ key: 'dark', label: 'Dark', Icon: Moon }, { key: 'light', label: 'Light', Icon: Sun }, { key: 'sepia', label: 'Sepia', Icon: Sunset }, { key: 'oled', label: 'OLED', Icon: Monitor }] as { key, label, Icon }}
+					{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'oled', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
 						<button
-							class="flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs transition-colors {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+							class="flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[10px] transition-all {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/40 hover:border-cream/20 hover:text-cream/60'}"
 							onclick={() => { readerTheme = key as typeof readerTheme; }}
 						>
-							<Icon size={14} /> {label}
+							<span
+								class="h-5 w-5 rounded-full border-2"
+								style="background-color: {bg}; border-color: {readerTheme === key ? 'var(--color-accent)' : ring};"
+							></span>
+							{label}
 						</button>
 					{/each}
 				</div>
@@ -724,11 +742,11 @@
 
 			<!-- Font Family -->
 			<div class="mb-5">
-				<span class="mb-2 block text-xs font-medium uppercase tracking-wider text-cream/40">Font</span>
-				<div class="flex gap-2">
-					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: "'DM Sans', sans-serif" }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }] as { key, label, font }}
+				<span class="settings-label">Font</span>
+				<div class="grid grid-cols-4 gap-1.5">
+					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: 'system-ui, sans-serif' }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }, { key: 'display', label: 'Display', font: "'Playfair Display', Georgia, serif" }] as { key, label, font } (key)}
 						<button
-							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+							class="rounded-lg border px-2 py-2 text-xs transition-all {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 							style="font-family: {font};"
 							onclick={() => { fontFamily = key as typeof fontFamily; }}
 						>{label}</button>
@@ -738,38 +756,70 @@
 
 			<!-- Font Size -->
 			<div class="mb-5">
-				<label for="reader-font-size" class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-cream/40">
+				<label for="reader-font-size" class="settings-label flex items-center justify-between">
 					<span>Font Size</span>
-					<span class="normal-case text-cream/60">{fontSize}px</span>
+					<span class="normal-case tracking-normal text-cream/60">{fontSize}px</span>
 				</label>
 				<div class="flex items-center gap-3">
-					<Type size={12} class="text-cream/30" />
-					<input id="reader-font-size" type="range" min="14" max="28" step="1" bind:value={fontSize} class="flex-1 accent-[var(--color-accent)]" />
-					<Type size={20} class="text-cream/30" />
+					<Type size={12} class="shrink-0 text-cream/30" />
+					<input id="reader-font-size" type="range" min="12" max="36" step="1" bind:value={fontSize} class="reader-range flex-1" />
+					<Type size={20} class="shrink-0 text-cream/30" />
 				</div>
 			</div>
 
 			<!-- Line Height -->
 			<div class="mb-5">
-				<label for="reader-line-height" class="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-wider text-cream/40">
+				<label for="reader-line-height" class="settings-label flex items-center justify-between">
 					<span>Line Height</span>
-					<span class="normal-case text-cream/60">{lineHeight.toFixed(1)}</span>
+					<span class="normal-case tracking-normal text-cream/60">{lineHeight.toFixed(1)}</span>
 				</label>
-				<input id="reader-line-height" type="range" min="1.2" max="2.0" step="0.1" bind:value={lineHeight} class="w-full accent-[var(--color-accent)]" />
+				<input id="reader-line-height" type="range" min="1.0" max="2.0" step="0.1" bind:value={lineHeight} class="reader-range w-full" />
 			</div>
 
-			<!-- Layout -->
-			<div>
-				<span class="mb-2 block text-xs font-medium uppercase tracking-wider text-cream/40">Layout</span>
+			<!-- Margins -->
+			<div class="mb-5">
+				<span class="settings-label">Margins</span>
+				<div class="flex gap-2">
+					{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'medium', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
+						<button
+							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {margins === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+							onclick={() => { margins = key as typeof margins; }}
+						>{label}</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Text Alignment -->
+			<div class="mb-5">
+				<span class="settings-label">Alignment</span>
 				<div class="flex gap-2">
 					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'start' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+						onclick={() => { textAlign = 'start'; }}
+					>
+						<AlignLeft size={13} strokeWidth={1.5} /> Left
+					</button>
+					<button
+						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'justify' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+						onclick={() => { textAlign = 'justify'; }}
+					>
+						<AlignJustify size={13} strokeWidth={1.5} /> Justified
+					</button>
+				</div>
+			</div>
+
+			<!-- Reading Mode -->
+			<div>
+				<span class="settings-label">Reading Mode</span>
+				<div class="flex gap-2">
+					<button
+						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 						onclick={() => { flow = 'paginated'; }}
 					>Paginated</button>
 					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-colors {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50'}"
+						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 						onclick={() => { flow = 'scrolled'; }}
-					>Scrolling</button>
+					>Scrolled</button>
 				</div>
 			</div>
 		</div>
@@ -941,3 +991,55 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Settings panel label style */
+	.settings-label {
+		display: block;
+		margin-bottom: 0.5rem;
+		font-size: 11px;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--color-muted, rgba(255, 255, 255, 0.4));
+	}
+
+	/* Custom range slider */
+	.reader-range {
+		-webkit-appearance: none;
+		appearance: none;
+		height: 4px;
+		border-radius: 2px;
+		background: rgba(255, 255, 255, 0.08);
+		outline: none;
+	}
+	.reader-range::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: var(--color-accent, #d4a253);
+		cursor: pointer;
+		border: 2px solid rgba(0, 0, 0, 0.3);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		transition: transform 0.15s ease;
+	}
+	.reader-range::-webkit-slider-thumb:hover {
+		transform: scale(1.15);
+	}
+	.reader-range::-moz-range-thumb {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: var(--color-accent, #d4a253);
+		cursor: pointer;
+		border: 2px solid rgba(0, 0, 0, 0.3);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+	}
+	.reader-range::-moz-range-track {
+		height: 4px;
+		border-radius: 2px;
+		background: rgba(255, 255, 255, 0.08);
+	}
+</style>
