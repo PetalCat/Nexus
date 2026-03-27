@@ -5,9 +5,9 @@ import { getEnabledConfigs } from './services';
 /**
  * Resolve a trailer URL for a media item.
  * 1. Check metadata.trailerUrl (from Jellyfin RemoteTrailers — typically YouTube)
- * 2. If YouTube URL + Invidious configured, resolve to proxied stream URL
- * 3. If no trailer from Jellyfin + Invidious configured, search for one
- * 4. Returns a playable stream URL or null
+ * 2. If YouTube URL found + Invidious configured, return stream proxy URL
+ * 3. If no Jellyfin trailer + Invidious configured, search for one
+ * 4. Returns a playable stream proxy URL or null
  */
 export async function resolveTrailerUrl(
 	mediaId: string,
@@ -20,19 +20,21 @@ export async function resolveTrailerUrl(
 	const cacheKey = `trailer:${mediaId}:${serviceId}`;
 
 	return withCache(cacheKey, 24 * 60 * 60 * 1000, async () => {
-		// Step 1: Try Jellyfin's RemoteTrailers URL
+		const inv = getInvidiousConfig();
+		if (!inv) return null;
+
+		// Step 1: Try Jellyfin's RemoteTrailers URL (YouTube)
 		const youtubeId = extractYouTubeId(metadataTrailerUrl);
 
-		// Step 2: If we have a YouTube ID, resolve via Invidious
 		if (youtubeId) {
-			const streamUrl = await resolveViaInvidious(youtubeId);
-			if (streamUrl) return streamUrl;
+			// Use the existing stream proxy — no need to resolve raw URLs
+			return `/api/stream/${inv.serviceId}/${youtubeId}/stream`;
 		}
 
-		// Step 3: No Jellyfin trailer — search Invidious
-		if (!youtubeId) {
-			const searchUrl = await searchInvidiousTrailer(title, year);
-			if (searchUrl) return searchUrl;
+		// Step 2: No Jellyfin trailer — search Invidious for one
+		const searchedId = await searchInvidiousTrailer(inv, title, year);
+		if (searchedId) {
+			return `/api/stream/${inv.serviceId}/${searchedId}/stream`;
 		}
 
 		return null;
@@ -47,56 +49,18 @@ function extractYouTubeId(url?: string | null): string | null {
 	return match?.[1] ?? null;
 }
 
-function getInvidiousConfig(): { url: string } | null {
+function getInvidiousConfig(): { serviceId: string; url: string } | null {
 	const configs = getEnabledConfigs();
 	const invConfig = configs.find((c) => c.type === 'invidious');
 	if (!invConfig) return null;
-	return { url: invConfig.url };
-}
-
-async function resolveViaInvidious(youtubeId: string): Promise<string | null> {
-	const inv = getInvidiousConfig();
-	if (!inv) return null;
-
-	try {
-		const baseUrl = inv.url.replace(/\/$/, '');
-		const res = await fetch(`${baseUrl}/api/v1/videos/${youtubeId}`, {
-			signal: AbortSignal.timeout(8000)
-		});
-		if (!res.ok) return null;
-		const data = await res.json();
-
-		// Prefer adaptive format (720p or lower for trailers)
-		const stream = data.adaptiveFormats
-			?.filter((f: any) => f.type?.startsWith('video/mp4') && f.qualityLabel)
-			?.sort((a: any, b: any) => {
-				const aH = parseInt(a.qualityLabel) || 0;
-				const bH = parseInt(b.qualityLabel) || 0;
-				if (aH <= 720 && bH <= 720) return bH - aH;
-				if (aH <= 720) return -1;
-				if (bH <= 720) return 1;
-				return aH - bH;
-			})?.[0];
-
-		if (stream?.url) return stream.url;
-
-		// Fallback to format streams
-		const fallback = data.formatStreams?.find(
-			(f: any) => f.type?.startsWith('video/mp4')
-		);
-		return fallback?.url ?? null;
-	} catch {
-		return null;
-	}
+	return { serviceId: invConfig.id, url: invConfig.url };
 }
 
 async function searchInvidiousTrailer(
+	inv: { url: string },
 	title: string,
 	year?: number
 ): Promise<string | null> {
-	const inv = getInvidiousConfig();
-	if (!inv) return null;
-
 	try {
 		const query = `${title} ${year ?? ''} official trailer`.trim();
 		const baseUrl = inv.url.replace(/\/$/, '');
@@ -110,7 +74,7 @@ async function searchInvidiousTrailer(
 		const firstVideo = results?.[0];
 		if (!firstVideo?.videoId) return null;
 
-		return resolveViaInvidious(firstVideo.videoId);
+		return firstVideo.videoId;
 	} catch {
 		return null;
 	}
