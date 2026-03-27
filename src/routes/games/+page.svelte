@@ -2,12 +2,20 @@
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import HeroSection from '$lib/components/HeroSection.svelte';
+	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
 	import CollectionEditor from '$lib/components/games/CollectionEditor.svelte';
 	import GameFilterPanel from '$lib/components/games/GameFilterPanel.svelte';
 	import { invalidateAll, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 
 	let { data }: { data: PageData } = $props();
+
+	function pickHero(items: UnifiedMedia[]): UnifiedMedia | null {
+		return items.find((i) => i.backdrop && i.description) ?? items.find((i) => i.backdrop) ?? null;
+	}
+
+	const hero = $derived(pickHero(data.items));
 
 	let editorOpen = $state(false);
 	let editingCollection = $state<{ id: number; name: string; description?: string; romIds: number[] } | null>(null);
@@ -221,7 +229,54 @@
 	<title>Games — Nexus</title>
 </svelte:head>
 
-<div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-8">
+<div class="flex flex-col gap-6 pb-10">
+	{#if hero}
+		<HeroSection
+			mode="browse"
+			backdrop={hero.backdrop}
+			trailerUrl={null}
+		>
+			<div class="flex h-full items-end p-4 pb-5 sm:p-6 sm:pb-8 md:p-8 md:pb-10">
+				<div class="max-w-xl">
+					<div class="mb-3 flex flex-wrap items-center gap-2">
+						<ServiceBadge type={hero.serviceType} />
+						{#if hero.year}<span class="text-xs font-medium text-cream/50">{hero.year}</span>{/if}
+						{#if hero.rating}
+							<span class="text-xs text-cream/30">·</span>
+							<span class="flex items-center gap-0.5 text-xs font-medium text-[var(--color-accent)]">
+								<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1l1.5 3 3.5.5-2.5 2.5.5 3.5L6 9 3 10.5l.5-3.5L1 4.5 4.5 4z"/></svg>
+								{hero.rating.toFixed(1)}
+							</span>
+						{/if}
+						{#if hero.metadata?.platform}
+							<span class="text-xs text-cream/30">·</span>
+							<span class="text-xs font-medium text-cream/50">{hero.metadata.platform}</span>
+						{/if}
+					</div>
+					<h1 class="text-display text-2xl font-bold leading-tight drop-shadow-2xl sm:text-3xl md:text-4xl">{hero.title}</h1>
+					{#if hero.genres?.length}
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each hero.genres.slice(0, 3) as genre (genre)}
+								<span class="rounded-full border border-cream/20 px-2 py-0.5 text-[10px] font-medium text-cream/70">{genre}</span>
+							{/each}
+						</div>
+					{/if}
+					{#if hero.description}
+						<p class="mt-3 line-clamp-2 max-w-lg text-sm leading-relaxed text-cream/70 sm:line-clamp-3">{hero.description}</p>
+					{/if}
+					<div class="mt-4 flex items-center gap-3">
+						<a
+							href="/media/{hero.type}/{hero.sourceId}?service={hero.serviceId}"
+							class="flex items-center gap-2 rounded-xl border border-cream/20 bg-cream/10 px-5 py-2.5 text-sm font-semibold text-cream backdrop-blur-sm transition-all hover:bg-cream/20 active:scale-95"
+						>More Info</a>
+					</div>
+				</div>
+				<span class="ml-auto hidden select-none text-[clamp(2rem,6vw,5rem)] font-black tracking-tight text-cream/[0.03] sm:block">GAMES</span>
+			</div>
+		</HeroSection>
+	{/if}
+
+	<div class="px-3 sm:px-4 lg:px-6">
 	<div class="mb-4 flex items-start justify-between sm:mb-6">
 		<div>
 			<h1 class="text-display text-2xl font-bold">Games</h1>
@@ -523,6 +578,7 @@
 				{/if}
 			</div>
 		{/each}
+	</div>
 	</div>
 </div>
 
