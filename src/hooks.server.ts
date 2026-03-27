@@ -50,13 +50,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return resolve(event);
 	}
 
-	// Rate limiting — skip health endpoint to avoid interfering with uptime checks
-	if (!path.startsWith('/api/health')) {
+	// Rate limiting — skip health endpoint and image proxy to avoid interfering with uptime checks / page loads
+	if (!path.startsWith('/api/health') && !path.startsWith('/api/media/image')) {
 		const clientIp = getClientIp(event.request);
 		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
 			(p) => path.startsWith(p)
 		);
-		const limit = isAuthEndpoint ? 10 : 60;
+		const limit = isAuthEndpoint ? 10 : 300;
 		const window = 60_000; // 1 minute
 
 		if (!checkRateLimit(clientIp, limit, window)) {
