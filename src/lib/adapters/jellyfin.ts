@@ -114,7 +114,7 @@ function buildStreamUrl(config: ServiceConfig, item: any): string | undefined {
 // Normalisation
 // ---------------------------------------------------------------------------
 
-const FIELDS = 'Overview,Genres,Studios,BackdropImageTags,ImageTags,UserData,ParentId,SeriesId,SeriesName,ParentIndexNumber,IndexNumber,AlbumArtist,Artists,ArtistItems,Album,AlbumId';
+const FIELDS = 'Overview,Genres,Studios,BackdropImageTags,ImageTags,UserData,ParentId,SeriesId,SeriesName,ParentIndexNumber,IndexNumber,AlbumArtist,Artists,ArtistItems,Album,AlbumId,RemoteTrailers';
 
 function mediaType(jfType: string): UnifiedMedia['type'] {
 	switch (jfType) {
@@ -227,6 +227,7 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 			officialRating,
 			criticRating,
 			taglines: item.Taglines ?? [],
+			trailerUrl: item.RemoteTrailers?.[0]?.Url ?? null,
 			endDate: item.EndDate,
 			// Music-specific fields
 			artist: item.AlbumArtist ?? item.Artists?.[0] ?? item.ArtistItems?.[0]?.Name,
