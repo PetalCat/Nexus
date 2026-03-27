@@ -82,9 +82,9 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 			// Create new session
 			const id = randomBytes(16).toString('hex');
 			raw.prepare(
-				`INSERT INTO play_sessions (id, user_id, service_id, service_type, media_id, media_type, progress, duration_ms, started_at, updated_at)
-				 VALUES (?, ?, ?, 'calibre', ?, 'book', ?, 0, ?, ?)`
-			).run(id, userId, svcId, bookId, progress, nowMs, nowMs);
+				`INSERT INTO play_sessions (id, user_id, service_id, service_type, media_id, media_type, progress, duration_ms, started_at, updated_at, source, created_at)
+				 VALUES (?, ?, ?, 'calibre', ?, 'book', ?, 0, ?, ?, 'reader', ?)`
+			).run(id, userId, svcId, bookId, progress, nowMs, nowMs, nowMs);
 		}
 	} catch (e) {
 		console.error('[books/progress] Session write failed:', e);
