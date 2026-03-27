@@ -51,6 +51,10 @@
 			<button type="submit" class="btn btn-primary mt-2" disabled={loading}>
 				{loading ? 'Creating account…' : 'Create Account'}
 			</button>
+
+			<p class="text-center text-xs text-[var(--color-muted)]">
+				After setup you'll be taken to <strong class="text-[var(--color-fg)]">Services</strong> to connect your first media source.
+			</p>
 		</form>
 	</div>
 </div>
