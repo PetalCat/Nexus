@@ -1,14 +1,6 @@
 <script lang="ts">
-	import {
-		Chart as ChartJS,
-		CategoryScale,
-		LinearScale,
-		BarController,
-		BarElement,
-		Tooltip
-	} from 'chart.js';
-
-	ChartJS.register(CategoryScale, LinearScale, BarController, BarElement, Tooltip);
+	import { browser } from '$app/environment';
+	import type { Chart as ChartJS } from 'chart.js';
 
 	interface Props {
 		dailyTimeline: { day: string; totalMs: number; sessions: number }[];
@@ -18,9 +10,29 @@
 
 	let canvas = $state<HTMLCanvasElement>();
 	let chart: ChartJS | undefined;
+	let chartReady = $state(false);
 
-	function buildChart() {
+	async function ensureChartJs() {
+		if (chartReady || !browser) return;
+
+		const {
+			Chart,
+			CategoryScale,
+			LinearScale,
+			BarController,
+			BarElement,
+			Tooltip
+		} = await import('chart.js');
+
+		Chart.register(CategoryScale, LinearScale, BarController, BarElement, Tooltip);
+		chartReady = true;
+		return Chart;
+	}
+
+	async function buildChart() {
 		if (!canvas) return;
+		const Chart = await ensureChartJs();
+		if (!Chart || !canvas) return;
 		chart?.destroy();
 
 		const labels = dailyTimeline.map((d) => {
@@ -28,7 +40,7 @@
 			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 		});
 
-		chart = new ChartJS(canvas, {
+		chart = new Chart(canvas, {
 			type: 'bar',
 			data: {
 				labels,
@@ -81,8 +93,9 @@
 	}
 
 	$effect(() => {
+		if (!browser) return;
 		dailyTimeline; // track reactivity
-		buildChart();
+		void buildChart();
 		return () => chart?.destroy();
 	});
 </script>

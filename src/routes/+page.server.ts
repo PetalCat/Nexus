@@ -1,5 +1,5 @@
-import { getDashboardFast } from '$lib/server/services';
-import { getHomepageCache, buildHomepageCache, applyRowOrder, cwToItem } from '$lib/server/homepage-cache';
+import { getDashboardFast, getEnabledConfigs } from '$lib/server/services';
+import { getHomepageCache, buildHomepageCache, applyRowOrder, cwToItem, homepageImage } from '$lib/server/homepage-cache';
 import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/server/homepage-cache';
 import { withCache } from '$lib/server/cache';
 import { getRecommendations } from '$lib/server/recommendations/aggregator';
@@ -8,6 +8,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
+	const hasServices = getEnabledConfigs().length > 0;
 
 	// Parallel: live Continue Watching + pre-computed homepage cache
 	const [dashboardRows, homepageCache] = await Promise.all([
@@ -60,28 +61,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			hero: homepageCache.hero,
 			rows: orderedRows,
-			personalized: true
+			personalized: true,
+			hasServices
 		};
 	}
 
-	// No cache — try an eager build
+	// No in-memory cache — try a fast DB-backed build only.
 	if (userId) {
-		// First try: read from existing recommendation_cache DB entries
-		let eagerCache = buildHomepageCache(userId);
-
-		// If DB cache is also empty, trigger a fresh recommendation compute
-		// This is a one-time cost on first load; subsequent loads use the cache
-		if (!eagerCache || eagerCache.rows.length === 0) {
-			try {
-				await Promise.allSettled([
-					getRecommendations(userId, 'movie', 30),
-					getRecommendations(userId, 'show', 30),
-					getRecommendations(userId, 'book', 20),
-					getRecommendations(userId, 'game', 20)
-				]);
-				eagerCache = buildHomepageCache(userId);
-			} catch { /* fall through to cold start */ }
-		}
+		const eagerCache = buildHomepageCache(userId);
 
 		if (eagerCache && eagerCache.rows.length > 0) {
 			// Store it so subsequent loads are instant
@@ -95,9 +82,22 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return {
 				hero: eagerCache.hero,
 				rows: orderedRows,
-				personalized: true
+				personalized: true,
+				hasServices
 			};
 		}
+
+		// Cold cache: compute recommendations in the background instead of blocking the page.
+		void Promise.allSettled([
+			getRecommendations(userId, 'movie', 30),
+			getRecommendations(userId, 'show', 30),
+			getRecommendations(userId, 'book', 20),
+			getRecommendations(userId, 'game', 20)
+		]).then(() => {
+			const rebuilt = buildHomepageCache(userId);
+			if (!rebuilt || rebuilt.rows.length === 0) return;
+			void withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => rebuilt);
+		}).catch(() => {});
 	}
 
 	// True cold start — no recommendation data at all
@@ -119,8 +119,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 					: undefined,
 				rating: heroSource.rating,
 				overview: heroSource.description,
-				backdrop: heroSource.backdrop,
-				poster: heroSource.poster,
+				backdrop: homepageImage(heroSource.backdrop, heroSource.serviceId, 'hero-backdrop'),
+				poster: homepageImage(heroSource.poster, heroSource.serviceId, 'poster'),
 				mediaType: heroSource.type,
 				genres: heroSource.genres,
 				reason: '',
@@ -132,6 +132,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		hero: coldHero,
 		rows: coldRows,
-		personalized: false
+		personalized: false,
+		hasServices
 	};
 };

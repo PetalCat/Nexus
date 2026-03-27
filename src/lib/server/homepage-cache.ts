@@ -1,5 +1,5 @@
 import { getRawDb } from '$lib/db';
-import { withCache, invalidate } from './cache';
+import { withCache, withStaleCache, invalidate } from './cache';
 import type { ScoredRecommendation, ReasonType } from './recommendations/types';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
@@ -15,6 +15,50 @@ import type { HeroItem, HomepageItem, HomepageRow, HomepageCache } from '$lib/ty
 // ---------------------------------------------------------------------------
 
 const MIN_ROW_ITEMS = 3;
+
+function optimizeHomepageImage(
+	url: string | undefined,
+	kind: 'poster' | 'hero-backdrop' | 'thumb-backdrop'
+): string | undefined {
+	if (!url) return undefined;
+
+	try {
+		const parsed = new URL(url);
+		const isJellyfinImage = parsed.pathname.includes('/Items/') && parsed.pathname.includes('/Images/');
+		if (!isJellyfinImage) return url;
+
+		if (kind === 'poster') {
+			parsed.searchParams.set('quality', '78');
+			parsed.searchParams.set('maxWidth', '360');
+		} else if (kind === 'hero-backdrop') {
+			parsed.searchParams.set('quality', '72');
+			parsed.searchParams.set('maxWidth', '960');
+		} else {
+			parsed.searchParams.set('quality', '74');
+			parsed.searchParams.set('maxWidth', '640');
+		}
+
+		return parsed.toString();
+	} catch {
+		return url;
+	}
+}
+
+function proxyHomepageImage(url: string | undefined, serviceId: string): string | undefined {
+	if (!url) return undefined;
+
+	try {
+		const parsed = new URL(url);
+		const path = `${parsed.pathname}${parsed.search}`;
+		return `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(path)}`;
+	} catch {
+		return url;
+	}
+}
+
+function homepageImage(url: string | undefined, serviceId: string, kind: 'poster' | 'hero-backdrop' | 'thumb-backdrop'): string | undefined {
+	return proxyHomepageImage(optimizeHomepageImage(url, kind), serviceId);
+}
 
 /** Format seconds into "Xh Ym" */
 function formatDuration(secs?: number): string | undefined {
@@ -33,8 +77,8 @@ function recToItem(rec: ScoredRecommendation, context?: string): HomepageItem {
 		serviceId: item.serviceId,
 		serviceType: item.serviceType,
 		title: item.title,
-		poster: item.poster,
-		backdrop: item.backdrop,
+		poster: homepageImage(item.poster, item.serviceId, 'poster'),
+		backdrop: homepageImage(item.backdrop, item.serviceId, 'thumb-backdrop'),
 		year: item.year,
 		mediaType: item.type,
 		genres: item.genres,
@@ -58,8 +102,8 @@ function recToHero(rec: ScoredRecommendation): HeroItem {
 		runtime: formatDuration(item.duration),
 		rating: item.rating,
 		overview: item.description,
-		backdrop: item.backdrop,
-		poster: item.poster,
+		backdrop: homepageImage(item.backdrop, item.serviceId, 'hero-backdrop'),
+		poster: homepageImage(item.poster, item.serviceId, 'poster'),
 		mediaType: item.type,
 		genres: item.genres,
 		reason: rec.reason,
@@ -91,8 +135,8 @@ export function cwToItem(item: UnifiedMedia): HomepageItem {
 		serviceId: item.serviceId,
 		serviceType: item.serviceType,
 		title: item.title,
-		poster: item.poster,
-		backdrop: item.backdrop ?? item.thumb,
+		poster: homepageImage(item.poster, item.serviceId, 'poster'),
+		backdrop: homepageImage(item.backdrop ?? item.thumb, item.serviceId, 'thumb-backdrop'),
 		year: item.year,
 		mediaType: item.type,
 		genres: item.genres,
@@ -104,6 +148,9 @@ export function cwToItem(item: UnifiedMedia): HomepageItem {
 		description: item.description
 	};
 }
+
+export { optimizeHomepageImage };
+export { homepageImage };
 
 // Reason types that map to specific named rows
 const TRENDING_REASONS: ReasonType[] = ['trending'];
@@ -313,10 +360,11 @@ export function buildHomepageCache(userId: string): HomepageCache | null {
 }
 
 const HOMEPAGE_CACHE_TTL = 60 * 60 * 1000; // 60 min
+const HOMEPAGE_CACHE_STALE_TTL = 6 * 60 * 60 * 1000; // serve stale for up to 6h while rebuilding
 
 /** Get cached homepage data for a user. Returns null on cache miss. */
 export async function getHomepageCache(userId: string): Promise<HomepageCache | null> {
-	return withCache(`homepage:${userId}`, HOMEPAGE_CACHE_TTL, async () => {
+	return withStaleCache(`homepage:${userId}`, HOMEPAGE_CACHE_TTL, HOMEPAGE_CACHE_STALE_TTL, async () => {
 		const result = buildHomepageCache(userId);
 		// Don't cache null/empty results — let the eager build path fill the DB
 		if (!result || result.rows.length === 0) throw new Error('no-cache');

@@ -38,6 +38,8 @@
 				class="h-full w-full object-cover transition-opacity duration-300"
 				onerror={() => (imgError = true)}
 				loading="lazy"
+				decoding="async"
+				fetchpriority="low"
 			/>
 		{:else}
 			<div class="flex h-full w-full items-center justify-center p-4">
