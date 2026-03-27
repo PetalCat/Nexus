@@ -15,7 +15,7 @@ function getVersion(): string {
 			_version = 'unknown';
 		}
 	}
-	return _version;
+	return _version!;
 }
 
 export const GET: RequestHandler = async () => {
