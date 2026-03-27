@@ -1,5 +1,32 @@
 <script lang="ts">
 	import { toast } from '$lib/stores/toast.svelte';
+	import { invalidateAll } from '$app/navigation';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	// ── Autoplay trailers preference ──────────────────────────
+	let autoplayTrailers = $state(data.autoplayTrailers ?? true);
+	let autoplaySaving = $state(false);
+
+	async function saveAutoplayTrailers(value: boolean) {
+		autoplaySaving = true;
+		try {
+			const res = await fetch('/api/user/settings', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ key: 'autoplayTrailers', value: String(value) })
+			});
+			if (!res.ok) throw new Error('Failed to save');
+			await invalidateAll();
+		} catch {
+			toast.error('Failed to save autoplay preference');
+			autoplayTrailers = !value; // revert on error
+		} finally {
+			autoplaySaving = false;
+		}
+	}
+
 	// ── Playback speed state ──────────────────────────────────
 	type SpeedRule = { id?: number; scope: string; scopeValue: string | null; scopeName: string | null; speed: number };
 	let speedRules = $state<SpeedRule[]>([]);
@@ -123,6 +150,22 @@
 		loadSBPrefs();
 	});
 </script>
+
+<!-- Autoplay Trailers -->
+<section class="mb-8">
+	<div class="flex items-center justify-between mb-1">
+		<h2 class="text-display text-base font-semibold">Autoplay Trailers</h2>
+		<button
+			class="relative h-6 w-11 rounded-full transition-colors {autoplayTrailers ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'} disabled:opacity-50"
+			onclick={() => { autoplayTrailers = !autoplayTrailers; saveAutoplayTrailers(autoplayTrailers); }}
+			aria-label="Toggle autoplay trailers"
+			disabled={autoplaySaving}
+		>
+			<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {autoplayTrailers ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+		</button>
+	</div>
+	<p class="text-body-muted text-xs">Automatically play trailers in the hero section on movie and show pages. Defaults to off on mobile devices.</p>
+</section>
 
 <!-- Playback Speed Rules -->
 <section class="mb-8">
