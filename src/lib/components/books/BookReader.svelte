@@ -8,6 +8,10 @@
 		ChevronLeft, ChevronRight, Maximize, Minimize, Type,
 		ChevronDown, AlignLeft, AlignJustify
 	} from 'lucide-svelte';
+	import AnnotationPopup from './AnnotationPopup.svelte';
+	import ReaderProgressBar from './ReaderProgressBar.svelte';
+	import TimeEstimate from './TimeEstimate.svelte';
+	import KeyboardShortcuts from './KeyboardShortcuts.svelte';
 
 	interface Props {
 		epubUrl: string;
@@ -66,6 +70,40 @@
 	let searchResults = $state<Array<{ cfi: string; excerpt: string }>>([]);
 	let highlightPopup = $state<{ x: number; y: number; cfi: string; text: string } | null>(null);
 
+	// Annotation popup (replaces inline highlight popup)
+	let showAnnotationPopup = $state(false);
+	let popupX = $state(0);
+	let popupY = $state(0);
+	let selectedText = $state('');
+	let selectedCfi = $state('');
+
+	// Note input
+	let showNoteInput = $state(false);
+	let noteContent = $state('');
+
+	// Keyboard shortcuts overlay
+	let showShortcuts = $state(false);
+
+	// Total pages estimate (used for TimeEstimate / ReaderProgressBar)
+	let totalPages = $state(0);
+	let currentPage = $derived(Math.max(1, Math.round(currentProgress * totalPages)));
+	let remainingPages = $derived(Math.max(0, totalPages - currentPage));
+
+	// Chapter positions for ReaderProgressBar
+	let chapterPositions = $state<Array<{ position: number; title: string }>>([]);
+
+	const readerShortcuts = [
+		{ label: 'Previous page', key: '\u2190' },
+		{ label: 'Next page', key: '\u2192' },
+		{ label: 'Close reader', key: 'Esc' },
+		{ label: 'Fullscreen', key: 'F' },
+		{ label: 'Table of contents', key: 'T' },
+		{ label: 'Settings', key: 'S' },
+		{ label: 'Toggle bookmark', key: 'B' },
+		{ label: 'Search', key: '/' },
+		{ label: 'Shortcuts', key: '?' }
+	];
+
 	// Reader settings (persisted in localStorage)
 	let readerTheme = $state<'dark' | 'light' | 'sepia' | 'oled'>('dark');
 	let fontFamily = $state<'serif' | 'sans' | 'mono' | 'display'>('serif');
@@ -76,7 +114,6 @@
 	let flow = $state<'paginated' | 'scrolled'>('paginated');
 
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
-	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const anyPanelOpen = $derived(showToc || showSettings || showBookmarks || showSearch || showFormatMenu);
 
@@ -246,25 +283,30 @@
 		}
 	}
 
-	// ── Progress ──
-	async function saveProgress() {
-		if (saveTimer) clearTimeout(saveTimer);
-		saveTimer = setTimeout(async () => {
-			try {
-				await fetch(`/api/books/${book.sourceId}/progress`, {
-					method: 'PUT',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ progress: currentProgress, cfi: currentCfi, serviceId })
-				});
-			} catch { /* ignore */ }
-		}, 2000);
-	}
+	// ── Progress sync (debounced 3s) ──
+	$effect(() => {
+		const cfi = currentCfi;
+		const progress = currentProgress;
+		if (!cfi) return;
+		const timer = setTimeout(() => {
+			fetch(`/api/books/${book.sourceId}/progress`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ progress, cfi, serviceId })
+			}).catch(() => { /* ignore */ });
+		}, 3000);
+		return () => clearTimeout(timer);
+	});
 
 	function jumpToProgress(e: MouseEvent) {
 		if (!view) return;
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 		view.goToFraction(frac);
+	}
+
+	function handleProgressBarSeek(position: number) {
+		view?.goToFraction(position);
 	}
 
 	// ── Bookmarks ──
@@ -290,7 +332,100 @@
 		}
 	}
 
-	// ── Highlights ──
+	// ── Text Selection → Annotation Popup ──
+	function handleTextSelection(cfi: string, text: string, x: number, y: number) {
+		if (!text.trim()) return;
+		selectedText = text;
+		selectedCfi = cfi;
+		popupX = x;
+		popupY = y;
+		showAnnotationPopup = true;
+		showNoteInput = false;
+		noteContent = '';
+	}
+
+	function dismissAnnotationPopup() {
+		showAnnotationPopup = false;
+		showNoteInput = false;
+		noteContent = '';
+		selectedText = '';
+		selectedCfi = '';
+	}
+
+	async function handleAnnotationHighlight(color: string) {
+		if (!selectedCfi || !view) return;
+		// Try to add visual annotation to the foliate view
+		try {
+			view.addAnnotation?.({ value: selectedCfi }, color);
+		} catch { /* foliate may not support addAnnotation */ }
+		// Persist to server
+		const res = await fetch(`/api/books/${book.sourceId}/highlights`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				cfi: selectedCfi,
+				text: selectedText,
+				color,
+				serviceId,
+				chapter: currentChapter
+			})
+		});
+		if (res.ok) {
+			const h = await res.json();
+			highlightList = [...highlightList, h];
+		}
+		dismissAnnotationPopup();
+	}
+
+	function handleAnnotationNote() {
+		showNoteInput = true;
+	}
+
+	async function submitNote() {
+		if (!selectedCfi || !noteContent.trim()) return;
+		const res = await fetch(`/api/books/${book.sourceId}/notes`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				cfi: selectedCfi,
+				chapter: currentChapter,
+				content: noteContent.trim(),
+				serviceId
+			})
+		});
+		if (res.ok) {
+			// Note saved successfully
+		}
+		dismissAnnotationPopup();
+	}
+
+	function handleAnnotationCopy() {
+		if (selectedText) {
+			navigator.clipboard.writeText(selectedText).catch(() => { /* ignore */ });
+		}
+		dismissAnnotationPopup();
+	}
+
+	function handleAnnotationSearch() {
+		if (selectedText) {
+			searchQuery = selectedText;
+			showSearch = true;
+			doSearch();
+		}
+		dismissAnnotationPopup();
+	}
+
+	// Apply existing highlights to the foliate view
+	function applyHighlightsToView() {
+		if (!view) return;
+		for (const h of highlightList) {
+			try {
+				view.addAnnotation?.({ value: h.cfi }, h.color ?? 'yellow');
+			} catch { /* ignore */ }
+		}
+	}
+
+	// Legacy inline highlight popup (kept for fallback)
 	function showHighlightMenu(cfi: string, text: string) {
 		highlightPopup = { x: window.innerWidth / 2, y: 80, cfi, text };
 	}
@@ -298,10 +433,8 @@
 	async function addHighlight(color: string) {
 		if (!highlightPopup || !view) return;
 		const { cfi, text } = highlightPopup;
-		// Add annotation to foliate view
 		try {
-			const { Overlayer } = await import('$lib/vendor/foliate-js/overlayer.js');
-			view.addAnnotation({ value: cfi }, false);
+			view.addAnnotation?.({ value: cfi }, color);
 		} catch { /* ignore */ }
 		const res = await fetch(`/api/books/${book.sourceId}/highlights`, {
 			method: 'POST',
@@ -365,24 +498,31 @@
 		showBookmarks = false;
 		showSearch = false;
 		showFormatMenu = false;
+		showShortcuts = false;
 		highlightPopup = null;
+		dismissAnnotationPopup();
 	}
 
 	// ── Keyboard ──
 	function handleKeydown(e: KeyboardEvent) {
 		if (showSearch && e.key !== 'Escape') return;
+		if (showNoteInput && e.key !== 'Escape') return;
 		switch (e.key) {
 			case 'ArrowLeft': e.preventDefault(); prevPage(); break;
 			case 'ArrowRight': e.preventDefault(); nextPage(); break;
 			case 'Escape':
 				e.preventDefault();
-				if (anyPanelOpen || highlightPopup) closeAllPanels();
+				if (showAnnotationPopup) dismissAnnotationPopup();
+				else if (showShortcuts) showShortcuts = false;
+				else if (anyPanelOpen || highlightPopup) closeAllPanels();
 				else closeReader();
 				break;
 			case 'f': if (!e.ctrlKey && !e.metaKey) toggleFullscreen(); break;
 			case 't': if (!e.ctrlKey && !e.metaKey) { showToc = !showToc; if (showToc) { showSettings = false; showBookmarks = false; showSearch = false; } } break;
 			case 's': if (!e.ctrlKey && !e.metaKey) { showSettings = !showSettings; if (showSettings) { showToc = false; showBookmarks = false; showSearch = false; } } break;
 			case 'b': if (!e.ctrlKey && !e.metaKey) toggleBookmark(); break;
+			case '?': showShortcuts = !showShortcuts; break;
+			case '/': if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); showSearch = !showSearch; showToc = false; showSettings = false; showBookmarks = false; } break;
 		}
 	}
 
@@ -438,6 +578,36 @@
 					const { doc } = e.detail;
 					doc.addEventListener('mousemove', () => handleReaderMouseMove());
 					doc.addEventListener('keydown', (ke: KeyboardEvent) => handleKeydown(ke));
+
+					// Text selection → annotation popup
+					doc.addEventListener('mouseup', () => {
+						const sel = doc.getSelection?.() ?? window.getSelection();
+						if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+						const text = sel.toString().trim();
+						// Try to get CFI from foliate view
+						let cfi = '';
+						try {
+							cfi = viewInstance.getCFI?.(sel.getRangeAt(0)) ?? currentCfi;
+						} catch {
+							cfi = currentCfi;
+						}
+						const range = sel.getRangeAt(0);
+						const rect = range.getBoundingClientRect();
+						// Offset by iframe position if embedded
+						const iframes = node.querySelectorAll('iframe');
+						let offsetX = 0, offsetY = 0;
+						if (iframes.length > 0) {
+							const iframeRect = iframes[0].getBoundingClientRect();
+							offsetX = iframeRect.left;
+							offsetY = iframeRect.top;
+						}
+						handleTextSelection(
+							cfi,
+							text,
+							rect.left + rect.width / 2 + offsetX,
+							rect.bottom + 8 + offsetY
+						);
+					});
 				});
 
 				// Handle relocate events (position changed)
@@ -453,7 +623,12 @@
 							? Object.values(location.tocItem.label)[0] as string
 							: location.tocItem.label;
 					}
-					saveProgress();
+					// Estimate total pages from section count or spine
+					if (location.total) {
+						totalPages = location.total;
+					} else if (bookObj?.spine?.length && !totalPages) {
+						totalPages = bookObj.spine.length * 15; // rough estimate
+					}
 				});
 
 				// Navigate to saved position or start
@@ -462,6 +637,18 @@
 				} else {
 					await viewInstance.init({ showTextStart: true });
 				}
+
+				// Compute chapter positions for progress bar
+				if (bookObj?.toc && bookObj?.spine) {
+					const spineLength = bookObj.spine.length || 1;
+					chapterPositions = flattenToc(bookObj.toc).map((ch, i) => ({
+						position: Math.min(1, i / Math.max(1, spineLength)),
+						title: ch.label
+					}));
+				}
+
+				// Apply existing highlights to the view
+				applyHighlightsToView();
 
 				ready = true;
 				loading = false;
@@ -487,7 +674,6 @@
 				view = null;
 				ready = false;
 				if (hideTimer) clearTimeout(hideTimer);
-				if (saveTimer) clearTimeout(saveTimer);
 			}
 		};
 	}
@@ -632,38 +818,36 @@
 
 <!-- Bottom Progress Bar -->
 <div
-	class="fixed inset-x-0 bottom-0 z-[60] flex items-center gap-3 px-4 py-2.5 transition-all duration-300"
+	class="fixed inset-x-0 bottom-0 z-[60] transition-all duration-300"
 	class:opacity-0={!showToolbar}
 	class:pointer-events-none={!showToolbar}
 	class:translate-y-full={!showToolbar}
-	style="background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);"
 >
-	<button onclick={prevPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream" aria-label="Previous page">
-		<ChevronLeft size={16} strokeWidth={1.5} />
-	</button>
+	<div class="flex items-center gap-2 px-4 pb-1 pt-2" style="background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);">
+		<button onclick={prevPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream" aria-label="Previous page">
+			<ChevronLeft size={16} strokeWidth={1.5} />
+		</button>
 
-	<!-- Progress track -->
-	<button
-		class="relative h-1 flex-1 cursor-pointer overflow-hidden rounded-full bg-cream/10"
-		onclick={jumpToProgress}
-		aria-label="Jump to position"
-	>
-		<div
-			class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-			style="width: {progressPercent}%; background: var(--color-accent, #d4a253);"
-		></div>
-	</button>
+		<div class="flex-1">
+			<ReaderProgressBar
+				progress={currentProgress}
+				chapters={chapterPositions}
+				currentPage={currentPage}
+				{totalPages}
+				onSeek={handleProgressBarSeek}
+			/>
+		</div>
 
-	<div class="flex items-center gap-2">
-		{#if currentChapter}
-			<span class="hidden max-w-[120px] truncate text-xs text-cream/40 sm:block">{currentChapter}</span>
-		{/if}
-		<span class="min-w-[3rem] text-right text-xs tabular-nums text-cream/50">{progressPercent}%</span>
+		<button onclick={nextPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream">
+			<ChevronRight size={16} strokeWidth={1.5} />
+		</button>
 	</div>
 
-	<button onclick={nextPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream">
-		<ChevronRight size={16} strokeWidth={1.5} />
-	</button>
+	{#if totalPages > 0 && remainingPages > 0}
+		<div class="flex justify-center pb-2" style="background: rgba(0,0,0,0.5);">
+			<TimeEstimate {remainingPages} />
+		</div>
+	{/if}
 </div>
 
 <!-- TOC Sidebar -->
@@ -961,6 +1145,60 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Annotation Popup (text selection) -->
+{#if showAnnotationPopup}
+	<div class="fixed z-[90]">
+		{#if showNoteInput}
+			<!-- Note input overlay -->
+			<div class="fixed inset-0 z-[90] bg-black/40" onclick={dismissAnnotationPopup} onkeydown={(e) => { if (e.key === 'Escape') dismissAnnotationPopup(); }} role="button" tabindex="-1" aria-label="Close note input">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="absolute left-1/2 top-1/3 w-80 max-w-[90vw] -translate-x-1/2 rounded-xl border border-cream/10 p-4 shadow-2xl"
+					style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
+					onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
+				>
+					<div class="mb-2 text-xs font-medium text-cream/50">Add a note</div>
+					<div class="mb-3 line-clamp-2 text-xs italic text-cream/30">"{selectedText}"</div>
+					<textarea
+						bind:value={noteContent}
+						class="mb-3 w-full resize-none rounded-lg border border-cream/10 bg-cream/[0.04] p-2.5 text-sm text-cream outline-none placeholder:text-cream/30 focus:border-[var(--color-accent)]/50"
+						rows="3"
+						placeholder="Write your note..."
+					></textarea>
+					<div class="flex justify-end gap-2">
+						<button
+							onclick={dismissAnnotationPopup}
+							class="rounded-lg px-3 py-1.5 text-xs text-cream/50 transition-colors hover:text-cream"
+						>Cancel</button>
+						<button
+							onclick={submitNote}
+							class="rounded-lg bg-[var(--color-accent)]/20 px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/30"
+							disabled={!noteContent.trim()}
+						>Save Note</button>
+					</div>
+				</div>
+			</div>
+		{:else}
+			<AnnotationPopup
+				x={popupX}
+				y={popupY}
+				onHighlight={handleAnnotationHighlight}
+				onNote={handleAnnotationNote}
+				onCopy={handleAnnotationCopy}
+				onSearch={handleAnnotationSearch}
+				onDismiss={dismissAnnotationPopup}
+			/>
+		{/if}
+	</div>
+{/if}
+
+<!-- Keyboard Shortcuts Overlay -->
+<KeyboardShortcuts
+	shortcuts={readerShortcuts}
+	visible={showShortcuts}
+	onClose={() => showShortcuts = false}
+/>
 
 <!-- Format menu backdrop -->
 {#if showFormatMenu}
