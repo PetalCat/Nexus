@@ -25,6 +25,9 @@
 		Volume1,
 		VolumeX
 	} from 'lucide-svelte';
+	import NowPlayingOverlay from './NowPlayingOverlay.svelte';
+
+	let showNowPlaying = $state(false);
 
 	const modeIcons: Record<QueueMode, { icon: typeof Shuffle; label: string }> = {
 		single: { icon: Repeat1, label: '1 Song' },
@@ -131,6 +134,10 @@
 			class:expanded
 			class:entered
 			class:playing={musicPlayer.playing}
+			onclick={() => { if (!expanded) showNowPlaying = true; }}
+			role="button"
+			tabindex="0"
+			onkeydown={(e) => { if (e.key === 'Enter' && !expanded) showNowPlaying = true; }}
 		>
 			{#if !expanded}
 				<!-- COLLAPSED: compact horizontal pill -->
@@ -183,7 +190,7 @@
 					<!-- Play/pause -->
 					<button
 						class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cream/[0.08] transition-all duration-200 hover:bg-cream/[0.15] active:scale-90"
-						onclick={togglePlay}
+						onclick={(e) => { e.stopPropagation(); togglePlay(); }}
 						aria-label={musicPlayer.playing ? 'Pause' : 'Play'}
 					>
 						{#if musicPlayer.playing}
@@ -218,21 +225,21 @@
 						<div class="flex items-center gap-0.5 shrink-0">
 							<button
 								class="rounded-full p-1.5 transition-colors {musicPlayer.shuffle ? 'text-accent' : 'text-faint hover:text-cream'}"
-								onclick={toggleShuffle}
+								onclick={(e) => { e.stopPropagation(); toggleShuffle(); }}
 								aria-label="Toggle shuffle"
 							>
 								<Shuffle size={13} strokeWidth={musicPlayer.shuffle ? 2.5 : 1.5} />
 							</button>
 							<button
 								class="rounded-full p-1.5 text-cream/70 transition-all hover:text-cream active:scale-90"
-								onclick={skipPrev}
+								onclick={(e) => { e.stopPropagation(); skipPrev(); }}
 								aria-label="Previous track"
 							>
 								<SkipBack size={15} strokeWidth={1.5} class="fill-current" />
 							</button>
 							<button
 								class="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-nexus-void transition-all duration-300 hover:scale-105 hover:shadow-[0_0_20px_rgba(212,162,83,0.3)] active:scale-95"
-								onclick={togglePlay}
+								onclick={(e) => { e.stopPropagation(); togglePlay(); }}
 								aria-label={musicPlayer.playing ? 'Pause' : 'Play'}
 							>
 								{#if musicPlayer.playing}
@@ -243,14 +250,14 @@
 							</button>
 							<button
 								class="rounded-full p-1.5 text-cream/70 transition-all hover:text-cream active:scale-90"
-								onclick={skipNext}
+								onclick={(e) => { e.stopPropagation(); skipNext(); }}
 								aria-label="Next track"
 							>
 								<SkipForward size={15} strokeWidth={1.5} class="fill-current" />
 							</button>
 							<button
 								class="rounded-full p-1.5 text-accent transition-colors hover:text-accent-light"
-								onclick={cycleQueueMode}
+								onclick={(e) => { e.stopPropagation(); cycleQueueMode(); }}
 								aria-label="Queue mode: {modeInfo.label}"
 								title={modeInfo.label}
 							>
@@ -340,6 +347,8 @@
 			{/if}
 		</div>
 	</div>
+
+	<NowPlayingOverlay visible={showNowPlaying} onClose={() => showNowPlaying = false} />
 {/if}
 
 <style>
