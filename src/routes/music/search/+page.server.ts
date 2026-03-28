@@ -4,7 +4,7 @@ import { getMusicSongs, getMusicAlbums, getMusicArtists, getUserPlaylists } from
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = locals.user?.id;
 	const query = url.searchParams.get('q') ?? '';
-	if (!userId || !query) return { query, songs: [], albums: [], artists: [], playlists: [] };
+	if (!userId || !query) return { query, songs: [] as any[], albums: [] as any[], artists: [] as any[], playlists: [] as any[] };
 
 	const [songsResult, albumsResult, artistsResult, allPlaylists] = await Promise.all([
 		getMusicSongs(userId, { search: query, limit: 10 }),
