@@ -1,5 +1,9 @@
+import { browser } from '$app/environment';
+
 export interface Track {
 	id: string;
+	sourceId: string; // raw Jellyfin item ID
+	serviceId: string; // which Jellyfin service
 	title: string;
 	artist: string;
 	album: string;
@@ -25,99 +29,165 @@ export const QUEUE_MODES: { value: QueueMode; label: string }[] = [
 	{ value: 'flow', label: 'Flow' }
 ];
 
-// Track library — populated via setTrackLibrary()
-let allAlbumTracks: Track[] = [];
-
-export function setTrackLibrary(tracks: Track[]) {
-	allAlbumTracks = tracks;
-}
-
-export function getTracksForAlbum(albumId: string): Track[] {
-	return allAlbumTracks.filter((t) => t.albumId === albumId);
-}
-
-export function getAllTracks(): Track[] {
-	return allAlbumTracks;
-}
-
-// ── Liked / Playlist / Recently Played state ──
-
-let _likedSongs = $state<Set<string>>(new Set());
-
-let _playlists = $state<Playlist[]>([]);
-
-let _recentlyPlayed = $state<string[]>([]);
-
 // ── Player state (Svelte 5 runes-compatible via module-level $state) ──
 
 let _queue = $state<Track[]>([]);
 let _currentIndex = $state(0);
 let _playing = $state(false);
-let _progress = $state(0); // 0–1
+let _progress = $state(0); // 0-1
 let _currentTime = $state(0); // seconds
-let _volume = $state(0.75); // 0–1
+let _volume = $state(0.75); // 0-1
 let _muted = $state(false);
 let _shuffle = $state(false);
 let _queueMode = $state<QueueMode>('playlist-only');
 let _expanded = $state(false);
 let _visible = $state(false);
+let _loading = $state(false);
+let _wasPausedByMedia = $state(false);
+let _collapsed = $state(false);
 
-// Simulated playback timer
-let _interval: ReturnType<typeof setInterval> | null = null;
+let _recentlyPlayed = $state<string[]>([]);
 
-function startPlayback() {
-	stopPlayback();
-	_interval = setInterval(() => {
-		const track = _queue[_currentIndex];
-		if (!track) return;
-		_currentTime += 0.25;
-		_progress = _currentTime / track.duration;
-		if (_currentTime >= track.duration) {
-			skipNext();
-		}
-	}, 250);
+// ── Real Audio Element ──
+
+let audioElement: HTMLAudioElement;
+
+function initAudio() {
+	if (!browser) return;
+	audioElement = new Audio();
+	audioElement.volume = _volume;
+	audioElement.addEventListener('timeupdate', () => {
+		_currentTime = audioElement.currentTime;
+		_progress = audioElement.duration ? audioElement.currentTime / audioElement.duration : 0;
+	});
+	audioElement.addEventListener('ended', () => skipNext());
+	audioElement.addEventListener('loadstart', () => {
+		_loading = true;
+	});
+	audioElement.addEventListener('canplay', () => {
+		_loading = false;
+	});
+	audioElement.addEventListener('error', (e) => {
+		console.error('[music] Audio error:', e);
+		_loading = false;
+	});
 }
+if (browser) initAudio();
 
-function stopPlayback() {
-	if (_interval) {
-		clearInterval(_interval);
-		_interval = null;
-	}
-}
+// ── Load and Play ──
 
-export const musicPlayer = {
-	get queue() { return _queue; },
-	get currentIndex() { return _currentIndex; },
-	get currentTrack() { return _queue[_currentIndex] ?? null; },
-	get playing() { return _playing; },
-	get progress() { return _progress; },
-	get currentTime() { return _currentTime; },
-	get volume() { return _volume; },
-	get muted() { return _muted; },
-	get queueMode() { return _queueMode; },
-	get shuffle() { return _shuffle; },
-	get repeat(): RepeatMode { return _queueMode === 'single' ? 'one' : _queueMode === 'loop' ? 'all' : 'off'; },
-	get expanded() { return _expanded; },
-	get visible() { return _visible; },
-	get likedSongs() { return _likedSongs; },
-	get playlists() { return _playlists; },
-	get recentlyPlayed() { return _recentlyPlayed; },
-
-	setExpanded(v: boolean) { _expanded = v; },
-	toggleExpanded() { _expanded = !_expanded; },
-};
-
-export function playAlbum(albumId: string, startIndex = 0) {
-	const tracks = getTracksForAlbum(albumId);
-	if (tracks.length === 0) return;
-	_queue = tracks;
-	_currentIndex = startIndex;
-	_currentTime = 0;
-	_progress = 0;
+function loadAndPlay(track: Track) {
+	if (!audioElement) return;
+	const streamUrl = `/api/stream/${track.serviceId}/audio/${track.sourceId}/universal?Container=opus,mp3,aac&AudioCodec=opus&TranscodingContainer=ts&MaxStreamingBitrate=320000`;
+	audioElement.src = streamUrl;
+	audioElement.play().catch((e) => console.error('[music] Play failed:', e));
 	_playing = true;
 	_visible = true;
-	addToRecentlyPlayed(tracks[startIndex].id);
-	startPlayback();
+	_collapsed = false;
+	updateMediaSession(track);
+	reportPlayStart(track);
+}
+
+// ── MediaSession API ──
+
+function updateMediaSession(track: Track) {
+	if (!browser || !('mediaSession' in navigator)) return;
+	navigator.mediaSession.metadata = new MediaMetadata({
+		title: track.title,
+		artist: track.artist,
+		album: track.album,
+		artwork: [{ src: track.image, sizes: '512x512', type: 'image/jpeg' }]
+	});
+	navigator.mediaSession.setActionHandler('play', () => togglePlay());
+	navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+	navigator.mediaSession.setActionHandler('previoustrack', () => skipPrev());
+	navigator.mediaSession.setActionHandler('nexttrack', () => skipNext());
+}
+
+// ── Play Session Reporting ──
+
+function reportPlayStart(track: Track) {
+	if (!browser) return;
+	fetch('/api/ingest/interactions', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			mediaId: track.sourceId,
+			serviceId: track.serviceId,
+			mediaType: 'music',
+			source: 'reader'
+		})
+	}).catch(() => {});
+}
+
+// ── Exported Getter Object ──
+
+export const musicPlayer = {
+	get queue() {
+		return _queue;
+	},
+	get currentIndex() {
+		return _currentIndex;
+	},
+	get currentTrack() {
+		return _queue[_currentIndex] ?? null;
+	},
+	get playing() {
+		return _playing;
+	},
+	get progress() {
+		return _progress;
+	},
+	get currentTime() {
+		return _currentTime;
+	},
+	get volume() {
+		return _volume;
+	},
+	get muted() {
+		return _muted;
+	},
+	get queueMode() {
+		return _queueMode;
+	},
+	get shuffle() {
+		return _shuffle;
+	},
+	get repeat(): RepeatMode {
+		return _queueMode === 'single' ? 'one' : _queueMode === 'loop' ? 'all' : 'off';
+	},
+	get expanded() {
+		return _expanded;
+	},
+	get visible() {
+		return _visible;
+	},
+	get recentlyPlayed() {
+		return _recentlyPlayed;
+	},
+	get loading() {
+		return _loading;
+	},
+	get collapsed() {
+		return _collapsed;
+	},
+	get wasPausedByMedia() {
+		return _wasPausedByMedia;
+	},
+
+	setExpanded(v: boolean) {
+		_expanded = v;
+	},
+	toggleExpanded() {
+		_expanded = !_expanded;
+	}
+};
+
+// ── Playback Controls ──
+
+export function playAlbum(tracks: Track[], startIndex = 0) {
+	if (!tracks.length) return;
+	setQueue(tracks, startIndex);
 }
 
 export function playTrack(track: Track) {
@@ -130,10 +200,8 @@ export function playTrack(track: Track) {
 	}
 	_currentTime = 0;
 	_progress = 0;
-	_playing = true;
-	_visible = true;
 	addToRecentlyPlayed(track.id);
-	startPlayback();
+	loadAndPlay(track);
 }
 
 export function setQueue(tracks: Track[], startIndex = 0) {
@@ -141,19 +209,19 @@ export function setQueue(tracks: Track[], startIndex = 0) {
 	_currentIndex = startIndex;
 	_currentTime = 0;
 	_progress = 0;
-	_playing = true;
-	_visible = true;
-	if (tracks[startIndex]) addToRecentlyPlayed(tracks[startIndex].id);
-	startPlayback();
+	if (tracks[startIndex]) {
+		addToRecentlyPlayed(tracks[startIndex].id);
+		loadAndPlay(tracks[startIndex]);
+	}
 }
 
 export function togglePlay() {
 	if (_queue.length === 0) return;
 	_playing = !_playing;
 	if (_playing) {
-		startPlayback();
+		audioElement?.play().catch((e) => console.error('[music] Play failed:', e));
 	} else {
-		stopPlayback();
+		audioElement?.pause();
 	}
 }
 
@@ -163,6 +231,7 @@ export function skipNext() {
 	if (_queueMode === 'single') {
 		_currentTime = 0;
 		_progress = 0;
+		if (audioElement) audioElement.currentTime = 0;
 		return;
 	}
 
@@ -183,23 +252,42 @@ export function skipNext() {
 					break;
 
 				case 'flow': {
-					const queueIds = new Set(_queue.map((t) => t.id));
-					const recs = getRecommendedTracks().filter((t) => !queueIds.has(t.id));
-					if (recs.length > 0) {
-						_queue = [..._queue, ...recs];
-						_currentIndex = nextIndex;
-					} else {
-						_playing = false;
-						stopPlayback();
+					const currentTrack = _queue[_currentIndex];
+					if (currentTrack) {
+						fetch(
+							`/api/music/instant-mix/${currentTrack.sourceId}?serviceId=${currentTrack.serviceId}`
+						)
+							.then((r) => r.json())
+							.then((data: { tracks: Track[] }) => {
+								const queueIds = new Set(_queue.map((t) => t.id));
+								const newTracks = (data.tracks ?? []).filter(
+									(t: Track) => !queueIds.has(t.id)
+								);
+								if (newTracks.length > 0) {
+									_queue = [..._queue, ...newTracks];
+									_currentIndex = nextIndex;
+									_currentTime = 0;
+									_progress = 0;
+									addToRecentlyPlayed(_queue[_currentIndex].id);
+									loadAndPlay(_queue[_currentIndex]);
+								} else {
+									_playing = false;
+									audioElement?.pause();
+								}
+							})
+							.catch(() => {
+								_playing = false;
+								audioElement?.pause();
+							});
 					}
-					break;
+					return; // async — don't fall through
 				}
 
 				case 'playlist-only':
 				default:
 					_currentIndex = 0;
 					_playing = false;
-					stopPlayback();
+					audioElement?.pause();
 					break;
 			}
 		} else {
@@ -209,7 +297,11 @@ export function skipNext() {
 
 	_currentTime = 0;
 	_progress = 0;
-	if (_queue[_currentIndex]) addToRecentlyPlayed(_queue[_currentIndex].id);
+	const track = _queue[_currentIndex];
+	if (track) {
+		addToRecentlyPlayed(track.id);
+		loadAndPlay(track);
+	}
 }
 
 export function skipPrev() {
@@ -217,12 +309,17 @@ export function skipPrev() {
 	if (_currentTime > 3) {
 		_currentTime = 0;
 		_progress = 0;
+		if (audioElement) audioElement.currentTime = 0;
 		return;
 	}
 	_currentIndex = (_currentIndex - 1 + _queue.length) % _queue.length;
 	_currentTime = 0;
 	_progress = 0;
-	if (_queue[_currentIndex]) addToRecentlyPlayed(_queue[_currentIndex].id);
+	const track = _queue[_currentIndex];
+	if (track) {
+		addToRecentlyPlayed(track.id);
+		loadAndPlay(track);
+	}
 }
 
 export function seek(fraction: number) {
@@ -230,15 +327,20 @@ export function seek(fraction: number) {
 	if (!track) return;
 	_progress = Math.max(0, Math.min(1, fraction));
 	_currentTime = _progress * track.duration;
+	if (audioElement && audioElement.duration) {
+		audioElement.currentTime = fraction * audioElement.duration;
+	}
 }
 
 export function setVolume(v: number) {
 	_volume = Math.max(0, Math.min(1, v));
 	if (_volume > 0) _muted = false;
+	if (audioElement) audioElement.volume = _volume;
 }
 
 export function toggleMute() {
 	_muted = !_muted;
+	if (audioElement) audioElement.muted = _muted;
 }
 
 export function setQueueMode(mode: QueueMode) {
@@ -260,14 +362,45 @@ export function playIndex(index: number) {
 	_currentIndex = index;
 	_currentTime = 0;
 	_progress = 0;
-	_playing = true;
-	startPlayback();
+	const track = _queue[_currentIndex];
+	if (track) loadAndPlay(track);
 }
 
 export function closePlayer() {
 	_playing = false;
 	_visible = false;
-	stopPlayback();
+	if (audioElement) {
+		audioElement.pause();
+		audioElement.src = '';
+	}
+}
+
+// ── Media Conflict API ──
+
+export function pauseForMedia() {
+	if (_playing && audioElement) {
+		_wasPausedByMedia = true;
+		audioElement.pause();
+		_playing = false;
+		_collapsed = true;
+	}
+}
+
+export function resumeAfterMedia() {
+	if (_wasPausedByMedia && audioElement) {
+		_wasPausedByMedia = false;
+		_collapsed = false;
+		audioElement.play().catch(() => {});
+		_playing = true;
+	}
+}
+
+export function collapse() {
+	_collapsed = true;
+}
+
+export function expand() {
+	_collapsed = false;
 }
 
 // ── Queue Management ──
@@ -305,68 +438,14 @@ export function clearUpcoming() {
 	_queue = _queue.slice(0, _currentIndex + 1);
 }
 
-// ── Liked Songs ──
+// ── Liked Songs (server-backed) ──
 
-export function toggleLikeTrack(trackId: string) {
-	const next = new Set(_likedSongs);
-	if (next.has(trackId)) {
-		next.delete(trackId);
-	} else {
-		next.add(trackId);
-	}
-	_likedSongs = next;
-}
-
-export function isTrackLiked(trackId: string): boolean {
-	return _likedSongs.has(trackId);
-}
-
-export function getLikedTracks(): Track[] {
-	return allAlbumTracks.filter((t) => _likedSongs.has(t.id));
-}
-
-// ── Playlists ──
-
-export function createPlaylist(name: string, trackIds: string[] = []): Playlist {
-	const playlist: Playlist = {
-		id: `playlist-${Date.now()}`,
-		name,
-		trackIds,
-		createdAt: new Date().toISOString()
-	};
-	_playlists = [..._playlists, playlist];
-	return playlist;
-}
-
-export function deletePlaylist(id: string) {
-	_playlists = _playlists.filter((p) => p.id !== id);
-}
-
-export function renamePlaylist(id: string, name: string) {
-	_playlists = _playlists.map((p) => (p.id === id ? { ...p, name } : p));
-}
-
-export function addToPlaylist(playlistId: string, trackId: string) {
-	_playlists = _playlists.map((p) => {
-		if (p.id !== playlistId) return p;
-		if (p.trackIds.includes(trackId)) return p;
-		return { ...p, trackIds: [...p.trackIds, trackId] };
-	});
-}
-
-export function removeFromPlaylist(playlistId: string, trackId: string) {
-	_playlists = _playlists.map((p) => {
-		if (p.id !== playlistId) return p;
-		return { ...p, trackIds: p.trackIds.filter((id) => id !== trackId) };
-	});
-}
-
-export function getPlaylistTracks(playlistId: string): Track[] {
-	const playlist = _playlists.find((p) => p.id === playlistId);
-	if (!playlist) return [];
-	return playlist.trackIds
-		.map((id) => allAlbumTracks.find((t) => t.id === id))
-		.filter((t): t is Track => t !== undefined);
+export async function toggleLikeTrack(trackId: string, serviceId: string) {
+	return fetch('/api/music/liked', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ trackId, serviceId })
+	}).then((r) => r.ok);
 }
 
 // ── Recently Played ──
@@ -374,24 +453,4 @@ export function getPlaylistTracks(playlistId: string): Track[] {
 export function addToRecentlyPlayed(trackId: string) {
 	const filtered = _recentlyPlayed.filter((id) => id !== trackId);
 	_recentlyPlayed = [trackId, ...filtered].slice(0, 20);
-}
-
-export function getRecentlyPlayedTracks(): Track[] {
-	return _recentlyPlayed
-		.map((id) => allAlbumTracks.find((t) => t.id === id))
-		.filter((t): t is Track => t !== undefined);
-}
-
-// ── Playlist Lookup ──
-
-export function getPlaylistById(id: string): Playlist | null {
-	return _playlists.find((p) => p.id === id) ?? null;
-}
-
-// ── Recommendations ──
-
-export function getRecommendedTracks(): Track[] {
-	return allAlbumTracks
-		.filter((t) => !_likedSongs.has(t.id))
-		.slice(0, 12);
 }
