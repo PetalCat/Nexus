@@ -5,6 +5,7 @@
 		skipNext,
 		skipPrev,
 		toggleShuffle,
+		cycleQueueMode,
 		seek,
 		toggleLikeTrack
 	} from '$lib/stores/musicStore.svelte';
@@ -122,7 +123,7 @@
 				<div class="track-info">
 					<h2 class="track-title">{track.title}</h2>
 					<p class="track-meta">
-						<a href="/music/artists/" class="artist-link">{track.artist}</a>
+						<a href="/music/artists/{track.albumId}?service={track.serviceId}" class="artist-link">{track.artist}</a>
 						{#if track.album}
 							<span class="separator">&middot;</span>
 							<span class="album-name">{track.album}</span>
@@ -202,7 +203,7 @@
 					<button
 						class="transport-btn"
 						class:active={repeatMode !== 'off'}
-						onclick={(e) => { e.stopPropagation(); }}
+						onclick={(e) => { e.stopPropagation(); cycleQueueMode(); }}
 						aria-label="Repeat mode"
 					>
 						{#if repeatMode === 'one'}
