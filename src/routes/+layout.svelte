@@ -14,6 +14,8 @@
 	import { Bell, Menu, User, Search } from 'lucide-svelte';
 	import { browser } from '$app/environment';
 	import type { LayoutData } from './$types';
+	import MusicPill from '$lib/components/music/MusicPill.svelte';
+	import { musicPlayer } from '$lib/stores/musicStore.svelte';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
 
@@ -245,6 +247,10 @@
 			</main>
 		</div>
 	</div>
+{/if}
+
+{#if musicPlayer.visible && musicPlayer.currentTrack && !musicPlayer.collapsed}
+	<MusicPill />
 {/if}
 
 <CommandPalette />
