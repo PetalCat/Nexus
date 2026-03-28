@@ -17,6 +17,14 @@
 		url: string;
 	}
 
+	const QUALITY_PRESETS = [
+		{ label: 'Original', height: 0, bitrate: 120_000_000 },
+		{ label: '1080p', height: 1080, bitrate: 10_000_000 },
+		{ label: '720p', height: 720, bitrate: 4_000_000 },
+		{ label: '480p', height: 480, bitrate: 1_500_000 },
+		{ label: '360p', height: 360, bitrate: 800_000 },
+	];
+
 	interface Props {
 		streamUrl: string;
 		type: MediaType;
@@ -98,6 +106,19 @@
 	let currentQuality = $state(-1);
 	let audioTracks: { id: number; name: string; lang: string }[] = $state([]);
 	let currentAudioTrack = $state(0);
+	let selectedBitrate = $state(120_000_000);
+
+	// Load saved quality preference for HLS bitrate on init
+	{
+		const saved = localStorage.getItem('nexus:preferred-quality');
+		if (saved !== null) {
+			const idx = parseInt(saved);
+			if (idx >= 0 && idx < QUALITY_PRESETS.length) {
+				selectedBitrate = QUALITY_PRESETS[idx].bitrate;
+			}
+		}
+	}
+
 	let subtitleTracks: { id: number; name: string; lang: string; source?: 'hls' | 'external'; vttUrl?: string }[] = $state([]);
 	let currentSubtitleTrack = $state(-1);
 
@@ -271,7 +292,7 @@
 	const isVideo = $derived(!isAudio);
 	const isDirectMode = $derived(mode === 'direct');
 	const theaterActive = $derived(isVideo && hasStarted && !inline);
-	const hlsUrl = $derived(streamUrl + `/master.m3u8?MaxStreamingBitrate=${maxBitrate}`);
+	const hlsUrl = $derived(streamUrl + `/master.m3u8?MaxStreamingBitrate=${selectedBitrate}`);
 	const directUrl = $derived(isDirectMode ? streamUrl : streamUrl + '/stream');
 	const audioUrl = $derived(streamUrl.replace(/\/([^/]+)$/, '/audio/$1') + '/universal');
 
@@ -332,7 +353,7 @@
 				: 'Auto')
 			: currentQuality === -1
 				? 'Auto'
-				: (qualityLevels.find((q) => q.index === currentQuality)?.height ?? 0) + 'p'
+				: (QUALITY_PRESETS[currentQuality]?.label ?? 'Auto')
 	);
 
 	/* ═══════════════════════════════════════════════
@@ -493,7 +514,7 @@
 	}
 
 	/* ── Track selection ── */
-	function setQuality(index: number) {
+	async function setQuality(index: number) {
 		if (dashPlayer) {
 			// DASH mode: use dash.js v5 quality switching
 			if (index === -1) {
@@ -540,13 +561,39 @@
 			return;
 		}
 		if (hls) {
-			hls.currentLevel = index;
-			currentQuality = index;
-			// Persist quality preference
 			if (index === -1) {
+				// Auto mode — use original bitrate
+				selectedBitrate = 120_000_000;
+				currentQuality = -1;
 				localStorage.removeItem('nexus:preferred-quality');
 			} else {
-				localStorage.setItem('nexus:preferred-quality', String(qualityLevels[index]?.height ?? 0));
+				// Specific preset — reload with new bitrate
+				const preset = QUALITY_PRESETS[index];
+				if (preset) {
+					selectedBitrate = preset.bitrate;
+					currentQuality = index;
+					localStorage.setItem('nexus:preferred-quality', String(index));
+					// Save current position, reload stream
+					const savedTime = videoEl?.currentTime ?? 0;
+					const wasPlaying = videoEl ? !videoEl.paused : false;
+					hls.destroy();
+					const Hls = (await import('hls.js')).default;
+					hls = new Hls({
+						maxBufferLength: 60,
+						maxMaxBufferLength: 120,
+						startLevel: -1,
+						enableWorker: true,
+						lowLatencyMode: false,
+						debug: false,
+						renderTextTracksNatively: true
+					});
+					hls.loadSource(streamUrl + `/master.m3u8?MaxStreamingBitrate=${preset.bitrate}`);
+					hls.attachMedia(videoEl!);
+					hls.on(Hls.Events.MANIFEST_PARSED, () => {
+						videoEl!.currentTime = savedTime;
+						if (wasPlaying) videoEl!.play().catch(() => {});
+					});
+				}
 			}
 		}
 		activePanel = 'none';
@@ -910,14 +957,13 @@
 						bitrate: l.bitrate ?? 0
 					}));
 
-					// Restore saved quality preference
-					const savedQuality = localStorage.getItem('nexus:preferred-quality');
-					if (savedQuality && qualityLevels.length > 1) {
-						const preferredHeight = parseInt(savedQuality);
-						const match = qualityLevels.findIndex(l => l.height === preferredHeight);
-						if (match >= 0) {
-							hls.currentLevel = match;
-							currentQuality = match;
+					// Restore saved quality preset index
+					const savedIdx = localStorage.getItem('nexus:preferred-quality');
+					if (savedIdx !== null) {
+						const idx = parseInt(savedIdx);
+						if (idx >= 0 && idx < QUALITY_PRESETS.length) {
+							currentQuality = idx;
+							selectedBitrate = QUALITY_PRESETS[idx].bitrate;
 						}
 					}
 
@@ -1500,7 +1546,7 @@
 						{#if title}<span class="ctrl__title">{title}</span>{/if}
 						{#if subtitle}<span class="ctrl__sub">{subtitle}</span>{/if}
 					</div>
-					{#if qualityLevels.length > 0 || (isDirectMode && directFormats.length > 0)}
+					{#if !isAudio}
 						<span class="qual-pill">{currentQualityLabel}</span>
 					{/if}
 				</div>
@@ -1640,7 +1686,7 @@
 									</div>
 								{/if}
 							</div>
-						{:else if qualityLevels.length >= 1}
+						{:else}
 							<div class="ctrl-panel-wrap">
 								<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
 									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -1648,11 +1694,13 @@
 								{#if activePanel === 'quality'}
 									<div class="panel">
 										<div class="panel__head">Quality</div>
-										<button class="panel__item" class:panel__item--on={currentQuality === -1} onclick={() => setQuality(-1)}>Auto {#if currentQuality === -1}<span class="panel__ck">&#10003;</span>{/if}</button>
-										{#each qualityLevels.toSorted((a, b) => b.height - a.height) as lv}
-											<button class="panel__item" class:panel__item--on={currentQuality === lv.index} onclick={() => setQuality(lv.index)}>
-												{lv.height}p <span class="panel__meta">{fmtBitrate(lv.bitrate)}</span>
-												{#if currentQuality === lv.index}<span class="panel__ck">&#10003;</span>{/if}
+										<button class="panel__item" class:panel__item--on={currentQuality === -1} onclick={() => setQuality(-1)}>
+											Auto {#if currentQuality === -1}<span class="panel__ck">&#10003;</span>{/if}
+										</button>
+										{#each QUALITY_PRESETS as preset, i (preset.label)}
+											<button class="panel__item" class:panel__item--on={currentQuality === i} onclick={() => setQuality(i)}>
+												{preset.label} <span class="panel__meta">{fmtBitrate(preset.bitrate)}</span>
+												{#if currentQuality === i}<span class="panel__ck">&#10003;</span>{/if}
 											</button>
 										{/each}
 									</div>
