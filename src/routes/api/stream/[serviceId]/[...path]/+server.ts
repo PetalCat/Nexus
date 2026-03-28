@@ -235,81 +235,32 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 				`URI="/api/stream/${serviceId}/$1/`
 			);
 
-			// ── Synthesize quality tiers for master.m3u8 ─────────────────
-			// Jellyfin returns a single variant. We add lower-quality tiers
-			// so the player can offer quality selection (720p, 480p, 360p).
+			// ── Fix bogus bandwidth in master.m3u8 ─────────────────────
+			// Jellyfin often reports unrealistically low bandwidth for direct
+			// streams (e.g. just the audio bitrate). Correct it so hls.js
+			// can make sensible ABR decisions.
 			if (upstreamPath.endsWith('/master.m3u8')) {
 				const streamLines = body.split('\n');
-				const streamInfCount = streamLines.filter(l => l.startsWith('#EXT-X-STREAM-INF')).length;
-
-				if (streamInfCount === 1) {
-					// Find the original STREAM-INF and its main.m3u8 URL
-					const infIdx = streamLines.findIndex(l => l.startsWith('#EXT-X-STREAM-INF'));
+				const infIdx = streamLines.findIndex(l => l.startsWith('#EXT-X-STREAM-INF'));
+				if (infIdx >= 0) {
 					const origInf = streamLines[infIdx];
-					const origUrl = streamLines[infIdx + 1];
-
-					// Parse source resolution and bandwidth
-					const resMatch = origInf.match(/RESOLUTION=(\d+)x(\d+)/);
-					const sourceWidth = resMatch ? parseInt(resMatch[1]) : 1920;
-					const sourceHeight = resMatch ? parseInt(resMatch[2]) : 1080;
+					const resMatch = origInf.match(/RESOLUTION=\d+x(\d+)/);
+					const sourceHeight = resMatch ? parseInt(resMatch[1]) : 1080;
 					const bwMatch = origInf.match(/BANDWIDTH=(\d+)/);
 					const reportedBw = bwMatch ? parseInt(bwMatch[1]) : 0;
 
-					// Jellyfin often reports bogus bandwidth for direct streams (e.g. just the audio bitrate).
-					// Estimate a realistic bitrate from the resolution.
-					const estimatedBitrates: Record<number, number> = {
-						2160: 40_000_000,
-						1080: 20_000_000,
-						720: 6_000_000,
-						480: 2_000_000,
-						360: 1_000_000
-					};
-					const closestHeight = [2160, 1080, 720, 480, 360].reduce((prev, curr) =>
-						Math.abs(curr - sourceHeight) < Math.abs(prev - sourceHeight) ? curr : prev
-					);
-					const sourceBitrate = reportedBw > 2_000_000
-						? reportedBw // Use reported if it seems reasonable (>2Mbps)
-						: estimatedBitrates[closestHeight] ?? 20_000_000;
-
-					// Fix the original variant's bandwidth so hls.js sorts correctly
-					streamLines[infIdx] = origInf
-						.replace(/BANDWIDTH=\d+/, `BANDWIDTH=${sourceBitrate}`)
-						.replace(/AVERAGE-BANDWIDTH=\d+/, `AVERAGE-BANDWIDTH=${sourceBitrate}`);
-
-					// Extract subtitle group reference if present
-					const subsMatch = origInf.match(/,SUBTITLES="([^"]+)"/);
-					const subsGroup = subsMatch ? `,SUBTITLES="${subsMatch[1]}"` : '';
-
-					// Extract codec and frame rate strings
-					const codecMatch = origInf.match(/CODECS="([^"]+)"/);
-					const codecs = codecMatch ? codecMatch[1] : 'avc1.640029,mp4a.40.2';
-					const fpsMatch = origInf.match(/FRAME-RATE=([\d.]+)/);
-					const fps = fpsMatch ? fpsMatch[1] : '23.976';
-
-					// Quality tiers: only add tiers below source resolution
-					const tiers = [
-						{ height: 2160, width: 3840, bitrate: 40_000_000 },
-						{ height: 1080, width: 1920, bitrate: 10_000_000 },
-						{ height: 720,  width: 1280, bitrate: 4_000_000 },
-						{ height: 480,  width: 854,  bitrate: 1_500_000 },
-						{ height: 360,  width: 640,  bitrate: 800_000 },
-					].filter(t => t.height < sourceHeight);
-
-					// Build synthetic variants — each points to main.m3u8 with a different MaxStreamingBitrate
-					const extraVariants: string[] = [];
-					for (const tier of tiers) {
-						const tierUrl = origUrl.replace(
-							/MaxStreamingBitrate=\d+/,
-							`MaxStreamingBitrate=${tier.bitrate}`
+					if (reportedBw < 2_000_000) {
+						const estimatedBitrates: Record<number, number> = {
+							2160: 40_000_000, 1080: 20_000_000, 720: 6_000_000,
+							480: 2_000_000, 360: 1_000_000
+						};
+						const closestHeight = [2160, 1080, 720, 480, 360].reduce((prev, curr) =>
+							Math.abs(curr - sourceHeight) < Math.abs(prev - sourceHeight) ? curr : prev
 						);
-						extraVariants.push(
-							`#EXT-X-STREAM-INF:BANDWIDTH=${tier.bitrate},AVERAGE-BANDWIDTH=${tier.bitrate},VIDEO-RANGE=SDR,CODECS="${codecs}",RESOLUTION=${tier.width}x${tier.height},FRAME-RATE=${fps}${subsGroup}`,
-							tierUrl
-						);
-					}
-
-					if (extraVariants.length > 0) {
-						streamLines.splice(infIdx + 2, 0, ...extraVariants);
+						const correctedBw = estimatedBitrates[closestHeight] ?? 20_000_000;
+						streamLines[infIdx] = origInf
+							.replace(/BANDWIDTH=\d+/, `BANDWIDTH=${correctedBw}`)
+							.replace(/AVERAGE-BANDWIDTH=\d+/, `AVERAGE-BANDWIDTH=${correctedBw}`);
 						body = streamLines.join('\n');
 					}
 				}
