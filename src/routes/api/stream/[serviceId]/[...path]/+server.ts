@@ -248,43 +248,66 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 					const origInf = streamLines[infIdx];
 					const origUrl = streamLines[infIdx + 1];
 
-					// Parse source resolution
+					// Parse source resolution and bandwidth
 					const resMatch = origInf.match(/RESOLUTION=(\d+)x(\d+)/);
+					const sourceWidth = resMatch ? parseInt(resMatch[1]) : 1920;
 					const sourceHeight = resMatch ? parseInt(resMatch[2]) : 1080;
+					const bwMatch = origInf.match(/BANDWIDTH=(\d+)/);
+					const reportedBw = bwMatch ? parseInt(bwMatch[1]) : 0;
+
+					// Jellyfin often reports bogus bandwidth for direct streams (e.g. just the audio bitrate).
+					// Estimate a realistic bitrate from the resolution.
+					const estimatedBitrates: Record<number, number> = {
+						2160: 40_000_000,
+						1080: 20_000_000,
+						720: 6_000_000,
+						480: 2_000_000,
+						360: 1_000_000
+					};
+					const closestHeight = [2160, 1080, 720, 480, 360].reduce((prev, curr) =>
+						Math.abs(curr - sourceHeight) < Math.abs(prev - sourceHeight) ? curr : prev
+					);
+					const sourceBitrate = reportedBw > 2_000_000
+						? reportedBw // Use reported if it seems reasonable (>2Mbps)
+						: estimatedBitrates[closestHeight] ?? 20_000_000;
+
+					// Fix the original variant's bandwidth so hls.js sorts correctly
+					streamLines[infIdx] = origInf
+						.replace(/BANDWIDTH=\d+/, `BANDWIDTH=${sourceBitrate}`)
+						.replace(/AVERAGE-BANDWIDTH=\d+/, `AVERAGE-BANDWIDTH=${sourceBitrate}`);
 
 					// Extract subtitle group reference if present
 					const subsMatch = origInf.match(/,SUBTITLES="([^"]+)"/);
 					const subsGroup = subsMatch ? `,SUBTITLES="${subsMatch[1]}"` : '';
 
-					// Extract codec string
+					// Extract codec and frame rate strings
 					const codecMatch = origInf.match(/CODECS="([^"]+)"/);
 					const codecs = codecMatch ? codecMatch[1] : 'avc1.640029,mp4a.40.2';
+					const fpsMatch = origInf.match(/FRAME-RATE=([\d.]+)/);
+					const fps = fpsMatch ? fpsMatch[1] : '23.976';
 
 					// Quality tiers: only add tiers below source resolution
 					const tiers = [
-						{ height: 2160, width: 3840, bitrate: 40_000_000, label: '4K' },
-						{ height: 1080, width: 1920, bitrate: 10_000_000, label: '1080p' },
-						{ height: 720,  width: 1280, bitrate: 4_000_000,  label: '720p' },
-						{ height: 480,  width: 854,  bitrate: 1_500_000,  label: '480p' },
-						{ height: 360,  width: 640,  bitrate: 800_000,    label: '360p' },
+						{ height: 2160, width: 3840, bitrate: 40_000_000 },
+						{ height: 1080, width: 1920, bitrate: 10_000_000 },
+						{ height: 720,  width: 1280, bitrate: 4_000_000 },
+						{ height: 480,  width: 854,  bitrate: 1_500_000 },
+						{ height: 360,  width: 640,  bitrate: 800_000 },
 					].filter(t => t.height < sourceHeight);
 
-					// Build synthetic variants — each points to main.m3u8 with a MaxStreamingBitrate cap
+					// Build synthetic variants — each points to main.m3u8 with a different MaxStreamingBitrate
 					const extraVariants: string[] = [];
 					for (const tier of tiers) {
-						// Replace existing MaxStreamingBitrate or append
 						const tierUrl = origUrl.replace(
 							/MaxStreamingBitrate=\d+/,
 							`MaxStreamingBitrate=${tier.bitrate}`
 						);
 						extraVariants.push(
-							`#EXT-X-STREAM-INF:BANDWIDTH=${tier.bitrate},AVERAGE-BANDWIDTH=${tier.bitrate},VIDEO-RANGE=SDR,CODECS="${codecs}",RESOLUTION=${tier.width}x${tier.height},FRAME-RATE=23.976${subsGroup}`,
+							`#EXT-X-STREAM-INF:BANDWIDTH=${tier.bitrate},AVERAGE-BANDWIDTH=${tier.bitrate},VIDEO-RANGE=SDR,CODECS="${codecs}",RESOLUTION=${tier.width}x${tier.height},FRAME-RATE=${fps}${subsGroup}`,
 							tierUrl
 						);
 					}
 
-					// Re-label the original as "Original" quality with real bitrate estimate
-					// Insert extra variants after the original
 					if (extraVariants.length > 0) {
 						streamLines.splice(infIdx + 2, 0, ...extraVariants);
 						body = streamLines.join('\n');
