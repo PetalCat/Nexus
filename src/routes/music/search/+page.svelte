@@ -32,7 +32,7 @@
 		};
 	}
 
-	const tracks = $derived((data.songs as UnifiedMedia[]).map(toTrack));
+	const tracks = $derived(data.songs.map(toTrack));
 
 	const hasResults = $derived(
 		data.songs.length > 0 ||
@@ -102,7 +102,7 @@
 				</div>
 
 				<div class="track-list">
-					{#each (data.songs as UnifiedMedia[]).slice(0, 4) as song, i (song.id)}
+					{#each data.songs.slice(0, 4) as song, i (song.id)}
 						{@const track = tracks[i]}
 						{@const isCurrentTrack = musicPlayer.currentTrack?.id === track.id}
 						<TrackRow

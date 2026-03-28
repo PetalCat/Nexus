@@ -6,12 +6,14 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const query = url.searchParams.get('q') ?? '';
 	if (!userId || !query) return { query, songs: [], albums: [], artists: [], playlists: [] };
 
-	const [songs, albumsResult, artistsResult, allPlaylists] = await Promise.all([
+	const [songsResult, albumsResult, artistsResult, allPlaylists] = await Promise.all([
 		getMusicSongs(userId, { search: query, limit: 10 }),
 		getMusicAlbums(userId, { sort: 'added', limit: 50 }),
 		getMusicArtists(userId, { sort: 'SortName', limit: 50 }),
 		getUserPlaylists(userId)
 	]);
+
+	const songs = songsResult.items ?? [];
 
 	// Client-side filter albums and artists by query (since adapters may not support search)
 	const q = query.toLowerCase();
