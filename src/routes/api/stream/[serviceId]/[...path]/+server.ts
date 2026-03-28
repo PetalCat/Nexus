@@ -118,9 +118,10 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		upstream.searchParams.set('DeviceId', `nexus-${config.id}`);
 		upstream.searchParams.set('PlaySessionId', `nexus-${Date.now()}`);
 
-		// Codec negotiation — H.264 baseline for broadest compatibility, let Jellyfin transcode
-		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264');
-		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3');
+		// Codec negotiation — allow H.264 + H.265/HEVC for broad compatibility.
+		// Direct stream (remux into HLS) is preferred over transcoding.
+		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264,h265,hevc,av1');
+		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus,flac,ac3,eac3');
 		if (!url.searchParams.has('TranscodingMaxAudioChannels'))
 			upstream.searchParams.set('TranscodingMaxAudioChannels', '6');
 		if (!url.searchParams.has('MaxStreamingBitrate'))
@@ -129,11 +130,11 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 			upstream.searchParams.set('TranscodingProtocol', 'hls');
 		if (!url.searchParams.has('TranscodingContainer'))
 			upstream.searchParams.set('TranscodingContainer', 'ts');
-		// Allow direct stream (remux) but not direct play (raw file) — ensures HLS wrapper
+		// Direct stream (remux) preferred — direct play also allowed for compatible containers
 		if (!url.searchParams.has('EnableDirectStream'))
 			upstream.searchParams.set('EnableDirectStream', 'true');
 		if (!url.searchParams.has('EnableDirectPlay'))
-			upstream.searchParams.set('EnableDirectPlay', 'false');
+			upstream.searchParams.set('EnableDirectPlay', 'true');
 		upstream.searchParams.set('BreakOnNonKeyFrames', 'true');
 		// Deliver subtitles as separate HLS WebVTT tracks so the player can toggle them
 		if (!url.searchParams.has('SubtitleMethod'))
