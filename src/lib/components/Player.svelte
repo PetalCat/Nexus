@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { MediaType } from '$lib/adapters/types';
+	import { musicPlayer, pauseForMedia, resumeAfterMedia } from '$lib/stores/musicStore.svelte';
 
 	interface VideoFormat {
 		itag: number | string;
@@ -651,6 +652,7 @@
 		playing = false;
 		sessionStarted = false;
 		document.body.style.overflow = '';
+		resumeAfterMedia();
 		onclose?.();
 	}
 
@@ -1258,6 +1260,7 @@
 		el.addEventListener('play', () => {
 			playing = true;
 			resetControlsTimer();
+			if (musicPlayer.playing) pauseForMedia();
 			if (!sessionStarted) reportStart();
 			else reportProgress();
 		});
@@ -1282,6 +1285,7 @@
 			playing = false;
 			showControls = true;
 			reportStop();
+			resumeAfterMedia();
 		});
 		el.addEventListener('enterpictureinpicture', () => { pipActive = true; });
 		el.addEventListener('leavepictureinpicture', () => { pipActive = false; });
