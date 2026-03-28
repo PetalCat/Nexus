@@ -28,7 +28,7 @@ export async function resolveTrailerUrl(
 
 		if (youtubeId) {
 			// Use the existing Invidious video stream proxy
-			return `/api/video/stream/${youtubeId}`;
+			return `/api/video/stream/${youtubeId}?muxed=1`;
 		}
 
 		// Step 2: No Jellyfin trailer — search Invidious for one
