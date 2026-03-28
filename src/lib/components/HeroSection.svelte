@@ -7,6 +7,7 @@
 	let {
 		backdrop = null,
 		trailerUrl = null,
+		trailerAudioUrl = null,
 		mode = 'carousel',
 		autoplay = true,
 		delay = 5000,
@@ -14,6 +15,7 @@
 	}: {
 		backdrop?: string | null;
 		trailerUrl?: string | null;
+		trailerAudioUrl?: string | null;
 		mode?: 'carousel' | 'detail' | 'browse';
 		autoplay?: boolean;
 		delay?: number;
@@ -52,6 +54,7 @@
 
 	<TrailerPlayer
 		src={trailerUrl}
+		audioSrc={trailerAudioUrl}
 		{autoplay}
 		{delay}
 		bind:muted

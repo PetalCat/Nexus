@@ -109,7 +109,7 @@ function recToHero(rec: ScoredRecommendation): HeroItem {
 		reason: rec.reason,
 		provider: rec.provider,
 		streamUrl: item.streamUrl,
-		trailerUrl: (item.metadata?.trailerUrl as string) ?? undefined
+		// trailerVideo/trailerAudio resolved lazily by HeroCarousel via /api/media/[id]/trailer
 	};
 }
 

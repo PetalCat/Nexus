@@ -30,5 +30,5 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		locals.user.id
 	);
 
-	return json({ trailerUrl });
+	return json({ trailer: trailerUrl });
 };
