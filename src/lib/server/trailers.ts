@@ -2,12 +2,19 @@
 import { withCache } from './cache';
 import { getEnabledConfigs } from './services';
 
+export interface TrailerInfo {
+	/** High-quality adaptive video stream (may be video-only) */
+	video: string;
+	/** Separate audio stream for synced playback (null if video is muxed) */
+	audio: string | null;
+}
+
 /**
- * Resolve a trailer URL for a media item.
+ * Resolve trailer streams for a media item.
  * 1. Check metadata.trailerUrl (from Jellyfin RemoteTrailers — typically YouTube)
- * 2. If YouTube URL found + Invidious configured, return stream proxy URL
+ * 2. If YouTube URL found + Invidious configured, resolve video + audio streams
  * 3. If no Jellyfin trailer + Invidious configured, search for one
- * 4. Returns a playable stream proxy URL or null
+ * 4. Returns video + audio URLs or null
  */
 export async function resolveTrailerUrl(
 	mediaId: string,
@@ -16,7 +23,7 @@ export async function resolveTrailerUrl(
 	year?: number,
 	metadataTrailerUrl?: string | null,
 	userId?: string
-): Promise<string | null> {
+): Promise<TrailerInfo | null> {
 	const cacheKey = `trailer:${mediaId}:${serviceId}`;
 
 	return withCache(cacheKey, 24 * 60 * 60 * 1000, async () => {
@@ -25,19 +32,17 @@ export async function resolveTrailerUrl(
 
 		// Step 1: Try Jellyfin's RemoteTrailers URL (YouTube)
 		const youtubeId = extractYouTubeId(metadataTrailerUrl);
+		const videoId = youtubeId ?? await searchInvidiousTrailer(inv, title, year);
 
-		if (youtubeId) {
-			// Use the existing Invidious video stream proxy
-			return `/api/video/stream/${youtubeId}?muxed=1`;
-		}
+		if (!videoId) return null;
 
-		// Step 2: No Jellyfin trailer — search Invidious for one
-		const searchedId = await searchInvidiousTrailer(inv, title, year);
-		if (searchedId) {
-			return `/api/video/stream/${searchedId}`;
-		}
+		// Resolve best audio itag for synced playback
+		const audioItag = await resolveBestAudioItag(inv, videoId);
 
-		return null;
+		return {
+			video: `/api/video/stream/${videoId}`,
+			audio: audioItag ? `/api/video/stream/${videoId}?itag=${audioItag}` : null
+		};
 	});
 }
 
@@ -54,6 +59,42 @@ function getInvidiousConfig(): { serviceId: string; url: string } | null {
 	const invConfig = configs.find((c) => c.type === 'invidious');
 	if (!invConfig) return null;
 	return { serviceId: invConfig.id, url: invConfig.url };
+}
+
+/** Preferred audio itags: opus > aac, higher bitrate first */
+const PREFERRED_AUDIO_ITAGS = [
+	'251',  // opus 160kbps
+	'250',  // opus 70kbps
+	'249',  // opus 50kbps
+	'140',  // aac 128kbps
+	'139',  // aac 48kbps
+];
+
+async function resolveBestAudioItag(
+	inv: { url: string },
+	videoId: string
+): Promise<string | null> {
+	try {
+		const baseUrl = inv.url.replace(/\/$/, '');
+		const res = await fetch(
+			`${baseUrl}/api/v1/videos/${encodeURIComponent(videoId)}?fields=adaptiveFormats`,
+			{ signal: AbortSignal.timeout(8000) }
+		);
+		if (!res.ok) return null;
+		const meta = await res.json();
+
+		const available = new Set<string>();
+		for (const f of (meta.adaptiveFormats ?? [])) {
+			if ((f.type ?? '').startsWith('audio/')) {
+				available.add(String(f.itag));
+			}
+		}
+
+		for (const itag of PREFERRED_AUDIO_ITAGS) {
+			if (available.has(itag)) return itag;
+		}
+	} catch { /* silent */ }
+	return null;
 }
 
 async function searchInvidiousTrailer(

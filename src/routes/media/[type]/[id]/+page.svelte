@@ -654,7 +654,8 @@
 		<HeroSection
 			mode="detail"
 			backdrop={item.backdrop ?? item.poster}
-			trailerUrl={data.trailerUrl}
+			trailerUrl={data.trailerUrl?.video ?? null}
+			trailerAudioUrl={data.trailerUrl?.audio ?? null}
 		>
 			<!-- Play trigger overlay (playable video only) -->
 			{#if isPlayable && !isAudioType}

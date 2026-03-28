@@ -39,7 +39,8 @@
 	// Card hover trailer preview
 	let hoverItem: UnifiedMedia | null = $state(null);
 	let hoverTimeout: ReturnType<typeof setTimeout> | null = $state(null);
-	let hoverTrailerUrl: string | null = $state(null);
+	let hoverTrailerVideo: string | null = $state(null);
+	let hoverTrailerAudio: string | null = $state(null);
 
 	function onCardHover(item: UnifiedMedia) {
 		if (hoverTimeout) clearTimeout(hoverTimeout);
@@ -49,7 +50,8 @@
 				const res = await fetch(`/api/media/${item.sourceId}/trailer?service=${item.serviceId}`);
 				if (res.ok) {
 					const data = await res.json();
-					hoverTrailerUrl = data.trailerUrl;
+					hoverTrailerVideo = data.trailer?.video ?? null;
+					hoverTrailerAudio = data.trailer?.audio ?? null;
 				}
 			} catch { /* silent */ }
 		}, 2500);
@@ -61,7 +63,8 @@
 		setTimeout(() => {
 			if (!hoverTimeout) {
 				hoverItem = null;
-				hoverTrailerUrl = null;
+				hoverTrailerVideo = null;
+				hoverTrailerAudio = null;
 			}
 		}, 500);
 	}
@@ -85,7 +88,8 @@
 			<HeroSection
 				mode="browse"
 				backdrop={hoverItem?.backdrop ?? hero.backdrop}
-				trailerUrl={hoverTrailerUrl ?? (hero.metadata?.trailerUrl as string)}
+				trailerUrl={hoverTrailerVideo}
+				trailerAudioUrl={hoverTrailerAudio}
 			>
 				<div class="flex h-full items-end p-4 pb-5 sm:p-6 sm:pb-8 md:p-8 md:pb-10">
 					<div class="max-w-xl">

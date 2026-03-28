@@ -12,8 +12,28 @@
 
 	let currentIndex = $state(0);
 	let paused = $state(false);
+	let trailerVideo = $state<string | null>(null);
+	let trailerAudio = $state<string | null>(null);
 
 	let current = $derived(items[currentIndex]);
+
+	// Lazy-resolve trailer for current hero item
+	$effect(() => {
+		const item = current;
+		if (!item) return;
+		trailerVideo = null;
+		trailerAudio = null;
+		fetch(`/api/media/${item.sourceId}/trailer?service=${item.serviceId}`)
+			.then((r) => r.ok ? r.json() : null)
+			.then((data) => {
+				// Only apply if still on same item
+				if (current?.sourceId === item.sourceId && data?.trailer) {
+					trailerVideo = data.trailer.video ?? null;
+					trailerAudio = data.trailer.audio ?? null;
+				}
+			})
+			.catch(() => {});
+	});
 
 	function advance(dir: 1 | -1) {
 		currentIndex = (currentIndex + dir + items.length) % items.length;
@@ -64,7 +84,8 @@
 			<HeroSection
 				mode="carousel"
 				backdrop={current.backdrop}
-				trailerUrl={current.trailerUrl}
+				trailerUrl={trailerVideo}
+				trailerAudioUrl={trailerAudio}
 				autoplay={true}
 				delay={5000}
 			>
