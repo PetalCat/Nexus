@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Search, X, Clock, ArrowUp, ArrowDown, CornerDownLeft, Star, Plus, Check, Loader2, ChevronRight } from 'lucide-svelte';
+	import { Search, X, Clock, ArrowUp, ArrowDown, CornerDownLeft, Star, Plus, Check, Loader2, ChevronRight, Play } from 'lucide-svelte';
 	import { palette, closePalette, setScope } from '$lib/stores/commandPalette.svelte';
+	import { playTrack } from '$lib/stores/musicStore.svelte';
+	import type { Track } from '$lib/stores/musicStore.svelte';
 	import type { UnifiedMedia } from '$lib/adapters/types';
 
 	const SCOPES = [
@@ -208,8 +210,32 @@
 	}
 
 	// ── Actions ──
+	function handleMusicPlay(item: UnifiedMedia) {
+		const track: Track = {
+			id: item.id,
+			sourceId: item.sourceId,
+			serviceId: item.serviceId,
+			title: item.title,
+			artist: (item.metadata?.artist as string) ?? 'Unknown',
+			album: (item.metadata?.album as string) ?? '',
+			albumId: (item.metadata?.albumId as string) ?? '',
+			duration: item.duration ?? 0,
+			image: item.poster ?? ''
+		};
+		playTrack(track);
+	}
+
+	function isMusicTrack(item: UnifiedMedia): boolean {
+		return item.type === 'music' || (item as any).mediaType === 'Audio';
+	}
+
 	function navigateToItem(item: UnifiedMedia) {
 		addRecent(query.trim());
+		if (isMusicTrack(item)) {
+			handleMusicPlay(item);
+			closePalette();
+			return;
+		}
 		closePalette();
 		if (item.type === 'video') {
 			goto(`/media/video/${item.sourceId}?service=${item.serviceId}`);
@@ -666,7 +692,14 @@
 				{#if !isScoped}
 					<span class="text-[10px] px-1.5 py-0.5 rounded bg-cream/[0.06] text-muted">{typeSingular[item.type] ?? item.type}</span>
 				{/if}
-				{#if item.type === 'video'}
+				{#if isMusicTrack(item)}
+					{#if item.metadata?.artist}
+						<span class="text-[10px] text-muted truncate">{item.metadata.artist}</span>
+					{/if}
+					{#if item.metadata?.album}
+						<span class="text-[10px] text-faint truncate">{item.metadata.album}</span>
+					{/if}
+				{:else if item.type === 'video'}
 					{#if item.metadata?.author}
 						<span class="text-[10px] text-muted truncate">{item.metadata.author}</span>
 					{/if}
@@ -688,6 +721,12 @@
 				{/if}
 			</div>
 		</div>
-		<span class="text-[9px] px-1.5 py-0.5 rounded-md bg-cream/[0.04] text-faint flex-shrink-0 capitalize">{item.serviceType}</span>
+		{#if isMusicTrack(item)}
+			<span class="flex items-center justify-center w-6 h-6 rounded-full bg-accent/15 text-accent flex-shrink-0">
+				<Play class="w-3 h-3" fill="currentColor" />
+			</span>
+		{:else}
+			<span class="text-[9px] px-1.5 py-0.5 rounded-md bg-cream/[0.04] text-faint flex-shrink-0 capitalize">{item.serviceType}</span>
+		{/if}
 	</div>
 {/snippet}
