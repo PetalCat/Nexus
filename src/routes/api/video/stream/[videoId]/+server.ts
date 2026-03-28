@@ -22,14 +22,21 @@ const PREFERRED_VIDEO_ITAGS = [
 	'18'           // 360p muxed
 ];
 
+/** Muxed-only itags (video+audio in one stream) — for trailers and previews */
+const PREFERRED_MUXED_ITAGS = [
+	'22',  // 720p muxed
+	'18'   // 360p muxed
+];
+
 /** Cache resolved CDN URLs: key = videoId:itag, value = { url, expires } */
 const cdnCache = new Map<string, { url: string; expires: number }>();
 
 /** Cache resolved best itag per video */
 const itagCache = new Map<string, { itag: string; expires: number }>();
 
-async function resolveBestItag(baseUrl: string, videoId: string, headers: Record<string, string>): Promise<string | null> {
-	const cached = itagCache.get(videoId);
+async function resolveBestItag(baseUrl: string, videoId: string, headers: Record<string, string>, muxedOnly = false): Promise<string | null> {
+	const cacheKey = muxedOnly ? `${videoId}:muxed` : videoId;
+	const cached = itagCache.get(cacheKey);
 	if (cached && cached.expires > Date.now()) return cached.itag;
 
 	try {
@@ -44,9 +51,10 @@ async function resolveBestItag(baseUrl: string, videoId: string, headers: Record
 		for (const f of (meta.formatStreams ?? [])) available.add(String(f.itag));
 		for (const f of (meta.adaptiveFormats ?? [])) available.add(String(f.itag));
 
-		for (const itag of PREFERRED_VIDEO_ITAGS) {
+		const preferredList = muxedOnly ? PREFERRED_MUXED_ITAGS : PREFERRED_VIDEO_ITAGS;
+		for (const itag of preferredList) {
 			if (available.has(itag)) {
-				itagCache.set(videoId, { itag, expires: Date.now() + 10 * 60 * 1000 });
+				itagCache.set(cacheKey, { itag, expires: Date.now() + 10 * 60 * 1000 });
 				return itag;
 			}
 		}
@@ -111,10 +119,11 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	const apiHeaders: Record<string, string> = {};
 	if (userCred?.accessToken) apiHeaders['Cookie'] = `SID=${userCred.accessToken}`;
 
-	// Resolve itag
+	// Resolve itag — ?muxed=1 forces muxed formats (video+audio, for trailers)
 	let itag = url.searchParams.get('itag');
+	const muxedOnly = url.searchParams.get('muxed') === '1';
 	if (!itag) {
-		itag = await resolveBestItag(invConfig.url, videoId, apiHeaders);
+		itag = await resolveBestItag(invConfig.url, videoId, apiHeaders, muxedOnly);
 	}
 	if (!itag) itag = '18';
 
