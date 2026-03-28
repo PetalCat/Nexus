@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
-import { getAlbums, getAlbumTracks, getArtists, getArtistAlbums, getInstantMix } from '../adapters/jellyfin';
+import { getAlbums, getAlbumTracks, getArtists, getArtistAlbums, getInstantMix, getSongs } from '../adapters/jellyfin';
 import { getLidarrAlbums, getLidarrArtists, getLidarrWanted, getLidarrQueue } from '../adapters/lidarr';
 import type { ServiceConfig, UserCredential, UnifiedMedia } from '../adapters/types';
 import { getEnabledConfigs } from './services';
@@ -66,6 +66,29 @@ export async function getMusicAlbumDetail(userId: string, albumId: string, servi
 	const cred = resolveJellyfinCred(config, userId);
 	const tracks = await getAlbumTracks(config, albumId, cred);
 	return { tracks };
+}
+
+// ---------------------------------------------------------------------------
+// Songs
+// ---------------------------------------------------------------------------
+
+export async function getMusicSongs(userId: string, opts?: {
+	sort?: string; limit?: number; offset?: number; search?: string;
+}) {
+	const configs = getJellyfinMusicConfigs();
+	if (configs.length === 0) return { items: [], total: 0 };
+
+	const results = await Promise.allSettled(
+		configs.map((config) => {
+			const cred = resolveJellyfinCred(config, userId);
+			return getSongs(config, cred, opts);
+		})
+	);
+
+	const items = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.items : []));
+	const total = results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value.total : 0), 0);
+
+	return { items, total };
 }
 
 // ---------------------------------------------------------------------------
