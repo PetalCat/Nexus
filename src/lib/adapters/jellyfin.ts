@@ -319,6 +319,36 @@ export async function getAlbums(
 	}
 }
 
+export async function getSongs(
+	config: ServiceConfig,
+	userCred?: UserCredential,
+	opts?: { sort?: string; limit?: number; offset?: number; search?: string }
+): Promise<{ items: UnifiedMedia[]; total: number }> {
+	try {
+		const userId = await getUserId(config, userCred);
+		const params: Record<string, string> = {
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			SortBy: opts?.sort === 'DateCreated' ? 'DateCreated' : opts?.sort === 'Album' ? 'Album,SortName' : opts?.sort === 'Artist' ? 'AlbumArtist,SortName' : opts?.sort === 'Random' ? 'Random' : 'SortName',
+			SortOrder: opts?.sort === 'DateCreated' ? 'Descending' : 'Ascending',
+			Limit: String(opts?.limit ?? 100),
+			StartIndex: String(opts?.offset ?? 0),
+			Fields: FIELDS,
+			EnableUserData: 'true',
+			EnableImages: 'true'
+		};
+		if (opts?.search) params.SearchTerm = opts.search;
+
+		const data = await jfFetchUser(config, `/Users/${userId}/Items`, params, userCred);
+		return {
+			items: (data.Items ?? []).map((i: unknown) => normalize(config, i)),
+			total: data.TotalRecordCount ?? 0
+		};
+	} catch {
+		return { items: [], total: 0 };
+	}
+}
+
 export async function getAlbumTracks(
 	config: ServiceConfig,
 	albumId: string,
