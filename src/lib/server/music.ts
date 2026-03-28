@@ -118,11 +118,45 @@ export async function getMusicArtists(userId: string, opts?: {
 }
 
 export async function getMusicArtistDetail(userId: string, artistId: string, serviceId: string) {
-	const config = getJellyfinMusicConfigs().find((c) => c.id === serviceId);
+	const configs = getJellyfinMusicConfigs();
+	const config = configs.find((c) => c.id === serviceId) ?? configs[0];
 	if (!config) return null;
 
 	const cred = resolveJellyfinCred(config, userId);
-	const albums = await getArtistAlbums(config, artistId, cred);
+
+	// Fetch artist info and albums in parallel
+	const [artistResult, albums] = await Promise.all([
+		getArtists(config, cred, { limit: 1 }).then((r) => r.items).catch(() => []),
+		getArtistAlbums(config, artistId, cred)
+	]);
+
+	// Fetch the specific artist by fetching all and filtering by ID,
+	// or use the item endpoint for artist details
+	let artist: { id: string; name: string; imageUrl?: string; backdrop?: string; albumCount?: number; overview?: string; genres?: string[]; serviceId?: string } | null = null;
+
+	// Try to get artist info from getArtists with the full list (cached)
+	const allArtists = await withCache(`jf:artists:${config.id}`, 120_000, () =>
+		getArtists(config, cred, { limit: 500 })
+	);
+	const foundArtist = allArtists.items.find((a) => a.id === artistId);
+	if (foundArtist) {
+		artist = { ...foundArtist, serviceId: config.id };
+	} else if (albums.length > 0) {
+		// Fallback: construct from album metadata
+		artist = {
+			id: artistId,
+			name: (albums[0]?.metadata?.artist as string) ?? 'Unknown Artist',
+			imageUrl: albums[0]?.metadata?.artistImageUrl as string | undefined,
+			albumCount: albums.length,
+			serviceId: config.id
+		};
+	}
+
+	if (!artist) return null;
+
+	// Count total tracks across albums
+	const totalTracks = albums.reduce((sum, a) => sum + ((a.metadata?.userData as any)?.UnplayedItemCount ?? 0), 0);
+	(artist as any).trackCount = totalTracks;
 
 	// Try Lidarr for richer artist data
 	const lidarrConfig = getLidarrConfig();
@@ -133,7 +167,27 @@ export async function getMusicArtistDetail(userId: string, artistId: string, ser
 		lidarrArtist = lidarrArtists.find((a) => a.name.toLowerCase() === artistName) ?? null;
 	}
 
-	return { albums, lidarr: lidarrArtist };
+	return { artist, albums, lidarr: lidarrArtist };
+}
+
+export async function getArtistTopSongs(userId: string, artistId: string, serviceId: string, limit = 5): Promise<UnifiedMedia[]> {
+	const configs = getJellyfinMusicConfigs();
+	const config = configs.find((c) => c.id === serviceId) ?? configs[0];
+	if (!config) return [];
+	const cred = resolveJellyfinCred(config, userId);
+	if (!cred) return [];
+
+	try {
+		const result = await getSongs(config, cred, {
+			artistId,
+			sort: 'PlayCount',
+			limit
+		});
+		return result.items;
+	} catch (e) {
+		console.error('[music] Failed to fetch top songs:', e);
+		return [];
+	}
 }
 
 // ---------------------------------------------------------------------------
