@@ -789,5 +789,66 @@ export const rommAdapter: ServiceAdapter = {
 			return { Authorization: 'Basic ' + btoa(`${config.username}:${config.password}`) };
 		}
 		return {};
+	},
+
+	async getCategories(config, userCred) {
+		const platforms = await getPlatforms(config, userCred);
+		return platforms.map((p: RommPlatform) => ({
+			id: String(p.id),
+			name: p.display_name ?? p.slug,
+			count: p.rom_count,
+			image: p.url_logo
+		}));
+	},
+
+	async getSubItems(config, parentId, type, _opts, userCred) {
+		if (type === 'collection' && !parentId) {
+			const collections = await getCollections(config, userCred);
+			return { items: collections as any, total: collections.length };
+		}
+		if (type === 'collection' && parentId) {
+			const collection = await getCollection(config, Number(parentId), userCred);
+			return { items: collection?.roms ?? [], total: collection?.roms?.length ?? 0 } as any;
+		}
+		return { items: [], total: 0 };
+	},
+
+	async manageCollection(config, action, data, userCred) {
+		switch (action) {
+			case 'create': {
+				const result = await createCollection(config, data.name ?? '', data.description as string | undefined, userCred);
+				return { id: String(result.id) };
+			}
+			case 'update': await updateCollection(config, Number(data.id!), data as { name?: string; description?: string }, userCred); return;
+			case 'delete': await deleteCollection(config, Number(data.id!), userCred); return;
+			case 'addItems':
+			case 'removeItems':
+				await updateCollectionRoms(config, Number(data.id!), (data.itemIds ?? []).map(Number), userCred); return;
+			default: return;
+		}
+	},
+
+	async setItemStatus(config, sourceId, status, userCred) {
+		if (status.playStatus != null) await updateUserRomStatus(config, sourceId, status.playStatus as string, userCred);
+		if (status.favorite != null) await toggleRomFavorite(config, sourceId, status.favorite as boolean, userCred);
+	},
+
+	async uploadContent(config, parentId, type, blob, fileName, userCred) {
+		if (type === 'state') await uploadRomState(config, parentId, blob, fileName, userCred);
+		else if (type === 'save') await uploadRomSave(config, parentId, blob, fileName, userCred);
+	},
+
+	async downloadContent(config, sourceId, format, userCred) {
+		if (format?.startsWith('state:')) return downloadRomState(config, sourceId, format.split(':')[1], userCred);
+		if (format?.startsWith('save:')) return downloadRomSave(config, sourceId, format.split(':')[1], userCred);
+		return downloadRomContent(config, sourceId, userCred);
+	},
+
+	async enrichItem(config, item, enrichmentType, userCred) {
+		const id = item.sourceId;
+		if (enrichmentType === 'saves') return { ...item, metadata: { ...item.metadata, saves: await getRomSaves(config, id, userCred) } };
+		if (enrichmentType === 'states') return { ...item, metadata: { ...item.metadata, states: await getRomStates(config, id, userCred) } };
+		if (enrichmentType === 'screenshots') return { ...item, metadata: { ...item.metadata, screenshots: await getRomScreenshots(config, id, userCred) } };
+		return item;
 	}
 };
