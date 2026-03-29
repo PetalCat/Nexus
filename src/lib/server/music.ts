@@ -3,8 +3,9 @@ import { and, eq, desc, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { getAlbums, getAlbumTracks, getArtists, getArtistAlbums, getInstantMix, getSongs } from '../adapters/jellyfin';
 import { getLidarrAlbums, getLidarrArtists, getLidarrWanted, getLidarrQueue } from '../adapters/lidarr';
+import { registry } from '../adapters/registry';
 import type { ServiceConfig, UserCredential, UnifiedMedia } from '../adapters/types';
-import { getEnabledConfigs } from './services';
+import { getConfigsForMediaType, getEnabledConfigs } from './services';
 import { getUserCredentialForService } from './auth';
 import { withCache } from './cache';
 
@@ -20,11 +21,20 @@ function now(): number {
 // ---------------------------------------------------------------------------
 
 export function getJellyfinMusicConfigs(): ServiceConfig[] {
-	return getEnabledConfigs().filter((c) => c.type === 'jellyfin');
+	// Use registry to find all configs whose adapter supports 'music' and is a library
+	return getConfigsForMediaType('music').filter((c) => {
+		const adapter = registry.get(c.type);
+		return adapter?.isLibrary;
+	});
 }
 
 export function getLidarrConfig(): ServiceConfig | undefined {
-	return getEnabledConfigs().find((c) => c.type === 'lidarr');
+	// Find the first enabled config whose adapter supports 'music' but isn't a library
+	// (e.g. Lidarr provides music metadata/monitoring but Jellyfin is the library)
+	return getConfigsForMediaType('music').find((c) => {
+		const adapter = registry.get(c.type);
+		return adapter && !adapter.isLibrary;
+	});
 }
 
 function resolveJellyfinCred(config: ServiceConfig, userId?: string): UserCredential | undefined {

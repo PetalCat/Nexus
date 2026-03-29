@@ -271,10 +271,12 @@ async function getPersonalizedRows(userId: string): Promise<DashboardRow[]> {
 	const ssConfigs = getEnabledConfigs().filter((c) => c.type === 'streamystats');
 	if (ssConfigs.length === 0) return [];
 
-	// StreamyStats authenticates via Jellyfin tokens
-	const jellyfinConfig = getEnabledConfigs().find((c) => c.type === 'jellyfin');
-	if (!jellyfinConfig) return [];
-	const userCred = getUserCredentialForService(userId, jellyfinConfig.id) ?? undefined;
+	// StreamyStats authenticates via another adapter (e.g. Jellyfin) — resolve via authVia
+	const ssAdapter = registry.get('streamystats');
+	const authAdapterId = ssAdapter?.authVia;
+	const authConfig = authAdapterId ? getEnabledConfigs().find((c) => c.type === authAdapterId) : undefined;
+	if (!authConfig) return [];
+	const userCred = getUserCredentialForService(userId, authConfig.id) ?? undefined;
 	if (!userCred?.accessToken) return [];
 
 	const rows: DashboardRow[] = [];
@@ -352,7 +354,7 @@ async function aggregateContinueWatching(configs: ServiceConfig[], userId?: stri
 	const seen = new Set<string>();
 	const fallbackItems = await Promise.allSettled(
 		recent.map(async (row) => {
-			const config = configs.find((c) => c.id === row.serviceId && c.type === 'jellyfin');
+			const config = configs.find((c) => c.id === row.serviceId && LIBRARY_TYPES.has(c.type));
 			if (!config) return null;
 			const key = `${row.serviceId}:${row.mediaId}`;
 			if (seen.has(key)) return null;
@@ -391,14 +393,14 @@ function getCachedLibraryItemsFromDb(opts?: {
 }): { items: UnifiedMedia[]; total: number } | null {
 	if (!opts?.type || !['movie', 'show'].includes(opts.type)) return null;
 
-	const jellyfinServiceIds = getEnabledConfigs()
-		.filter((c) => c.type === 'jellyfin')
+	const libraryServiceIds = getEnabledConfigs()
+		.filter((c) => LIBRARY_TYPES.has(c.type))
 		.map((c) => c.id);
 
-	if (jellyfinServiceIds.length === 0) return null;
+	if (libraryServiceIds.length === 0) return null;
 
 	const raw = getRawDb();
-	const placeholders = jellyfinServiceIds.map(() => '?').join(', ');
+	const placeholders = libraryServiceIds.map(() => '?').join(', ');
 	const sortBy = opts.sortBy ?? 'title';
 	const orderBy = sortBy === 'year'
 		? 'year DESC, sort_title COLLATE NOCASE ASC, title COLLATE NOCASE ASC'
@@ -413,10 +415,10 @@ function getCachedLibraryItemsFromDb(opts?: {
 		 FROM media_items
 		 WHERE type = ?
 		   AND service_id IN (${placeholders})`
-	).get(opts.type, ...jellyfinServiceIds) as { count: number } | undefined;
+	).get(opts.type, ...libraryServiceIds) as { count: number } | undefined;
 
 	const rows = raw.prepare(
-		`SELECT source_id as sourceId, service_id as serviceId, type, title, sort_title as sortTitle,
+		`SELECT source_id as sourceId, service_id as serviceId, service_type as serviceType, type, title, sort_title as sortTitle,
 		        description, poster, backdrop, year, rating, genres, studios, duration, status
 		 FROM media_items
 		 WHERE type = ?
@@ -425,12 +427,13 @@ function getCachedLibraryItemsFromDb(opts?: {
 		 LIMIT ? OFFSET ?`
 	).all(
 		opts.type,
-		...jellyfinServiceIds,
+		...libraryServiceIds,
 		opts.limit ?? 50,
 		opts.offset ?? 0
 	) as Array<{
 		sourceId: string;
 		serviceId: string;
+		serviceType: string;
 		type: string;
 		title: string;
 		sortTitle: string | null;
@@ -452,7 +455,7 @@ function getCachedLibraryItemsFromDb(opts?: {
 			id: `${row.sourceId}:${row.serviceId}`,
 			sourceId: row.sourceId,
 			serviceId: row.serviceId,
-			serviceType: 'jellyfin',
+			serviceType: row.serviceType,
 			type: row.type as UnifiedMedia['type'],
 			title: row.title,
 			sortTitle: row.sortTitle ?? undefined,

@@ -1,4 +1,5 @@
 import { getStreamyStatsRecommendations } from '$lib/adapters/streamystats';
+import { registry } from '$lib/adapters/registry';
 import { getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type {
@@ -22,20 +23,24 @@ export const streamyStatsProvider: RecommendationProvider = {
 		const ssConfigs = getEnabledConfigs().filter((c) => c.type === 'streamystats');
 		if (ssConfigs.length === 0) return false;
 
-		// Need a Jellyfin credential for auth
-		const jfConfig = getEnabledConfigs().find((c) => c.type === 'jellyfin');
-		if (!jfConfig) return false;
+		// Resolve auth adapter via registry (e.g. StreamyStats authenticates via Jellyfin)
+		const ssAdapter = registry.get('streamystats');
+		const authAdapterId = ssAdapter?.authVia;
+		const authConfig = authAdapterId ? getEnabledConfigs().find((c) => c.type === authAdapterId) : undefined;
+		if (!authConfig) return false;
 
-		const cred = getUserCredentialForService(ctx.userId, jfConfig.id);
+		const cred = getUserCredentialForService(ctx.userId, authConfig.id);
 		return !!cred?.accessToken;
 	},
 
 	async getRecommendations(ctx: RecommendationContext): Promise<ScoredRecommendation[]> {
 		const ssConfigs = getEnabledConfigs().filter((c) => c.type === 'streamystats');
-		const jfConfig = getEnabledConfigs().find((c) => c.type === 'jellyfin');
-		if (!jfConfig || ssConfigs.length === 0) return [];
+		const ssAdapter = registry.get('streamystats');
+		const authAdapterId = ssAdapter?.authVia;
+		const authConfig = authAdapterId ? getEnabledConfigs().find((c) => c.type === authAdapterId) : undefined;
+		if (!authConfig || ssConfigs.length === 0) return [];
 
-		const cred = getUserCredentialForService(ctx.userId, jfConfig.id);
+		const cred = getUserCredentialForService(ctx.userId, authConfig.id);
 		if (!cred?.accessToken) return [];
 
 		const results: ScoredRecommendation[] = [];
