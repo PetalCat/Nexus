@@ -1,6 +1,7 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession } from './types';
 import { withCache } from '../server/cache';
+import { getCredsForService } from '../server/analytics';
 
 // ---------------------------------------------------------------------------
 // Authenticated fetch — uses per-user Basic auth when available,
@@ -580,6 +581,7 @@ export const rommAdapter: ServiceAdapter = {
 	icon: 'romm',
 	mediaTypes: ['game'],
 	userLinkable: true,
+	pollIntervalMs: 60_000,
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
@@ -714,5 +716,67 @@ export const rommAdapter: ServiceAdapter = {
 		} catch {
 			return [];
 		}
+	},
+
+	async pollSessions(config): Promise<NexusSession[]> {
+		const creds = getCredsForService(config.id);
+		const results: NexusSession[] = [];
+
+		for (const cred of creds) {
+			if (!cred.externalUsername || !cred.accessToken) continue;
+			try {
+				const userCred: UserCredential = {
+					accessToken: cred.accessToken ?? undefined,
+					externalUserId: cred.externalUserId ?? undefined,
+					externalUsername: cred.externalUsername ?? undefined
+				};
+				const data = await rommFetch(config, '/roms?limit=50&order_by=updated_at&order_dir=desc', userCred);
+				const roms = data?.items ?? data ?? [];
+
+				for (const rom of roms) {
+					const userStatus = rom.rom_user?.status;
+					if (!userStatus) continue;
+
+					const mediaTitle = rom.name || rom.fs_name_no_ext;
+					const mediaId = String(rom.id);
+
+					const genres = (rom.metadatum?.genres ?? rom.genres ?? [])
+						.map((g: { name?: string } | string) => typeof g === 'string' ? g : g.name)
+						.filter(Boolean) as string[];
+
+					let state: 'playing' | 'paused' | 'stopped';
+					if (userStatus === 'playing') {
+						state = 'playing';
+					} else if (userStatus === 'finished' || userStatus === 'completed' || userStatus === 'retired') {
+						state = 'stopped';
+					} else {
+						continue; // skip wishlist and other non-play statuses
+					}
+
+					results.push({
+						sessionId: `${cred.userId}:${rom.id}`,
+						userId: cred.userId,
+						username: cred.externalUsername,
+						mediaId,
+						mediaTitle,
+						mediaType: 'game',
+						state,
+						progress: 0,
+						parentTitle: rom.platform_display_name,
+						genres,
+						metadata: {
+							platform: rom.platform_display_name,
+							platformSlug: rom.platform_slug,
+							userStatus,
+							lastPlayed: rom.rom_user?.last_played
+						}
+					});
+				}
+			} catch {
+				// skip this user on error
+			}
+		}
+
+		return results;
 	}
 };
