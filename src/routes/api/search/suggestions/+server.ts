@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getSearchSuggestions } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { getDb, getRawDb, schema } from '$lib/db';
 import { eq, desc } from 'drizzle-orm';
 
@@ -22,7 +22,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const invConfigs = getConfigsForMediaType('video');
 	if (invConfigs.length > 0) {
 		try {
-			const result = await getSearchSuggestions(invConfigs[0], query);
+			const adapter = registry.get(invConfigs[0].type);
+			const result = await adapter?.getServiceData?.(invConfigs[0], 'search-suggestions', { query }) as { suggestions?: string[] } | null;
 			if (result?.suggestions) {
 				allSuggestions.push(...result.suggestions);
 			}

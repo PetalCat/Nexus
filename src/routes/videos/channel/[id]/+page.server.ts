@@ -1,5 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
-import { getChannel, getChannelVideos, normalizeVideo, getSubscriptions } from '$lib/adapters/invidious';
+import { normalizeVideo } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { isChannelNotifyEnabled } from '$lib/server/video-notifications';
 import { withCache } from '$lib/server/cache';
@@ -14,11 +15,12 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const channelId = params.id;
 	const sort = url.searchParams.get('sort') ?? undefined;
 
+	const adapter = registry.get(config.type);
 	const channelData = await withCache(`channel:${channelId}:${sort ?? 'default'}`, 120_000, async () => {
 		const [channel, videosRes] = await Promise.all([
-			getChannel(config, channelId),
-			getChannelVideos(config, channelId, sort)
-		]);
+			adapter?.getServiceData?.(config, 'channel', { channelId }),
+			adapter?.getServiceData?.(config, 'channel-videos', { channelId, sort })
+		]) as [any, any];
 
 		return {
 			author: channel.author as string,
@@ -51,7 +53,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let isSubscribed = false;
 	if (hasLinkedAccount && cred) {
 		try {
-			const subs = await getSubscriptions(config, cred);
+			const subs = await adapter?.getServiceData?.(config, 'subscriptions', {}, cred) as any[] ?? [];
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			isSubscribed = subs.some((s: any) => s.authorId === channelId);
 		} catch { /* silent */ }

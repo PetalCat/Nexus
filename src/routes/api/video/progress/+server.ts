@@ -4,7 +4,7 @@ import { activity } from '$lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { markWatched } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { broadcastToFriends } from '$lib/server/ws';
 import { getFriendIds } from '$lib/server/social';
 import type { RequestHandler } from './$types';
@@ -82,7 +82,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (isComplete && invConfig) {
 		const userCred = getUserCredentialForService(userId, invConfig.id) ?? undefined;
 		if (userCred) {
-			markWatched(invConfig, videoId, userCred).catch(() => {});
+			const adapter = registry.get(invConfig.type);
+			adapter?.setItemStatus?.(invConfig, videoId, { watched: true }, userCred).catch(() => {});
 		}
 	}
 

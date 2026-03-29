@@ -1,6 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getTrendingByCategory, getSubscriptionFeed } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
@@ -19,8 +19,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		const cred = userId ? getUserCredentialForService(userId, config.id) ?? undefined : undefined;
 		hasLinkedAccount = !!cred?.accessToken;
 
+		const adapter = registry.get(config.type);
 		trending = await withCache(`videos:trending:${category ?? 'all'}`, 120_000, () =>
-			getTrendingByCategory(config, category)
+			adapter?.getServiceData?.(config, 'trending-by-category', { category }) as Promise<UnifiedMedia[]>
 		);
 
 		if (hasLinkedAccount) {
@@ -28,7 +29,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// Invidious puts recent uploads in `notifications`, not `videos`
 			const subscriptionFeed = withCache(`videos:subfeed:${userId}`, 60_000, async () => {
 				try {
-					const feed = await getSubscriptionFeed(config, cred!);
+					const feed = await adapter?.getServiceData?.(config, 'subscription-feed', {}, cred!) as { notifications: UnifiedMedia[]; videos: UnifiedMedia[] } | null;
+					if (!feed) return [] as UnifiedMedia[];
 					return [...feed.notifications, ...feed.videos];
 				} catch (err) {
 					console.error('[videos] subscription feed error:', err);

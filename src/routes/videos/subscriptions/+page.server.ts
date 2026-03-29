@@ -1,6 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getSubscriptionFeed } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
@@ -19,8 +19,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	try {
+		const adapter = registry.get(config.type);
 		const allVideos = await withCache(`videos:subfeed:full:${userId}`, 60_000, async () => {
-			const feed = await getSubscriptionFeed(config, cred);
+			const feed = await adapter?.getServiceData?.(config, 'subscription-feed', {}, cred) as { notifications: UnifiedMedia[]; videos: UnifiedMedia[] } | null;
+			if (!feed) return [] as UnifiedMedia[];
 			return [...feed.notifications, ...feed.videos] as UnifiedMedia[];
 		});
 

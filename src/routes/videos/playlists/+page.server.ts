@@ -1,6 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getUserPlaylists } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -17,7 +17,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	try {
-		const playlists = await getUserPlaylists(config, cred);
+		const adapter = registry.get(config.type);
+		const playlists = await adapter?.getServiceData?.(config, 'playlists', {}, cred) as any[] ?? [];
 		return { playlists, hasLinkedAccount };
 	} catch {
 		return { playlists: [], hasLinkedAccount };
