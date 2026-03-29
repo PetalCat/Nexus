@@ -25,7 +25,7 @@ export async function getSuggestions(userId: string, limit = 10): Promise<Sugges
 			SELECT DISTINCT media_title, media_type,
 			       json_extract(metadata, '$.tmdbId') as tmdb_id
 			FROM play_sessions
-			WHERE user_id = ? AND duration_seconds > 300
+			WHERE user_id = ? AND duration_ms > 300000
 			ORDER BY started_at DESC
 			LIMIT 20
 		`).all(userId) as Array<{
