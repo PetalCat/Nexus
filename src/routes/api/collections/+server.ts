@@ -1,31 +1,30 @@
 import { json } from '@sveltejs/kit';
-import { getUserCollections, createCollection } from '$lib/server/social';
+import { registry } from '$lib/adapters/registry';
+import { getEnabledConfigs } from '$lib/server/services';
+import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
-// GET /api/collections — list collections I'm part of
+// GET /api/collections — list all collections from all adapters
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
-	const collections = getUserCollections(locals.user.id);
-	return json({ collections });
-};
 
-// POST /api/collections — create a new collection
-// Body: { name, description?, visibility? }
-export const POST: RequestHandler = async ({ request, locals }) => {
-	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
+	const collections = await withCache('collections:all', 1_800_000, async () => {
+		const configs = getEnabledConfigs();
+		const all: any[] = [];
 
-	const body = await request.json();
-	const { name, description, visibility } = body;
+		await Promise.allSettled(
+			configs.map(async (config) => {
+				const adapter = registry.get(config.type);
+				if (!adapter?.getSubItems) return;
+				try {
+					const res = await adapter.getSubItems(config, '', 'collection', {});
+					all.push(...(res?.items ?? []));
+				} catch {}
+			})
+		);
 
-	if (!name || typeof name !== 'string') {
-		return json({ error: 'Missing name' }, { status: 400 });
-	}
+		return all.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''));
+	});
 
-	const validVisibility = ['private', 'friends', 'public'];
-	if (visibility && !validVisibility.includes(visibility)) {
-		return json({ error: 'Invalid visibility' }, { status: 400 });
-	}
-
-	const id = createCollection(locals.user.id, { name, description, visibility });
-	return json({ id });
+	return json(collections);
 };
