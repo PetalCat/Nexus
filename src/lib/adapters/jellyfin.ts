@@ -954,6 +954,25 @@ export const jellyfinAdapter: ServiceAdapter = {
 			Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-image-${config.id}", Version="1.0.0", Token="${token}"`,
 			'X-Emby-Token': token
 		};
+	},
+
+	async getSubItems(config, parentId, type, _opts, userCred) {
+		if (type === 'season') {
+			const seasons = await getSeasons(config, parentId, userCred);
+			return { items: seasons as unknown as UnifiedMedia[], total: seasons.length };
+		}
+		return { items: [], total: 0 };
+	},
+
+	async getServiceData(config, dataType, params, userCred) {
+		switch (dataType) {
+			case 'programs':
+				return getChannelPrograms(config, params?.channelId as string, userCred);
+			case 'tv-guide':
+				return getLiveTvGuide(config, userCred);
+			default:
+				return null;
+		}
 	}
 };
 
