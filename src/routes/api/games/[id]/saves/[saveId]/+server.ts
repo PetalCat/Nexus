@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { downloadRomSave, deleteRomSave } from '$lib/adapters/romm';
+import { registry } from '$lib/adapters/registry';
+import { deleteRomSave } from '$lib/adapters/romm';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, url, locals }) => {
@@ -10,10 +11,11 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	if (!serviceId) throw error(400, 'serviceId required');
 	const config = getServiceConfig(serviceId);
 	if (!config || config.type !== 'romm') throw error(404);
+	const adapter = registry.get(config.type);
 	const userCred = getUserCredentialForService(locals.user.id, serviceId) ?? undefined;
 
-	const res = await downloadRomSave(config, params.id, params.saveId, userCred);
-	if (!res.ok) throw error(res.status, 'Failed to download save');
+	const res = await adapter?.downloadContent?.(config, params.id, `save:${params.saveId}`, userCred);
+	if (!res?.ok) throw error(res?.status ?? 500, 'Failed to download save');
 
 	const headers = new Headers();
 	headers.set('Content-Type', res.headers.get('Content-Type') ?? 'application/octet-stream');

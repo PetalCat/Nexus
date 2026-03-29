@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getPlatforms } from '$lib/adapters/romm';
+import { registry } from '$lib/adapters/registry';
 import { enrichPlatform } from '$lib/server/platform-meta';
 
 /**
@@ -20,16 +20,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	}
 
 	const config = rommConfigs[0];
+	const adapter = registry.get(config.type);
 	const userCred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
-	const platforms = await getPlatforms(config, userCred);
+	const categories = await adapter?.getCategories?.(config, userCred) ?? [];
 
 	if (platformId) {
-		const platform = platforms.find((p) => String(p.id) === platformId);
+		const platform = categories.find((p) => p.id === platformId);
 		if (!platform) return json({ error: 'Platform not found' }, { status: 404 });
-		return json({ platform: enrichPlatform(platform) });
+		return json({ platform: enrichPlatform(platform as any) });
 	}
 
 	return json({
-		platforms: platforms.map(enrichPlatform)
+		platforms: categories.map((p) => enrichPlatform(p as any))
 	});
 };

@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
+import { registry } from '$lib/adapters/registry';
 import { downloadRomContent } from '$lib/adapters/romm';
 import type { RequestHandler } from './$types';
 
@@ -16,6 +17,7 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	const userCred = getUserCredentialForService(locals.user.id, serviceId) ?? undefined;
 	const range = request.headers.get('range') ?? undefined;
 
+	// downloadRomContent supports range header which downloadContent interface does not
 	const res = await downloadRomContent(config, params.id, userCred, range);
 	if (!res.ok) throw error(res.status, 'Failed to fetch ROM');
 

@@ -1,5 +1,6 @@
 import { getLibraryItems, getConfigsForMediaType } from '$lib/server/services';
-import { getPlatforms, getCollections } from '$lib/adapters/romm';
+import { registry } from '$lib/adapters/registry';
+import { getPlatforms } from '$lib/adapters/romm';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { PageServerLoad } from './$types';
 
@@ -17,6 +18,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		userId ? getUserCredentialForService(userId, c.id) ?? undefined : undefined
 	);
 
+	const adapter = registry.get('romm');
+
 	const [libraryResult, ...platformResults] = await Promise.all([
 		getLibraryItems({ type: 'game', sortBy, limit: 200, platformId }, userId),
 		...rommConfigs.map((c, i) => getPlatforms(c, rommCreds[i]))
@@ -27,9 +30,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	let collections: { id: number; name: string; description?: string; romIds: number[] }[] = [];
 	try {
 		const allCollections = await Promise.all(
-			rommConfigs.map((c, i) => getCollections(c, rommCreds[i]))
+			rommConfigs.map((c, i) => adapter?.getSubItems?.(c, '', 'collection', {}, rommCreds[i]).then(r => r?.items ?? []) ?? Promise.resolve([]))
 		);
-		collections = allCollections.flat().map((c) => ({
+		collections = allCollections.flat().map((c: any) => ({
 			id: c.id,
 			name: c.name,
 			description: c.description,

@@ -2,7 +2,6 @@ import { error } from '@sveltejs/kit';
 import { getServiceConfig, getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
-import { getRomSaves, getRomStates } from '$lib/adapters/romm';
 import { isPlayableInBrowser } from '$lib/emulator/cores';
 import type { PageServerLoad } from './$types';
 
@@ -33,10 +32,12 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	}
 
 	// Fetch saves/states for the cloud save modal
-	const [saves, states] = await Promise.all([
-		getRomSaves(config, params.id, userCred),
-		getRomStates(config, params.id, userCred)
+	const [savesEnriched, statesEnriched] = await Promise.all([
+		adapter.enrichItem?.(config, { sourceId: params.id } as any, 'saves', userCred),
+		adapter.enrichItem?.(config, { sourceId: params.id } as any, 'states', userCred)
 	]);
+	const saves = (savesEnriched?.metadata?.saves ?? []) as any[];
+	const states = (statesEnriched?.metadata?.states ?? []) as any[];
 
 	// Proxy screenshot URLs through Nexus image proxy
 	const proxyScreenshot = (url?: string) => {
