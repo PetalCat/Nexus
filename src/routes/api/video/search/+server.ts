@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { normalizeVideo } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 
 interface InvidiousSearchResult {
@@ -56,9 +57,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			return res.json() as Promise<InvidiousSearchResult[]>;
 		});
 
-		const videos = result
+		let videos = result
 			.filter((r) => r.type === 'video' && r.videoId)
 			.map((v) => normalizeVideo(config, v as any));
+
+		// Apply DeArrow enrichment if available
+		const adapter = registry.get(config.type);
+		if (adapter?.enrichItem) {
+			videos = await Promise.all(
+				videos.map(item => adapter.enrichItem!(config, item, 'dearrow'))
+			);
+		}
 
 		const channels = result
 			.filter((r) => r.type === 'channel' && r.authorId)

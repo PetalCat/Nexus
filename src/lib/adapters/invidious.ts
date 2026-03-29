@@ -449,6 +449,33 @@ export const invidiousAdapter: ServiceAdapter = {
 		} catch {
 			return [];
 		}
+	},
+
+	async enrichItem(config: ServiceConfig, item: UnifiedMedia, enrichmentType?: string) {
+		if (enrichmentType !== 'dearrow') return item;
+		try {
+			const { getDeArrowBranding, deArrowThumbnailUrl } = await import('$lib/server/dearrow');
+			const branding = await getDeArrowBranding(item.sourceId);
+			if (!branding) return item;
+
+			return {
+				...item,
+				// Replace title with DeArrow community title if available
+				title: branding.title ?? item.title,
+				// Replace poster with DeArrow thumbnail if a timestamp is available
+				poster: branding.thumbnailTimestamp != null
+					? deArrowThumbnailUrl(item.sourceId, branding.thumbnailTimestamp)
+					: item.poster,
+				metadata: {
+					...item.metadata,
+					originalTitle: item.title,
+					dearrowTitle: branding.title,
+					dearrowTimestamp: branding.thumbnailTimestamp
+				}
+			};
+		} catch {
+			return item;
+		}
 	}
 };
 
