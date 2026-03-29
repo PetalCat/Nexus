@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem, QualityInfo } from './types';
 
 async function radarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v3${path}`);
@@ -38,6 +38,18 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 		actionLabel: item.hasFile ? 'Watch' : 'Request',
 		actionUrl: `${config.url}/movie/${item.titleSlug}`
 	};
+}
+
+let radarrQualityCache: { profiles: any[]; formats: any[]; ts: number } | null = null;
+
+async function getRadarrQualityMeta(config: ServiceConfig) {
+	if (radarrQualityCache && Date.now() - radarrQualityCache.ts < 1_800_000) return radarrQualityCache;
+	const [profiles, formats] = await Promise.all([
+		radarrFetch(config, '/qualityprofile'),
+		radarrFetch(config, '/customformat')
+	]);
+	radarrQualityCache = { profiles, formats, ts: Date.now() };
+	return radarrQualityCache;
 }
 
 export const radarrAdapter: ServiceAdapter = {
@@ -104,6 +116,39 @@ export const radarrAdapter: ServiceAdapter = {
 			};
 		} catch {
 			return { items: [], total: 0, source: 'radarr' };
+		}
+	},
+
+	async enrichItem(config, item, enrichmentType) {
+		if (enrichmentType !== 'quality') return item;
+		try {
+			const radarrId = item.metadata?.radarrId;
+			if (!radarrId) return item;
+			const movie = await radarrFetch(config, `/movie/${radarrId}`);
+			if (!movie?.movieFile) return item;
+
+			const { profiles, formats } = await getRadarrQualityMeta(config);
+			const profile = profiles.find((p: any) => p.id === movie.qualityProfileId);
+			const mediaInfo = movie.movieFile.mediaInfo;
+			const appliedFormats = movie.movieFile.customFormats ?? [];
+			const formatNames = appliedFormats.map((f: any) => {
+				const match = formats.find((cf: any) => cf.id === f.id);
+				return match?.name ?? f.name;
+			}).filter(Boolean);
+
+			const quality: QualityInfo = {
+				resolution: mediaInfo?.resolution,
+				hdr: mediaInfo?.videoHdrFormat || undefined,
+				audioFormat: mediaInfo?.audioCodec,
+				audioChannels: mediaInfo?.audioChannels ? String(mediaInfo.audioChannels) : undefined,
+				videoCodec: mediaInfo?.videoCodec,
+				customFormats: formatNames.length > 0 ? formatNames : undefined,
+				qualityProfile: profile?.name
+			};
+
+			return { ...item, metadata: { ...item.metadata, quality } };
+		} catch {
+			return item;
 		}
 	},
 
