@@ -53,6 +53,29 @@ class AdapterRegistry {
 	types(): string[] {
 		return [...this.adapters.keys()];
 	}
+
+	/** All adapters that provide browsable media libraries */
+	libraries(): ServiceAdapter[] {
+		return this.all().filter((a) => a.isLibrary);
+	}
+
+	/** All adapters that should appear in unified search, sorted by priority */
+	searchable(): ServiceAdapter[] {
+		return this.all()
+			.filter((a) => a.isSearchable)
+			.sort((a, b) => (a.searchPriority ?? Infinity) - (b.searchPriority ?? Infinity));
+	}
+
+	/** All adapters matching a given media type */
+	byMediaType(mediaType: string): ServiceAdapter[] {
+		return this.all().filter((a) => a.mediaTypes?.includes(mediaType as any));
+	}
+
+	/** Resolve the adapter that provides auth for this adapter (follows authVia chain) */
+	resolveAuthAdapter(adapter: ServiceAdapter): ServiceAdapter | undefined {
+		if (!adapter.authVia) return undefined;
+		return this.get(adapter.authVia);
+	}
 }
 
 // Build and export the singleton registry
