@@ -111,3 +111,57 @@ export interface ExternalUser {
 	/** Jellyfin user ID associated with this user (Overseerr-specific) */
 	jellyfinUserId?: string;
 }
+
+/** Active playback/activity session reported by an adapter */
+export interface NexusSession {
+	sessionId: string;
+	userId?: string;
+	username?: string;
+	mediaId: string;
+	mediaTitle: string;
+	mediaType: MediaType;
+	state: 'playing' | 'paused' | 'stopped';
+	progress: number;
+	positionSeconds?: number;
+	durationSeconds?: number;
+	device?: string;
+	client?: string;
+	metadata?: {
+		resolution?: string;
+		videoCodec?: string;
+		audioCodec?: string;
+		audioChannels?: number;
+		hdr?: boolean;
+		transcoding?: boolean;
+		bitrate?: number;
+	};
+}
+
+/** Item returned by syncLibraryItems for recommendation engine ingestion */
+export interface SyncItem {
+	sourceId: string;
+	title: string;
+	sortTitle?: string;
+	mediaType: MediaType;
+	year?: number;
+	genres?: string[];
+	poster?: string;
+	backdrop?: string;
+	duration?: number;
+	rating?: number;
+	tmdbId?: string;
+	imdbId?: string;
+}
+
+/** Upcoming media release from calendar endpoints */
+export interface CalendarItem {
+	id: string;
+	sourceId: string;
+	serviceId: string;
+	title: string;
+	mediaType: MediaType;
+	releaseDate: string;
+	poster?: string;
+	overview?: string;
+	status?: 'upcoming' | 'released' | 'downloading';
+}
