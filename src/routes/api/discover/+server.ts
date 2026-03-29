@@ -6,15 +6,19 @@ import { withCache } from '$lib/server/cache';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { RequestHandler } from './$types';
 
-// GET /api/discover?page=1&category=trending|movies|tv
+// GET /api/discover?page=1&category=trending|movies|tv|upcoming-movies|upcoming-tv|popular-movies|popular-tv|genre-movie|genre-tv|network&genreId=28&networkId=213
 export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10));
-	const category = (url.searchParams.get('category') ?? 'trending') as 'trending' | 'movies' | 'tv';
+	const category = url.searchParams.get('category') ?? 'trending';
+	const genreId = url.searchParams.get('genreId') ?? undefined;
+	const networkId = url.searchParams.get('networkId') ?? undefined;
 	const userId = locals.user.id;
 
-	const result = await withCache(`discover:${category}:${page}:${userId}`, 120_000, async () => {
+	const cacheKey = `discover:${category}:${genreId ?? ''}:${networkId ?? ''}:${page}`;
+
+	const result = await withCache(cacheKey, 900_000, async () => {
 		const configs = getEnabledConfigs().filter((c) => {
 			const adapter = registry.get(c.type);
 			return !!adapter?.discover;
@@ -24,12 +28,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 		await Promise.allSettled(
 			configs.map(async (config) => {
-				const adapter = registry.get('overseerr');
+				const adapter = registry.get(config.type);
 				if (!adapter?.discover) return;
 				const cred = getUserCredentialForService(userId, config.id) ?? undefined;
-				const res = await adapter.discover(config, { page, category }, cred);
-				allItems.push(...res.items);
-				if (res.hasMore) hasMore = true;
+				const res = await adapter.discover(config, { page, category, genreId, networkId }, cred);
+				allItems.push(...(res?.items ?? []));
+				if (res?.hasMore) hasMore = true;
 			})
 		);
 
