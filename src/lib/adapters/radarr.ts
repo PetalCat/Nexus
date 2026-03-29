@@ -96,11 +96,29 @@ export const radarrAdapter: ServiceAdapter = {
 
 	async getQueue(config): Promise<UnifiedMedia[]> {
 		try {
-			const data = await radarrFetch(config, '/queue');
-			return (data?.records ?? []).map((i: unknown) => normalize(config, i));
-		} catch {
-			return [];
-		}
+			const data = await radarrFetch(config, '/queue?page=1&pageSize=50&includeUnknownMovieItems=true&includeMovie=true');
+			return (data?.records ?? []).map((r: any): UnifiedMedia => {
+				const movie = r.movie ?? {};
+				const base = normalize(config, movie);
+				const status = r.trackedDownloadStatus === 'error' ? 'failed' : r.status === 'completed' ? 'completed' : r.trackedDownloadStatus === 'warning' ? 'warning' : r.trackedDownloadState === 'downloading' ? 'downloading' : r.status === 'paused' ? 'paused' : 'queued';
+				return {
+					...base,
+					metadata: {
+						...base.metadata,
+						queueId: r.id,
+						queueStatus: status,
+						downloadProgress: r.sizeleft != null && r.size ? Math.round(((r.size - r.sizeleft) / r.size) * 100) : 0,
+						sizeBytes: r.size,
+						remainingBytes: r.sizeleft,
+						eta: r.estimatedCompletionTime,
+						downloadClient: r.downloadClient,
+						indexer: r.indexer,
+						quality: r.quality?.quality?.name,
+						errorMessage: r.statusMessages?.[0]?.messages?.[0]
+					}
+				};
+			});
+		} catch { return []; }
 	},
 
 	async search(config, query): Promise<UnifiedSearchResult> {

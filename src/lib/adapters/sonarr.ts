@@ -95,11 +95,33 @@ export const sonarrAdapter: ServiceAdapter = {
 
 	async getQueue(config): Promise<UnifiedMedia[]> {
 		try {
-			const data = await sonarrFetch(config, '/queue');
-			return (data?.records ?? []).map((i: unknown) => normalize(config, i));
-		} catch {
-			return [];
-		}
+			const data = await sonarrFetch(config, '/queue?page=1&pageSize=50&includeSeries=true&includeEpisode=true');
+			return (data?.records ?? []).map((r: any): UnifiedMedia => {
+				const series = r.series ?? {};
+				const ep = r.episode ?? {};
+				const s = String(ep.seasonNumber ?? 0).padStart(2, '0');
+				const e = String(ep.episodeNumber ?? 0).padStart(2, '0');
+				const base = normalize(config, series);
+				const status = r.trackedDownloadStatus === 'error' ? 'failed' : r.status === 'completed' ? 'completed' : r.trackedDownloadStatus === 'warning' ? 'warning' : r.trackedDownloadState === 'downloading' ? 'downloading' : r.status === 'paused' ? 'paused' : 'queued';
+				return {
+					...base,
+					title: `${series.title ?? 'Unknown'} S${s}E${e}`,
+					metadata: {
+						...base.metadata,
+						queueId: r.id,
+						queueStatus: status,
+						downloadProgress: r.sizeleft != null && r.size ? Math.round(((r.size - r.sizeleft) / r.size) * 100) : 0,
+						sizeBytes: r.size,
+						remainingBytes: r.sizeleft,
+						eta: r.estimatedCompletionTime,
+						downloadClient: r.downloadClient,
+						indexer: r.indexer,
+						quality: r.quality?.quality?.name,
+						errorMessage: r.statusMessages?.[0]?.messages?.[0]
+					}
+				};
+			});
+		} catch { return []; }
 	},
 
 	async search(config, query): Promise<UnifiedSearchResult> {
