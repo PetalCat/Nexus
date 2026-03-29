@@ -2,14 +2,15 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getCalibreAuthors } from '$lib/adapters/calibre';
+import { registry } from '$lib/adapters/registry';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401);
 	const config = getConfigsForMediaType('book')[0];
 	if (!config) throw error(404, 'No Calibre service configured');
 
+	const adapter = registry.get(config.type);
 	const userCred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
-	const authors = await getCalibreAuthors(config, userCred);
+	const authors = await adapter?.getServiceData?.(config, 'authors', {}, userCred) ?? [];
 	return json({ authors });
 };
