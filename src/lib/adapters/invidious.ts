@@ -352,6 +352,41 @@ export const invidiousAdapter: ServiceAdapter = {
 		);
 		const items = feed.videos.map((v) => normalizeVideo(config, v));
 		return { items, total: items.length };
+	},
+
+	async getServiceData(config: ServiceConfig, dataType: string, params?: Record<string, unknown>, userCred?: UserCredential) {
+		switch (dataType) {
+			case 'subscriptions': return getSubscriptions(config, userCred!);
+			case 'subscription-feed': return getSubscriptionFeed(config, userCred!, params?.page as number);
+			case 'playlists': return getUserPlaylists(config, userCred!);
+			case 'watch-history': return getWatchHistory(config, userCred!, params?.page as number);
+			case 'channel': return getChannel(config, params?.channelId as string);
+			case 'channel-videos': return getChannelVideos(config, params?.channelId as string, params?.sort as string);
+			case 'comments': return getComments(config, params?.videoId as string, params?.sort as string);
+			case 'search-suggestions': return getSearchSuggestions(config, params?.query as string);
+			case 'trending-by-category': return getTrendingByCategory(config, params?.category as string);
+			default: return null;
+		}
+	},
+
+	async manageCollection(config: ServiceConfig, action: 'create' | 'update' | 'delete' | 'addItems' | 'removeItems', data: { id?: string; name?: string; itemIds?: string[]; [key: string]: unknown }, userCred?: UserCredential) {
+		switch (action) {
+			case 'create': return createPlaylist(config, data.name!, (data.privacy as string) ?? 'private', userCred!);
+			case 'delete': await deletePlaylist(config, data.id!, userCred!); return;
+			case 'addItems': await addToPlaylist(config, data.id!, data.itemIds![0], userCred!); return;
+			case 'removeItems': await removeFromPlaylist(config, data.id!, data.itemIds![0], userCred!); return;
+			default: return;
+		}
+	},
+
+	async manageSubscription(config: ServiceConfig, action: 'subscribe' | 'unsubscribe', channelId: string, userCred?: UserCredential) {
+		if (action === 'subscribe') await subscribe(config, channelId, userCred!);
+		else await unsubscribe(config, channelId, userCred!);
+	},
+
+	async setItemStatus(config: ServiceConfig, sourceId: string, status: Record<string, unknown>, userCred?: UserCredential) {
+		if (status.watched) await markWatched(config, sourceId, userCred!);
+		if (status.inHistory === false) await removeFromHistory(config, sourceId, userCred!);
 	}
 };
 
