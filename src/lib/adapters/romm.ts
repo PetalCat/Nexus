@@ -608,6 +608,27 @@ export const rommAdapter: ServiceAdapter = {
 		}
 	},
 
+	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
+		try {
+			// Fetch recently updated ROMs and filter for those the user has marked as "playing"
+			const data = await rommFetch(config, '/roms?order_by=updated_at&order_dir=desc&limit=50', userCred);
+			const roms = data?.items ?? data ?? [];
+			return roms
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				.filter((r: any) => r.rom_user?.status === 'playing')
+				.slice(0, 20)
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				.map((r: any) => {
+					const item = normalize(config, r);
+					// RomM doesn't track completion percentage — set nominal progress
+					item.progress = 0.1;
+					return item;
+				});
+		} catch {
+			return [];
+		}
+	},
+
 	async getRecentlyAdded(config, userCred): Promise<UnifiedMedia[]> {
 		try {
 			const data = await rommFetch(config, '/roms?order_by=created_at&order_dir=desc&limit=20', userCred);
