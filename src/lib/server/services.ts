@@ -393,8 +393,9 @@ function getCachedLibraryItemsFromDb(opts?: {
 }): { items: UnifiedMedia[]; total: number } | null {
 	if (!opts?.type || !['movie', 'show'].includes(opts.type)) return null;
 
-	const libraryServiceIds = getEnabledConfigs()
-		.filter((c) => LIBRARY_TYPES.has(c.type))
+	const libraryConfigs = getEnabledConfigs()
+		.filter((c) => LIBRARY_TYPES.has(c.type));
+	const libraryServiceIds = libraryConfigs
 		.map((c) => c.id);
 
 	if (libraryServiceIds.length === 0) return null;
@@ -418,7 +419,7 @@ function getCachedLibraryItemsFromDb(opts?: {
 	).get(opts.type, ...libraryServiceIds) as { count: number } | undefined;
 
 	const rows = raw.prepare(
-		`SELECT source_id as sourceId, service_id as serviceId, service_type as serviceType, type, title, sort_title as sortTitle,
+		`SELECT source_id as sourceId, service_id as serviceId, type, title, sort_title as sortTitle,
 		        description, poster, backdrop, year, rating, genres, studios, duration, status
 		 FROM media_items
 		 WHERE type = ?
@@ -433,7 +434,6 @@ function getCachedLibraryItemsFromDb(opts?: {
 	) as Array<{
 		sourceId: string;
 		serviceId: string;
-		serviceType: string;
 		type: string;
 		title: string;
 		sortTitle: string | null;
@@ -455,7 +455,7 @@ function getCachedLibraryItemsFromDb(opts?: {
 			id: `${row.sourceId}:${row.serviceId}`,
 			sourceId: row.sourceId,
 			serviceId: row.serviceId,
-			serviceType: row.serviceType,
+			serviceType: libraryConfigs.find((c) => c.id === row.serviceId)?.type ?? '',
 			type: row.type as UnifiedMedia['type'],
 			title: row.title,
 			sortTitle: row.sortTitle ?? undefined,
