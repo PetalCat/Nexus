@@ -106,11 +106,11 @@ Features that only work because Nexus connects everything.
 
 | Status | Item | Issue | Spec/Plan |
 |--------|------|-------|-----------|
-| planned | Universal Continue — one row across all media | [#40](https://github.com/PetalCat/Nexus/issues/40) | — |
+| in-progress | Universal Continue — one row across all media | [#40](https://github.com/PetalCat/Nexus/issues/40) | Calibre+RomM+Invidious done |
 | planned | Cross-media franchise pages | [#41](https://github.com/PetalCat/Nexus/issues/41) | — |
-| planned | Unified calendar across all media types | [#42](https://github.com/PetalCat/Nexus/issues/42) | partially done |
+| in-progress | Unified calendar across all media types | [#42](https://github.com/PetalCat/Nexus/issues/42) | Invidious building |
 | planned | Smart auto-requests based on viewing patterns | [#43](https://github.com/PetalCat/Nexus/issues/43) | — |
-| planned | Unified quality dashboard with upgrades | [#46](https://github.com/PetalCat/Nexus/issues/46) | partially done |
+| in-progress | Unified quality dashboard with upgrades | [#46](https://github.com/PetalCat/Nexus/issues/46) | Admin panel building |
 | planned | Nexus Wrapped — annual stats all media | [#48](https://github.com/PetalCat/Nexus/issues/48) | — |
 | future | AI-powered personal DJ and curator | [#44](https://github.com/PetalCat/Nexus/issues/44) | — |
 | future | Social watch parties with SyncPlay | [#45](https://github.com/PetalCat/Nexus/issues/45) | — |
