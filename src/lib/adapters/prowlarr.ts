@@ -79,6 +79,9 @@ export const prowlarrAdapter: ServiceAdapter = {
 	id: 'prowlarr',
 	displayName: 'Prowlarr',
 	defaultPort: 9696,
+	color: '#ef4444',
+	abbreviation: 'PW',
+	isEnrichmentOnly: true,
 	icon: 'prowlarr',
 	mediaTypes: ['other'],
 

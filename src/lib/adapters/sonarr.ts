@@ -43,6 +43,10 @@ export const sonarrAdapter: ServiceAdapter = {
 	id: 'sonarr',
 	displayName: 'Sonarr',
 	defaultPort: 8989,
+	color: '#00d4aa',
+	abbreviation: 'SN',
+	isSearchable: true,
+	searchPriority: 3,
 	icon: 'sonarr',
 	mediaTypes: ['show'],
 
