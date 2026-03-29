@@ -240,6 +240,27 @@ export const calibreAdapter: ServiceAdapter = {
 		}
 	},
 
+	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
+		try {
+			// Calibre-Web doesn't expose per-page reading progress via its AJAX API.
+			// Approximate "currently reading" by fetching unread books sorted by most
+			// recently modified (last_modified reflects read-status toggles and annotation
+			// changes). Books that are not yet marked as read are treated as in-progress.
+			const data = await fetchBooks(config, { limit: 20, sort: 'last_modified', order: 'desc' }, userCred);
+			return data.rows
+				.filter(b => !b.read_status)
+				.slice(0, 10)
+				.map(b => {
+					const item = normalize(config, b);
+					// No granular progress available — set a nominal value to indicate "started"
+					item.progress = 0.05;
+					return item;
+				});
+		} catch {
+			return [];
+		}
+	},
+
 	async getRecentlyAdded(config, userCred): Promise<UnifiedMedia[]> {
 		try {
 			const data = await fetchBooks(config, { limit: 20, sort: 'id', order: 'desc' }, userCred);
