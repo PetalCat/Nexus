@@ -183,14 +183,14 @@ export function getUserLinkableServices() {
  */
 export function resolveUserCred(config: ServiceConfig, userId?: string): UserCredential | undefined {
 	if (!userId) return undefined;
-	// StreamyStats has no user accounts — it authenticates via the user's Jellyfin token.
-	// Handle before the userLinkable gate since streamystats.userLinkable is intentionally false.
-	if (config.type === 'streamystats') {
-		const jellyfinConfig = getEnabledConfigs().find((c) => c.type === 'jellyfin');
-		if (!jellyfinConfig) return undefined;
-		return getUserCredentialForService(userId, jellyfinConfig.id) ?? undefined;
-	}
+	// Some adapters authenticate via another service (e.g. StreamyStats uses Jellyfin tokens).
+	// Handle before the userLinkable gate since these adapters may not be userLinkable themselves.
 	const adapter = registry.get(config.type);
+	if (adapter?.authVia) {
+		const authConfig = getEnabledConfigs().find((c) => c.type === adapter.authVia);
+		if (!authConfig) return undefined;
+		return getUserCredentialForService(userId, authConfig.id) ?? undefined;
+	}
 	if (!adapter?.userLinkable) return undefined;
 	return getUserCredentialForService(userId, config.id) ?? undefined;
 }
@@ -200,7 +200,7 @@ export function resolveUserCred(config: ServiceConfig, userId?: string): UserCre
 // ---------------------------------------------------------------------------
 
 /** Media-server adapter types (things the user actually owns). */
-const LIBRARY_TYPES = new Set(['jellyfin', 'calibre', 'romm', 'invidious']);
+const LIBRARY_TYPES = new Set(registry.libraries().map((a) => a.id));
 
 /** Fast dashboard rows: continue watching + new in library (local Jellyfin calls) */
 export async function getDashboardFast(userId?: string): Promise<DashboardRow[]> {
@@ -542,18 +542,21 @@ export async function getQueue(): Promise<UnifiedMedia[]> {
 export async function unifiedSearch(query: string, userId?: string, source?: 'library' | 'discover'): Promise<UnifiedMedia[]> {
 	const configs = getEnabledConfigs();
 
+	// Use searchable adapters from registry instead of hardcoded exclusion sets
+	const searchableIds = new Set(registry.searchable().map((a) => a.id));
+	const searchPriority = Object.fromEntries(
+		registry.searchable().map((a) => [a.id, a.searchPriority ?? Infinity])
+	);
+
+	// When Overseerr is present, skip radarr/sonarr to avoid duplicate results
 	const hasOverseerr = configs.some((c) => c.type === 'overseerr');
 	const overseerrRedundant = new Set(['radarr', 'sonarr']);
-	const excludeFromSearch = new Set(['invidious', 'prowlarr', 'streamystats', 'bazarr']);
-
-	// Fast library services (local network, sub-100ms)
-	const libraryTypes = new Set(['jellyfin', 'calibre', 'romm']);
 
 	const searchConfigs = configs.filter((c) => {
-		if (excludeFromSearch.has(c.type)) return false;
+		if (!searchableIds.has(c.type)) return false;
 		if (hasOverseerr && overseerrRedundant.has(c.type)) return false;
-		if (source === 'library' && !libraryTypes.has(c.type)) return false;
-		if (source === 'discover' && libraryTypes.has(c.type)) return false;
+		if (source === 'library' && !LIBRARY_TYPES.has(c.type)) return false;
+		if (source === 'discover' && LIBRARY_TYPES.has(c.type)) return false;
 		return true;
 	});
 
@@ -567,9 +570,8 @@ export async function unifiedSearch(query: string, userId?: string, source?: 'li
 	);
 	const allItems = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
 
-	// Priority sort: Jellyfin (in-library) > Overseerr (requestable) > other *arr services
-	const priority: Record<string, number> = { jellyfin: 0, calibre: 0, romm: 0, overseerr: 1, lidarr: 2, radarr: 3, sonarr: 3 };
-	allItems.sort((a, b) => (priority[a.serviceType] ?? 4) - (priority[b.serviceType] ?? 4));
+	// Sort by adapter search priority (lower = higher priority)
+	allItems.sort((a, b) => (searchPriority[a.serviceType] ?? Infinity) - (searchPriority[b.serviceType] ?? Infinity));
 
 	return allItems;
 }
