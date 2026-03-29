@@ -1,7 +1,6 @@
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
-import { getSession as getCalibreSession } from '$lib/adapters/calibre';
 import { withStaleCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
@@ -31,31 +30,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		? getUserCredentialForService(locals.user.id, serviceId) ?? undefined
 		: undefined;
 
-	// Build auth headers based on service type
+	// Build auth headers via adapter method (falls back to generic token if not implemented)
 	const headers: Record<string, string> = {};
 
-	if (config.type === 'romm') {
-		if (userCred?.externalUsername && userCred?.accessToken) {
-			headers['Authorization'] = 'Basic ' + btoa(`${userCred.externalUsername}:${userCred.accessToken}`);
-		} else if (config.apiKey) {
-			headers['Authorization'] = `Bearer ${config.apiKey}`;
-		} else if (config.username && config.password) {
-			headers['Authorization'] = 'Basic ' + btoa(`${config.username}:${config.password}`);
-		}
-	} else if (config.type === 'jellyfin') {
-		const token = userCred?.accessToken ?? config.apiKey ?? '';
-		headers['Authorization'] = `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-image-${config.id}", Version="1.0.0", Token="${token}"`;
-		headers['X-Emby-Token'] = token;
-	} else if (config.type === 'calibre') {
-		// Calibre-Web uses session cookies — reuse the adapter's session manager
-		try {
-			const cookie = await getCalibreSession(config, userCred);
-			headers['Cookie'] = cookie;
-		} catch {
-			return new Response('Calibre auth failed', { status: 401 });
-		}
+	if (adapter?.getImageHeaders) {
+		Object.assign(headers, await adapter.getImageHeaders(config, userCred));
 	} else {
-		// Generic: try API key or user token
+		// Generic fallback: try user token or API key
 		if (userCred?.accessToken) {
 			headers['Authorization'] = `Bearer ${userCred.accessToken}`;
 		} else if (config.apiKey) {

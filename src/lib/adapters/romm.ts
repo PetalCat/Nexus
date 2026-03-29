@@ -778,5 +778,16 @@ export const rommAdapter: ServiceAdapter = {
 		}
 
 		return results;
+	},
+
+	async getImageHeaders(config, userCred): Promise<Record<string, string>> {
+		if (userCred?.externalUsername && userCred?.accessToken) {
+			return { Authorization: 'Basic ' + btoa(`${userCred.externalUsername}:${userCred.accessToken}`) };
+		} else if (config.apiKey) {
+			return { Authorization: `Bearer ${config.apiKey}` };
+		} else if (config.username && config.password) {
+			return { Authorization: 'Basic ' + btoa(`${config.username}:${config.password}`) };
+		}
+		return {};
 	}
 };

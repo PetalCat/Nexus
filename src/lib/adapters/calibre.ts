@@ -387,6 +387,15 @@ export const calibreAdapter: ServiceAdapter = {
 			externalUserId: username,
 			externalUsername: username
 		};
+	},
+
+	async getImageHeaders(config, userCred): Promise<Record<string, string>> {
+		try {
+			const cookie = await getSession(config, userCred);
+			return { Cookie: cookie };
+		} catch {
+			return {};
+		}
 	}
 };
 
