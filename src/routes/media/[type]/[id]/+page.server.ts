@@ -31,10 +31,17 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		if (!adapter?.getItem) {
 			// Management services (Sonarr, Radarr, Lidarr) don't serve item detail.
 			// Try to find the item on a library service or Overseerr/Seerr instead.
-			const fallbackConfigs = getEnabledConfigs().filter((c) => {
-				const a = registry.get(c.type);
-				return a?.getItem && (a.isLibrary || a.isSearchable);
-			});
+			const fallbackConfigs = getEnabledConfigs()
+				.filter((c) => {
+					const a = registry.get(c.type);
+					return a?.getItem && (a.isLibrary || a.isSearchable);
+				})
+				.sort((a, b) => {
+					// Try Overseerr/Seerr first (they understand TMDB/TVDB IDs)
+					const aPri = registry.get(a.type)?.searchPriority ?? 99;
+					const bPri = registry.get(b.type)?.searchPriority ?? 99;
+					return aPri - bPri;
+				});
 			for (const fc of fallbackConfigs) {
 				const fa = registry.get(fc.type);
 				if (!fa?.getItem) continue;
@@ -92,7 +99,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	if (!item) throw error(404, 'Item not found');
 
-	// ── Bazarr subtitle enrichment ─────────────────────────────────────
+	// ── Bazarr subtitle enrichment (non-blocking, 3s timeout) ────────
 	const bazarrConfigs = getEnabledConfigs().filter((c) => c.type === 'bazarr');
 	if (bazarrConfigs.length > 0 && item) {
 		const bazarrConfig = bazarrConfigs[0];
@@ -102,18 +109,22 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 		if (tmdbId || radarrId || sonarrId) {
 			try {
-				const [subtitleStatus, subtitleHistory] = await Promise.all([
-					getSubtitleStatus(bazarrConfig, tmdbId, {
-						radarrId,
-						sonarrId,
-						type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
-					}),
-					getItemSubtitleHistory(bazarrConfig, tmdbId, {
-						radarrId,
-						sonarrId,
-						type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
-					})
+				const subtitleTimeout = Promise.race([
+					Promise.all([
+						getSubtitleStatus(bazarrConfig, tmdbId, {
+							radarrId,
+							sonarrId,
+							type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
+						}),
+						getItemSubtitleHistory(bazarrConfig, tmdbId, {
+							radarrId,
+							sonarrId,
+							type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
+						})
+					]),
+					new Promise<[null, null]>((resolve) => setTimeout(() => resolve([null, null]), 3000))
 				]);
+				const [subtitleStatus, subtitleHistory] = await subtitleTimeout;
 
 				if (subtitleStatus) {
 					item.metadata = {
