@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { registry } from '$lib/adapters/registry';
+import { isOverseerrType } from '$lib/adapters/overseerr';
 import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr';
@@ -27,19 +28,45 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		if (!config) throw error(404, 'Service not found');
 
 		const adapter = registry.get(config.type);
-		if (!adapter?.getItem) throw error(501, 'This service does not support item detail');
+		if (!adapter?.getItem) {
+			// Management services (Sonarr, Radarr, Lidarr) don't serve item detail.
+			// Try to find the item on a library service or Overseerr/Seerr instead.
+			const fallbackConfigs = getEnabledConfigs().filter((c) => {
+				const a = registry.get(c.type);
+				return a?.getItem && (a.isLibrary || a.isSearchable);
+			});
+			for (const fc of fallbackConfigs) {
+				const fa = registry.get(fc.type);
+				if (!fa?.getItem) continue;
+				const cred = userId && fa.userLinkable
+					? getUserCredentialForService(userId, fc.id) ?? undefined
+					: undefined;
+				try {
+					const found = await fa.getItem(fc, params.id, cred);
+					if (found) {
+						item = found;
+						resolvedServiceId = fc.id;
+						resolvedServiceType = fc.type;
+						break;
+					}
+				} catch { continue; }
+			}
+			if (!item) throw error(404, 'Item not found in any library service');
+		}
 
-		resolvedServiceType = config.type;
+		if (!resolvedServiceType) resolvedServiceType = config.type;
 		const userCred = userId && adapter.userLinkable
 			? getUserCredentialForService(userId, serviceId) ?? undefined
 			: undefined;
 
 		// For Overseerr, prefix sourceId with media type so adapter knows which TMDB endpoint
-		const sourceId = config.type === 'overseerr'
+		const sourceId = isOverseerrType(config.type)
 			? `${params.type === 'show' ? 'tv' : params.type}:${params.id}`
 			: params.id;
 
-		item = await adapter.getItem(config, sourceId, userCred);
+		if (!item) {
+			item = await adapter.getItem(config, sourceId, userCred);
+		}
 	} else {
 		// No service specified — try all enabled services that support getItem
 		const configs = getEnabledConfigs();
@@ -115,7 +142,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let similar: UnifiedMedia[] = [];
 	try {
 		if (adapter.getSimilar) {
-			const sourceIdForSimilar = config.type === 'overseerr'
+			const sourceIdForSimilar = isOverseerrType(config.type)
 				? `${params.type === 'show' ? 'tv' : params.type}:${params.id}`
 				: params.id;
 			similar = await adapter.getSimilar(config, sourceIdForSimilar, userCred);
@@ -173,7 +200,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	// ── Request context (for Overseerr items) ───────────────────────────
 	let canRequest = false;
 	let overseerrServiceId: string | null = null;
-	if (resolvedServiceType === 'overseerr') {
+	if (isOverseerrType(resolvedServiceType ?? '')) {
 		canRequest = true;
 		overseerrServiceId = serviceId;
 	}
