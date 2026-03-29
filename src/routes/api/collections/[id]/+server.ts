@@ -1,37 +1,27 @@
-import { json } from '@sveltejs/kit';
-import { getCollection, updateCollection, deleteCollection } from '$lib/server/social';
+import { json, error } from '@sveltejs/kit';
+import { registry } from '$lib/adapters/registry';
+import { getEnabledConfigs } from '$lib/server/services';
+import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
-// GET /api/collections/:id — collection detail + items
+// GET /api/collections/:id — single collection detail
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-	const collection = getCollection(params.id, locals.user.id);
-	if (!collection) return json({ error: 'Not found' }, { status: 404 });
+	const collection = await withCache(`collection:${params.id}`, 1_800_000, async () => {
+		const configs = getEnabledConfigs();
 
-	return json({ collection });
-};
+		for (const config of configs) {
+			const adapter = registry.get(config.type);
+			if (!adapter?.getSubItems) continue;
+			try {
+				const res = await adapter.getSubItems(config, params.id, 'collection', {});
+				if (res && res.items.length > 0) return res;
+			} catch {}
+		}
+		return null;
+	});
 
-// PUT /api/collections/:id — update name/description/visibility
-// Body: { name?, description?, visibility? }
-export const PUT: RequestHandler = async ({ params, request, locals }) => {
-	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
-
-	const body = await request.json();
-	const { name, description, visibility } = body;
-
-	const ok = updateCollection(params.id, locals.user.id, { name, description, visibility });
-	if (!ok) return json({ error: 'Not found or no permission' }, { status: 403 });
-
-	return json({ ok: true });
-};
-
-// DELETE /api/collections/:id — delete (creator only)
-export const DELETE: RequestHandler = async ({ params, locals }) => {
-	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
-
-	const ok = deleteCollection(params.id, locals.user.id);
-	if (!ok) return json({ error: 'Not found or not creator' }, { status: 403 });
-
-	return json({ ok: true });
+	if (!collection) throw error(404, 'Collection not found');
+	return json(collection);
 };
