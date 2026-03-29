@@ -2,10 +2,8 @@ import { error } from '@sveltejs/kit';
 import { registry } from '$lib/adapters/registry';
 import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getSeasons as getJellyfinSeasons } from '$lib/adapters/jellyfin';
 import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr';
 import { isPlayableInBrowser } from '$lib/emulator/cores';
-import { getRelatedBooks, getCalibreBookFormats } from '$lib/adapters/calibre';
 import { emitMediaAction } from '$lib/server/analytics';
 import { resolveTrailerUrl } from '$lib/server/trailers';
 import { getUserWatchlist } from '$lib/server/social';
@@ -134,7 +132,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 		// Show page — fetch all seasons, then episodes for the selected season
 		try {
-			seasons = await getJellyfinSeasons(config, seriesId, userCred);
+			const subResult = await adapter?.getSubItems?.(config, seriesId, 'season', {}, userCred);
+			seasons = (subResult?.items ?? []) as unknown as JellyfinSeason[];
 		} catch { /* silent */ }
 
 		if (seasons.length > 0) {
@@ -164,7 +163,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 				// Also fetch seasons so user can navigate between them
 				if (resolvedServiceType === 'jellyfin') {
-					seasons = await getJellyfinSeasons(config, seriesId, userCred);
+					const subResult = await adapter?.getSubItems?.(config, seriesId, 'season', {}, userCred);
+					seasons = (subResult?.items ?? []) as unknown as JellyfinSeason[];
 				}
 			}
 		} catch { /* silent */ }
@@ -290,18 +290,20 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	}
 
 	// ── Book-specific data (Calibre) ────────────────────────────────────
-	let bookRelated: Awaited<ReturnType<typeof getRelatedBooks>> = { sameAuthor: [], sameSeries: [] };
-	let bookFormats: Awaited<ReturnType<typeof getCalibreBookFormats>> = { formats: [] };
+	let bookRelated: { sameAuthor: UnifiedMedia[]; sameSeries: UnifiedMedia[]; nextInSeries?: UnifiedMedia; prevInSeries?: UnifiedMedia } = { sameAuthor: [], sameSeries: [] };
+	let bookFormats: { formats: { name: string; downloadUrl: string }[] } = { formats: [] };
 	let bookNotes: any[] = [];
 	let bookHighlights: any[] = [];
 	let bookBookmarks: any[] = [];
 
 	if (item.type === 'book' && resolvedServiceType === 'calibre') {
 		try {
-			[bookRelated, bookFormats] = await Promise.all([
-				getRelatedBooks(config, params.id, userCred),
-				getCalibreBookFormats(config, params.id, userCred)
+			const [relatedEnriched, formatsEnriched] = await Promise.all([
+				adapter.enrichItem?.(config, { sourceId: params.id } as any, 'related', userCred),
+				adapter.enrichItem?.(config, { sourceId: params.id } as any, 'formats', userCred)
 			]);
+			bookRelated = (relatedEnriched?.metadata?.related as typeof bookRelated) ?? bookRelated;
+			bookFormats = (formatsEnriched?.metadata?.formats as typeof bookFormats) ?? bookFormats;
 		} catch { /* silent — best-effort enrichment */ }
 
 		// Fetch user annotations from DB
