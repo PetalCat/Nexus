@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
+import type { CalendarItem, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { withCache } from '../server/cache';
 
 // ---------------------------------------------------------------------------
@@ -414,6 +414,41 @@ export const invidiousAdapter: ServiceAdapter = {
 	async setItemStatus(config: ServiceConfig, sourceId: string, status: Record<string, unknown>, userCred?: UserCredential) {
 		if (status.watched) await markWatched(config, sourceId, userCred!);
 		if (status.inHistory === false) await removeFromHistory(config, sourceId, userCred!);
+	},
+
+	async getCalendar(config: ServiceConfig, start: string, end: string, userCred?: UserCredential): Promise<CalendarItem[]> {
+		if (!userCred?.accessToken) return [];
+		try {
+			// Fetch the raw subscription feed — recent uploads from subscribed channels
+			const feed = await invFetch<{ notifications: InvidiousVideo[]; videos: InvidiousVideo[] }>(
+				config,
+				'/api/v1/auth/feed?page=1',
+				userCred
+			);
+
+			const startDate = new Date(start).getTime();
+			const endDate = new Date(end).getTime();
+
+			return (feed.videos ?? [])
+				.filter((v) => {
+					const published = v.published ? v.published * 1000 : Date.now();
+					return published >= startDate && published <= endDate;
+				})
+				.slice(0, 20)
+				.map((v): CalendarItem => ({
+					id: `invidious-cal-${v.videoId}:${config.id}`,
+					sourceId: v.videoId,
+					serviceId: config.id,
+					title: v.title ?? 'Unknown Video',
+					mediaType: 'video',
+					releaseDate: v.published ? new Date(v.published * 1000).toISOString() : new Date().toISOString(),
+					poster: pickThumbnail(v.videoThumbnails, 'medium'),
+					overview: v.author ?? v.authorUrl ?? '',
+					status: 'released'
+				}));
+		} catch {
+			return [];
+		}
 	}
 };
 
