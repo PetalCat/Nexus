@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getSubscriptions, getSubscriptionFeed } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
@@ -12,13 +12,14 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const userCred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
 	if (!userCred) return json({ error: 'Invidious account not linked' }, { status: 403 });
 
+	const adapter = registry.get(config.type);
 	const view = url.searchParams.get('view');
 	if (view === 'channels') {
-		const subs = await getSubscriptions(config, userCred);
+		const subs = await adapter?.getServiceData?.(config, 'subscriptions', {}, userCred) ?? [];
 		return json({ subscriptions: subs });
 	}
 
 	const page = parseInt(url.searchParams.get('page') ?? '1');
-	const feed = await getSubscriptionFeed(config, userCred, page);
+	const feed = await adapter?.getServiceData?.(config, 'subscription-feed', { page }, userCred);
 	return json(feed);
 };

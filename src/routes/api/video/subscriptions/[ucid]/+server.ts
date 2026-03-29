@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { subscribe, unsubscribe } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import { removeChannelNotify } from '$lib/server/video-notifications';
 
 export const POST: RequestHandler = async ({ params, locals }) => {
@@ -12,7 +12,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	const config = configs[0];
 	const userCred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
 	if (!userCred) return json({ error: 'Invidious account not linked' }, { status: 403 });
-	await subscribe(config, params.ucid, userCred);
+	const adapter = registry.get(config.type);
+	await adapter?.manageSubscription?.(config, 'subscribe', params.ucid, userCred);
 	return json({ ok: true });
 };
 
@@ -23,7 +24,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 	const config = configs[0];
 	const userCred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
 	if (!userCred) return json({ error: 'Invidious account not linked' }, { status: 403 });
-	await unsubscribe(config, params.ucid, userCred);
+	const adapter = registry.get(config.type);
+	await adapter?.manageSubscription?.(config, 'unsubscribe', params.ucid, userCred);
 	// Clean up notification entry when unsubscribing
 	removeChannelNotify(locals.user.id, params.ucid);
 	return json({ ok: true });

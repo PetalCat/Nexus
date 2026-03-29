@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getSubscriptionFeed } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
 // GET /api/video/subscriptions/feed?page=1
@@ -18,7 +18,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!userCred) return json({ error: 'Invidious account not linked' }, { status: 403 });
 
 	const page = parseInt(url.searchParams.get('page') ?? '1');
-	const feed = await getSubscriptionFeed(config, userCred, page);
+	const adapter = registry.get(config.type);
+	const feed = await adapter?.getServiceData?.(config, 'subscription-feed', { page }, userCred) as { notifications: UnifiedMedia[]; videos: UnifiedMedia[] } | null;
+	if (!feed) return json({ today: [], thisWeek: [], earlier: [] });
 
 	const now = new Date();
 	const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();

@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
-import { getChannel, getChannelVideos, normalizeVideo } from '$lib/adapters/invidious';
+import { normalizeVideo } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 
 export const GET: RequestHandler = async ({ params, url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
@@ -9,11 +10,12 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	if (configs.length === 0) return json({ error: 'No Invidious service configured' }, { status: 404 });
 	const config = configs[0];
 	const sort = url.searchParams.get('sort') ?? undefined;
+	const adapter = registry.get(config.type);
 
 	const [channel, videosRes] = await Promise.all([
-		getChannel(config, params.id),
-		getChannelVideos(config, params.id, sort)
-	]);
+		adapter?.getServiceData?.(config, 'channel', { channelId: params.id }),
+		adapter?.getServiceData?.(config, 'channel-videos', { channelId: params.id, sort })
+	]) as [any, any];
 
 	return json({
 		author: channel.author,

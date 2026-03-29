@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { getWatchHistory, invidiousAdapter } from '$lib/adapters/invidious';
+import { registry } from '$lib/adapters/registry';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -18,15 +18,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const cred = getUserCredentialForService(locals.user.id, config.id) ?? undefined;
 	if (!cred?.accessToken) return json({ items: [], hasMore: false });
 
+	const adapter = registry.get(config.type);
 	try {
-		const videoIds = await getWatchHistory(config, cred, page);
+		const videoIds = await adapter?.getServiceData?.(config, 'watch-history', { page }, cred) as string[] ?? [];
 		const pageIds = videoIds.slice(0, limit);
 
 		const items = (
 			await Promise.all(
 				pageIds.map(async (id) => {
 					try {
-						return await invidiousAdapter.getItem!(config, id, cred);
+						return await adapter?.getItem?.(config, id, cred) ?? null;
 					} catch {
 						return null;
 					}
