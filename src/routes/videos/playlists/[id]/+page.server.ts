@@ -1,11 +1,11 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { normalizeVideo } from '$lib/adapters/invidious';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const userId = locals.user?.id;
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return { playlist: null };
 
 	const config = configs[0];

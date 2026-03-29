@@ -15,7 +15,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const userId = locals.user.id;
 
 	const result = await withCache(`discover:${category}:${page}:${userId}`, 120_000, async () => {
-		const configs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
+		const configs = getEnabledConfigs().filter((c) => {
+			const adapter = registry.get(c.type);
+			return !!adapter?.discover;
+		});
 		const allItems: UnifiedMedia[] = [];
 		let hasMore = false;
 

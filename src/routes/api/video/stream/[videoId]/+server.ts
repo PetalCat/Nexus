@@ -1,4 +1,4 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
@@ -111,7 +111,7 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 
 	const { videoId } = params;
 
-	const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
+	const invConfig = getConfigsForMediaType('video')[0];
 	if (!invConfig) return new Response('No Invidious service configured', { status: 404 });
 
 	const userCred = getUserCredentialForService(locals.user.id, invConfig.id) ?? undefined;

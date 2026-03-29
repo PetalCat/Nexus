@@ -1,4 +1,4 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getWatchHistory, invidiousAdapter } from '$lib/adapters/invidious';
 import type { UnifiedMedia } from '$lib/adapters/types';
@@ -6,7 +6,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return { videos: [], hasMore: false, hasLinkedAccount: false };
 
 	const config = configs[0];

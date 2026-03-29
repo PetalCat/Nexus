@@ -22,7 +22,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		: `api-requests:user:${userId}:${filter}`;
 
 	const allRequests = await withCache(cacheKey, 30_000, async () => {
-		const configs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
+		const configs = getEnabledConfigs().filter((c) => {
+			const adapter = registry.get(c.type);
+			return !!adapter?.getRequests;
+		});
 		const reqs: NexusRequest[] = [];
 
 		await Promise.allSettled(

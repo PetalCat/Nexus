@@ -1,4 +1,4 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getTrendingByCategory, getSubscriptionFeed } from '$lib/adapters/invidious';
 import { withCache } from '$lib/server/cache';
@@ -7,7 +7,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const userId = locals.user?.id;
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	const hasInvidious = configs.length > 0;
 	const category = (url.searchParams.get('category') as 'music' | 'gaming' | 'news' | 'movies') || undefined;
 

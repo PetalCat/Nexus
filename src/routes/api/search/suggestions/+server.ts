@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSearchSuggestions } from '$lib/adapters/invidious';
 import { getDb, getRawDb, schema } from '$lib/db';
@@ -19,7 +19,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const allSuggestions: string[] = [];
 
 	// 1. Invidious search suggestions (if enabled)
-	const invConfigs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const invConfigs = getConfigsForMediaType('video');
 	if (invConfigs.length > 0) {
 		try {
 			const result = await getSearchSuggestions(invConfigs[0], query);

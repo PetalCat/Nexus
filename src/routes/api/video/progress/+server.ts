@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/db';
 import { activity } from '$lib/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { markWatched } from '$lib/adapters/invidious';
 import { broadcastToFriends } from '$lib/server/ws';
@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const positionTicks = Math.round((positionSeconds ?? 0) * 10_000_000);
 
 	// Find Invidious service
-	const invConfig = getEnabledConfigs().find(c => c.type === 'invidious');
+	const invConfig = getConfigsForMediaType('video')[0];
 	const serviceId = invConfig?.id ?? 'invidious';
 
 	// Upsert activity record
@@ -95,7 +95,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const videoId = url.searchParams.get('videoId');
 	if (!videoId) return json({ error: 'Missing videoId' }, { status: 400 });
 
-	const invConfig = getEnabledConfigs().find(c => c.type === 'invidious');
+	const invConfig = getConfigsForMediaType('video')[0];
 	const serviceId = invConfig?.id ?? 'invidious';
 
 	const db = getDb();

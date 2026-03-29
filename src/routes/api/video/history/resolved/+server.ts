@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getWatchHistory, invidiousAdapter } from '$lib/adapters/invidious';
 import type { UnifiedMedia } from '$lib/adapters/types';
@@ -11,7 +11,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const page = parseInt(url.searchParams.get('page') ?? '1', 10);
 	const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '24', 10), 48);
 
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return json({ items: [], hasMore: false });
 
 	const config = configs[0];

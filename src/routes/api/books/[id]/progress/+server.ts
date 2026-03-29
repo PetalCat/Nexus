@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDb, getRawDb, schema } from '$lib/db';
 import { eq, and } from 'drizzle-orm';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { findOpenSession } from '$lib/server/analytics';
 import { randomBytes } from 'crypto';
 
@@ -25,7 +25,7 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 	if (typeof progress !== 'number') throw error(400, 'progress required');
 
 	const db = getDb();
-	const svcId = serviceId ?? getEnabledConfigs().find(c => c.type === 'calibre')?.id ?? '';
+	const svcId = serviceId ?? getConfigsForMediaType('book')[0]?.id ?? '';
 
 	const existing = db.select().from(schema.activity)
 		.where(and(

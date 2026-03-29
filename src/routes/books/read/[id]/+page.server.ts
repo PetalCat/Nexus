@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getDb, schema } from '$lib/db';
@@ -11,10 +11,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const userId = locals.user.id;
 
 	const serviceId = url.searchParams.get('service');
-	const configs = getEnabledConfigs();
+	const bookConfigs = getConfigsForMediaType('book');
 	const calibreConfig = serviceId
-		? configs.find(c => c.id === serviceId && c.type === 'calibre')
-		: configs.find(c => c.type === 'calibre');
+		? bookConfigs.find(c => c.id === serviceId)
+		: bookConfigs[0];
 
 	if (!calibreConfig) throw error(404, 'No Calibre service configured');
 

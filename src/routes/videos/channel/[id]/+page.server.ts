@@ -1,4 +1,4 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getChannel, getChannelVideos, normalizeVideo, getSubscriptions } from '$lib/adapters/invidious';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { isChannelNotifyEnabled } from '$lib/server/video-notifications';
@@ -7,7 +7,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) throw error(404, 'No Invidious service configured');
 
 	const config = configs[0];

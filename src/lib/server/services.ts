@@ -21,6 +21,14 @@ export function getEnabledConfigs(): ServiceConfig[] {
 	return getServiceConfigs().filter((s) => s.enabled);
 }
 
+/** Get enabled configs for adapters matching a media type */
+export function getConfigsForMediaType(mediaType: string): ServiceConfig[] {
+	return getEnabledConfigs().filter((c) => {
+		const adapter = registry.get(c.type);
+		return adapter?.mediaTypes?.includes(mediaType as any);
+	});
+}
+
 export function getServiceConfig(id: string): ServiceConfig | undefined {
 	const db = getDb();
 	return db

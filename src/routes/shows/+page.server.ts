@@ -1,4 +1,4 @@
-import { getEnabledConfigs, getLibraryItems } from '$lib/server/services';
+import { getConfigsForMediaType, getLibraryItems, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
@@ -8,7 +8,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const sortBy = url.searchParams.get('sort') || 'title';
 	const userId = locals.user?.id;
-	const hasLibraryService = getEnabledConfigs().some((c) => c.type === 'jellyfin');
+	const hasLibraryService = getConfigsForMediaType('show').length > 0;
 
 	// Library shows from media servers (Jellyfin, etc.)
 	const { items: libraryItems, total } = await getLibraryItems(
@@ -17,7 +17,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	);
 
 	// Overseerr popular + trending TV (cached 2 min)
-	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
+	const overseerrConfigs = getEnabledConfigs().filter((c) => {
+		const adapter = registry.get(c.type);
+		return !!adapter?.getRequests;
+	});
 	const hasOverseerr = overseerrConfigs.length > 0;
 	const adapter = hasOverseerr ? registry.get('overseerr') : undefined;
 

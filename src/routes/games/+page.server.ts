@@ -1,4 +1,4 @@
-import { getLibraryItems, getEnabledConfigs } from '$lib/server/services';
+import { getLibraryItems, getConfigsForMediaType } from '$lib/server/services';
 import { getPlatforms, getCollections } from '$lib/adapters/romm';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { PageServerLoad } from './$types';
@@ -9,7 +9,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const platformId = platformParam ? Number(platformParam) : undefined;
 	const userId = locals.user?.id;
 
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 	const hasGameService = rommConfigs.length > 0;
 
 	// Resolve user credentials for each RomM instance
