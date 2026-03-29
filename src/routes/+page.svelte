@@ -4,8 +4,11 @@
 	import HeroCarousel from '$lib/components/HeroCarousel.svelte';
 	import ContinueWatchingCard from '$lib/components/ContinueWatchingCard.svelte';
 	import MediaRow from '$lib/components/MediaRow.svelte';
+	import CalendarRow from '$lib/components/CalendarRow.svelte';
 
 	let { data }: { data: PageData } = $props();
+
+	const calendarItems = $derived(data.calendarItems ?? []);
 </script>
 
 <svelte:head>
@@ -19,7 +22,7 @@
 	{/if}
 
 	<!-- ═══ Content Rows ═══ -->
-	{#if data.rows.length === 0}
+	{#if data.rows.length === 0 && calendarItems.length === 0}
 		<div class="flex flex-col items-center justify-center py-24 text-center">
 			<div class="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-[var(--color-surface)] text-[var(--color-accent)] shadow-[0_0_40px_rgba(212,162,83,0.12)]">
 				<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
@@ -40,7 +43,7 @@
 		</div>
 	{:else}
 		<div class="mt-6 flex flex-col gap-10 pb-8">
-			{#each data.rows as row (row.id)}
+			{#each data.rows as row, i (row.id)}
 				{#if row.id === 'continue'}
 					<div class="px-4">
 						<h2 class="mb-3 text-base font-semibold text-cream sm:text-lg">{row.title}</h2>
@@ -50,7 +53,15 @@
 							{/each}
 						</div>
 					</div>
+					<!-- Calendar row appears right after Continue Watching -->
+					{#if calendarItems.length > 0}
+						<CalendarRow items={calendarItems} />
+					{/if}
 				{:else}
+					<!-- Show calendar row before first non-continue row if there was no continue row -->
+					{#if i === 0 && calendarItems.length > 0}
+						<CalendarRow items={calendarItems} />
+					{/if}
 					{@const dashRow = {
 						id: row.id,
 						title: row.title,

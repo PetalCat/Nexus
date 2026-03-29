@@ -4,17 +4,20 @@ import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/se
 import { withCache } from '$lib/server/cache';
 import { getRecommendations } from '$lib/server/recommendations/aggregator';
 import { getRawDb } from '$lib/db';
+import type { CalendarItem } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const userId = locals.user?.id;
 	const hasServices = getEnabledConfigs().length > 0;
 
-	// Parallel: live Continue Watching + pre-computed homepage cache
-	const [dashboardRows, homepageCache] = await Promise.all([
+	// Parallel: live Continue Watching + pre-computed homepage cache + calendar
+	const [dashboardRows, homepageCache, calendarRes] = await Promise.all([
 		getDashboardFast(userId),
-		userId ? getHomepageCache(userId) : Promise.resolve(null)
+		userId ? getHomepageCache(userId) : Promise.resolve(null),
+		fetch('/api/calendar?days=7').then((r) => (r.ok ? r.json() : [])).catch(() => [])
 	]);
+	const calendarItems: CalendarItem[] = calendarRes;
 
 	// Build Continue Watching row from live data
 	const cwDashRow = dashboardRows.find((r) => r.id === 'continue');
@@ -62,7 +65,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			hero: homepageCache.hero,
 			rows: orderedRows,
 			personalized: true,
-			hasServices
+			hasServices,
+			calendarItems
 		};
 	}
 
@@ -83,7 +87,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				hero: eagerCache.hero,
 				rows: orderedRows,
 				personalized: true,
-				hasServices
+				hasServices,
+				calendarItems
 			};
 		}
 
@@ -133,6 +138,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		hero: coldHero,
 		rows: coldRows,
 		personalized: false,
-		hasServices
+		hasServices,
+		calendarItems
 	};
 };
