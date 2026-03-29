@@ -11,13 +11,62 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const userId = locals.user?.id;
 	const hasServices = getEnabledConfigs().length > 0;
 
-	// Parallel: live Continue Watching + pre-computed homepage cache + calendar
-	const [dashboardRows, homepageCache, calendarRes] = await Promise.all([
+	// Parallel: live Continue Watching + pre-computed homepage cache + calendar + upcoming
+	const [dashboardRows, homepageCache, calendarRes, upcomingMoviesRes, upcomingTvRes] = await Promise.all([
 		getDashboardFast(userId),
 		userId ? getHomepageCache(userId) : Promise.resolve(null),
-		fetch('/api/calendar?days=7').then((r) => (r.ok ? r.json() : [])).catch(() => [])
+		fetch('/api/calendar?days=7').then((r) => (r.ok ? r.json() : [])).catch(() => []),
+		fetch('/api/discover?category=upcoming-movies&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+		fetch('/api/discover?category=upcoming-tv&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null)
 	]);
 	const calendarItems: CalendarItem[] = calendarRes;
+
+	// Build upcoming rows from discover API
+	const upcomingRows: HomepageRow[] = [];
+	if (upcomingMoviesRes?.items?.length > 0) {
+		upcomingRows.push({
+			id: 'upcoming-movies',
+			title: 'Upcoming Movies',
+			subtitle: 'New releases coming soon',
+			type: 'system',
+			items: upcomingMoviesRes.items.slice(0, 20).map((item: any): HomepageItem => ({
+				id: item.id,
+				sourceId: item.sourceId,
+				serviceId: item.serviceId,
+				serviceType: item.serviceType,
+				title: item.title,
+				poster: item.poster,
+				backdrop: item.backdrop,
+				year: item.year,
+				mediaType: item.type ?? 'movie',
+				rating: item.rating,
+				genres: item.genres,
+				description: item.description
+			}))
+		});
+	}
+	if (upcomingTvRes?.items?.length > 0) {
+		upcomingRows.push({
+			id: 'upcoming-tv',
+			title: 'Upcoming Shows',
+			subtitle: 'New seasons and premieres',
+			type: 'system',
+			items: upcomingTvRes.items.slice(0, 20).map((item: any): HomepageItem => ({
+				id: item.id,
+				sourceId: item.sourceId,
+				serviceId: item.serviceId,
+				serviceType: item.serviceType,
+				title: item.title,
+				poster: item.poster,
+				backdrop: item.backdrop,
+				year: item.year,
+				mediaType: item.type ?? 'show',
+				rating: item.rating,
+				genres: item.genres,
+				description: item.description
+			}))
+		});
+	}
 
 	// Build Continue Watching row from live data
 	const cwDashRow = dashboardRows.find((r) => r.id === 'continue');
@@ -54,8 +103,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		}
 
-		// Inject New in Library into the cached rows
-		const allRows = [...homepageCache.rows];
+		// Inject New in Library + upcoming into the cached rows
+		const allRows = [...homepageCache.rows, ...upcomingRows];
 		if (newRow) allRows.push(newRow);
 
 		const orderedRows = applyRowOrder(allRows, rowOrder);
@@ -78,7 +127,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			// Store it so subsequent loads are instant
 			withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => eagerCache);
 
-			const allRows = [...eagerCache.rows];
+			const allRows = [...eagerCache.rows, ...upcomingRows];
 			if (newRow) allRows.push(newRow);
 			const orderedRows = applyRowOrder(allRows);
 			if (continueRow) orderedRows.unshift(continueRow);
@@ -109,6 +158,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const coldRows: HomepageRow[] = [];
 	if (continueRow) coldRows.push(continueRow);
 	if (newRow) coldRows.push(newRow);
+	coldRows.push(...upcomingRows);
 
 	const heroSource = cwDashRow?.items[0] ?? newDashRow?.items[0];
 	const coldHero: HeroItem[] = heroSource?.backdrop
