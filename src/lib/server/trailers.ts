@@ -1,6 +1,6 @@
 // src/lib/server/trailers.ts
 import { withCache } from './cache';
-import { getEnabledConfigs } from './services';
+import { getConfigsForMediaType } from './services';
 
 export interface TrailerInfo {
 	/** High-quality adaptive video stream (may be video-only) */
@@ -55,10 +55,10 @@ function extractYouTubeId(url?: string | null): string | null {
 }
 
 function getInvidiousConfig(): { serviceId: string; url: string } | null {
-	const configs = getEnabledConfigs();
-	const invConfig = configs.find((c) => c.type === 'invidious');
-	if (!invConfig) return null;
-	return { serviceId: invConfig.id, url: invConfig.url };
+	const videoConfigs = getConfigsForMediaType('video');
+	const config = videoConfigs[0];
+	if (!config) return null;
+	return { serviceId: config.id, url: config.url };
 }
 
 /** Preferred audio itags: opus > aac, higher bitrate first */

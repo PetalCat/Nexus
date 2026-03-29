@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { createNotificationIfEnabled } from './notifications';
-import { getEnabledConfigs } from './services';
+import { getConfigsForMediaType } from './services';
 import { getUserCredentialForService } from './auth';
 import { getChannelVideos, normalizeVideo } from '../adapters/invidious';
 
@@ -90,7 +90,7 @@ let pollInterval: ReturnType<typeof setInterval> | null = null;
 const POLL_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
 async function pollSubscriptionUploads() {
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return;
 	const config = configs[0];
 
