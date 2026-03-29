@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem, QualityInfo } from './types';
 
 async function lidarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v1${path}`);
@@ -150,6 +150,15 @@ export async function getLidarrQueue(config: ServiceConfig): Promise<Array<{
 	}
 }
 
+let lidarrQualityCache: { profiles: any[]; ts: number } | null = null;
+
+async function getLidarrQualityMeta(config: ServiceConfig) {
+	if (lidarrQualityCache && Date.now() - lidarrQualityCache.ts < 1_800_000) return lidarrQualityCache;
+	const profiles = await lidarrFetch(config, '/qualityprofile');
+	lidarrQualityCache = { profiles, ts: Date.now() };
+	return lidarrQualityCache;
+}
+
 export const lidarrAdapter: ServiceAdapter = {
 	id: 'lidarr',
 	displayName: 'Lidarr',
@@ -210,6 +219,28 @@ export const lidarrAdapter: ServiceAdapter = {
 			};
 		} catch {
 			return { items: [], total: 0, source: 'lidarr' };
+		}
+	},
+
+	async enrichItem(config, item, enrichmentType) {
+		if (enrichmentType !== 'quality') return item;
+		try {
+			const lidarrId = item.metadata?.lidarrId;
+			if (!lidarrId) return item;
+			const album = await lidarrFetch(config, `/album/${lidarrId}`);
+			if (!album) return item;
+
+			const { profiles } = await getLidarrQualityMeta(config);
+			const profile = profiles.find((p: any) => p.id === album.qualityProfileId);
+
+			const quality: QualityInfo = {
+				audioFormat: album.statistics?.trackFileCount > 0 ? 'FLAC' : undefined,
+				qualityProfile: profile?.name
+			};
+
+			return { ...item, metadata: { ...item.metadata, quality } };
+		} catch {
+			return item;
 		}
 	},
 

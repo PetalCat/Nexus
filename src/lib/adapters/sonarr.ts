@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem, QualityInfo } from './types';
 
 async function sonarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v3${path}`);
@@ -37,6 +37,18 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 		actionLabel: 'Watch',
 		actionUrl: `${config.url}/series/${item.titleSlug}`
 	};
+}
+
+let sonarrQualityCache: { profiles: any[]; formats: any[]; ts: number } | null = null;
+
+async function getSonarrQualityMeta(config: ServiceConfig) {
+	if (sonarrQualityCache && Date.now() - sonarrQualityCache.ts < 1_800_000) return sonarrQualityCache;
+	const [profiles, formats] = await Promise.all([
+		sonarrFetch(config, '/qualityprofile'),
+		sonarrFetch(config, '/customformat')
+	]);
+	sonarrQualityCache = { profiles, formats, ts: Date.now() };
+	return sonarrQualityCache;
 }
 
 export const sonarrAdapter: ServiceAdapter = {
@@ -103,6 +115,31 @@ export const sonarrAdapter: ServiceAdapter = {
 			};
 		} catch {
 			return { items: [], total: 0, source: 'sonarr' };
+		}
+	},
+
+	async enrichItem(config, item, enrichmentType) {
+		if (enrichmentType !== 'quality') return item;
+		try {
+			const sonarrId = item.metadata?.sonarrId;
+			if (!sonarrId) return item;
+			const series = await sonarrFetch(config, `/series/${sonarrId}`);
+			if (!series) return item;
+
+			const { profiles, formats } = await getSonarrQualityMeta(config);
+			const profile = profiles.find((p: any) => p.id === series.qualityProfileId);
+
+			const quality: QualityInfo = {
+				qualityProfile: profile?.name,
+				customFormats: (series.customFormats ?? []).map((f: any) => {
+					const match = formats.find((cf: any) => cf.id === f.id);
+					return match?.name ?? f.name;
+				}).filter(Boolean)
+			};
+
+			return { ...item, metadata: { ...item.metadata, quality } };
+		} catch {
+			return item;
 		}
 	},
 
