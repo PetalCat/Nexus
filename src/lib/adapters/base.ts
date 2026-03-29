@@ -98,7 +98,7 @@ export interface ServiceAdapter {
 	/** Browse/discover content — paginated, for infinite scroll */
 	discover?(
 		config: ServiceConfig,
-		opts?: { page?: number; category?: 'trending' | 'movies' | 'tv' },
+		opts?: { page?: number; category?: string; genreId?: string; networkId?: string },
 		userCred?: UserCredential
 	): Promise<{ items: UnifiedMedia[]; hasMore: boolean }>;
 

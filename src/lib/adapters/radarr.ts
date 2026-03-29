@@ -170,6 +170,40 @@ export const radarrAdapter: ServiceAdapter = {
 		}
 	},
 
+	async getSubItems(config, parentId, type) {
+		if (type === 'collection') {
+			if (!parentId) {
+				// List all collections
+				const data = await radarrFetch(config, '/collection');
+				const items = (data ?? []).map((c: any): UnifiedMedia => ({
+					id: `collection-${c.id}:${config.id}`,
+					sourceId: String(c.tmdbId ?? c.id),
+					serviceId: config.id,
+					serviceType: 'radarr',
+					type: 'movie',
+					title: c.title ?? 'Unknown Collection',
+					poster: c.images?.find((i: any) => i.coverType === 'poster')?.remoteUrl,
+					backdrop: c.images?.find((i: any) => i.coverType === 'fanart')?.remoteUrl,
+					metadata: {
+						collectionId: c.id,
+						tmdbId: c.tmdbId,
+						movieCount: c.movies?.length ?? 0,
+						missingMovies: c.movies?.filter((m: any) => !m.hasFile).length ?? 0
+					}
+				}));
+				return { items, total: items.length };
+			} else {
+				// Get single collection detail
+				const collections = await radarrFetch(config, '/collection');
+				const collection = (collections ?? []).find((c: any) => String(c.tmdbId) === parentId || String(c.id) === parentId);
+				if (!collection) return { items: [], total: 0 };
+				const movies = (collection.movies ?? []).map((m: any) => normalize(config, m));
+				return { items: movies, total: movies.length };
+			}
+		}
+		return { items: [], total: 0 };
+	},
+
 	async getCalendar(config, start, end) {
 		try {
 			const data = await radarrFetch(config, `/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&unmonitored=false`);
