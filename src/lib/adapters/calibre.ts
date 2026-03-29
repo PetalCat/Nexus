@@ -396,6 +396,30 @@ export const calibreAdapter: ServiceAdapter = {
 		} catch {
 			return {};
 		}
+	},
+
+	async getServiceData(config, dataType, _params, userCred) {
+		switch (dataType) {
+			case 'series': return getCalibreSeries(config, userCred);
+			case 'all': return getAllBooks(config, userCred);
+			case 'categories': return getCalibreCategories(config, userCred);
+			case 'authors': return getCalibreAuthors(config, userCred);
+			default: return null;
+		}
+	},
+
+	async enrichItem(config, item, enrichmentType, userCred) {
+		if (enrichmentType === 'formats') return { ...item, metadata: { ...item.metadata, formats: await getCalibreBookFormats(config, item.sourceId, userCred) } };
+		if (enrichmentType === 'related') return { ...item, metadata: { ...item.metadata, related: await getRelatedBooks(config, item.sourceId, userCred) } };
+		return item;
+	},
+
+	async setItemStatus(config, sourceId, status, userCred) {
+		if ((status as Record<string, unknown>).read != null) await toggleReadStatus(config, sourceId, userCred);
+	},
+
+	async downloadContent(config, sourceId, format, userCred) {
+		return downloadBook(config, sourceId, format!, userCred);
 	}
 };
 
