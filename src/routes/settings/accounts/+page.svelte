@@ -47,13 +47,10 @@
 		)
 	);
 
-	const serviceColors: Record<string, string> = {
-		jellyfin: '#00a4dc',
-		calibre: '#7b68ee',
-		romm: '#e84393',
-		overseerr: '#f59e0b',
-		streamystats: '#b088f9'
-	};
+	// Service colors from adapter metadata (passed via layout)
+	function serviceColor(type: string): string {
+		return data.adapterMeta?.[type]?.color ?? 'var(--color-accent)';
+	}
 
 	// ── Actions ──────────────────────────────────
 	async function openPicker(serviceId: string) {
@@ -423,7 +420,7 @@
 				<div class="flex flex-wrap gap-2">
 					{#each autoServices as svc (svc.id)}
 						{@const cred = credMap[svc.id]}
-						{@const color = serviceColors[svc.type] ?? 'var(--color-accent)'}
+						{@const color = serviceColor(svc.type)}
 						<div
 							class="flex items-center gap-2 rounded-xl px-4 py-2.5"
 							style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08)"
@@ -463,7 +460,7 @@
 				<div class="flex flex-col gap-2">
 					{#each otherServices as svc (svc.id)}
 						{@const cred = credMap[svc.id]}
-						{@const color = serviceColors[svc.type] ?? 'var(--color-accent)'}
+						{@const color = serviceColor(svc.type)}
 						{@const unclaimed = unclaimedCounts[svc.id] ?? 0}
 						{@const isPicking = pickerServiceId === svc.id}
 						{@const isManualLink = linkingServiceId === svc.id}

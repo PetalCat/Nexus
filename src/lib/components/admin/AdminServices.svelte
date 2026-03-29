@@ -4,36 +4,16 @@
 
 	let { data }: { data: any } = $props();
 
-	// ── service type colors ──────────────────────────────────────────────
-	const typeColors: Record<string, string> = {
-		jellyfin: '#00a4dc',
-		calibre: '#7b68ee',
-		romm: '#e84393',
-		overseerr: '#f59e0b',
-		radarr: '#fbbf24',
-		sonarr: '#00d4aa',
-		lidarr: '#1db954',
-		prowlarr: '#ef4444',
-		streamystats: '#b088f9',
-		invidious: '#f44336',
-		bazarr: '#e0b818',
-		kavita: '#4a90d9'
-	};
-
-	const typeAbbrev: Record<string, string> = {
-		jellyfin: 'JF',
-		calibre: 'CA',
-		romm: 'RM',
-		overseerr: 'OS',
-		radarr: 'RD',
-		sonarr: 'SN',
-		lidarr: 'LI',
-		prowlarr: 'PW',
-		streamystats: 'SS',
-		invidious: 'IV',
-		bazarr: 'BZ',
-		kavita: 'KV'
-	};
+	// ── service type colors & abbreviations (from adapter metadata) ─────
+	const adapterMetaMap = $derived(
+		Object.fromEntries((data.available ?? []).map((a: any) => [a.id, a]))
+	);
+	function typeColor(type: string): string {
+		return adapterMetaMap[type]?.color ?? '#64748b';
+	}
+	function typeAbbreviation(type: string): string {
+		return adapterMetaMap[type]?.abbreviation ?? type.substring(0, 2).toUpperCase();
+	}
 
 	// ── CRUD state ───────────────────────────────────────────────────────
 	let showAddForm = $state(false);
@@ -519,8 +499,8 @@
 			{#each data.services as svc (svc.id)}
 				{@const health = getHealthForService(svc.id)}
 				{@const isOnline = health?.online ?? false}
-				{@const color = typeColors[svc.type] ?? '#64748b'}
-				{@const abbrev = typeAbbrev[svc.type] ?? svc.type.substring(0, 2).toUpperCase()}
+				{@const color = typeColor(svc.type)}
+				{@const abbrev = typeAbbreviation(svc.type)}
 
 				{#if editingId === svc.id}
 					<!-- Edit form -->
