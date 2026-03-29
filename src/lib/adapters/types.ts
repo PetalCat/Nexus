@@ -166,3 +166,28 @@ export interface CalendarItem {
 	overview?: string;
 	status?: 'upcoming' | 'released' | 'downloading';
 }
+
+/** Quality metadata enrichment for media items */
+export interface QualityInfo {
+	resolution?: string;
+	hdr?: string;
+	audioFormat?: string;
+	audioChannels?: string;
+	videoCodec?: string;
+	source?: string;
+	customFormats?: string[];
+	qualityProfile?: string;
+}
+
+/** Extended queue item download progress metadata */
+export interface QueueItemMeta {
+	queueStatus: 'downloading' | 'paused' | 'queued' | 'failed' | 'warning' | 'completed';
+	downloadProgress: number;
+	sizeBytes?: number;
+	remainingBytes?: number;
+	eta?: string;
+	downloadClient?: string;
+	indexer?: string;
+	quality?: string;
+	errorMessage?: string;
+}
