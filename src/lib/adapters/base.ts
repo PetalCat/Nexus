@@ -10,7 +10,7 @@
  * except `ping`, `id`, `displayName`, and `defaultPort`.
  */
 
-import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser } from './types';
+import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem } from './types';
 
 export interface ServiceAdapter {
 	/** Unique identifier matching the `type` field in the services table */
@@ -21,6 +21,12 @@ export interface ServiceAdapter {
 
 	/** Default port for this service (used in setup wizard hints) */
 	readonly defaultPort: number;
+
+	/** Brand color for UI badges and accents (hex string, e.g. '#00a4dc') */
+	readonly color?: string;
+
+	/** 2-char abbreviation for compact badges (e.g. 'JF'). Falls back to first 2 chars of id. */
+	readonly abbreviation?: string;
 
 	/** Icon name or SVG string for the service */
 	readonly icon?: string;
@@ -34,6 +40,26 @@ export interface ServiceAdapter {
 	 * - false / undefined → server-level only (Radarr, Sonarr, etc.)
 	 */
 	readonly userLinkable?: boolean;
+
+	// ---- Capability metadata ----
+
+	/** Whether this adapter provides a browsable media library */
+	readonly isLibrary?: boolean;
+
+	/** Whether this adapter should appear in unified search */
+	readonly isSearchable?: boolean;
+
+	/** Search result priority (0 = highest). Defaults to Infinity. */
+	readonly searchPriority?: number;
+
+	/** Delegates user auth to another adapter type (e.g. 'jellyfin') */
+	readonly authVia?: string;
+
+	/** No user-facing content — background enrichment only (e.g. Bazarr, Prowlarr) */
+	readonly isEnrichmentOnly?: boolean;
+
+	/** Poll interval in ms for pollSessions. Defaults to 10000 (10s). */
+	readonly pollIntervalMs?: number;
 
 	/** Check if the service is reachable */
 	ping(config: ServiceConfig): Promise<ServiceHealth>;
@@ -123,4 +149,64 @@ export interface ServiceAdapter {
 
 	/** Decline a request by its sourceId — requires admin credentials */
 	denyRequest?(config: ServiceConfig, requestId: string): Promise<boolean>;
+
+	// ---- Extended methods (adapter consolidation) ----
+
+	/** Poll active playback/activity sessions */
+	pollSessions?(config: ServiceConfig, userCred?: UserCredential): Promise<NexusSession[]>;
+
+	/** Sync all library items for recommendation engine */
+	syncLibraryItems?(config: ServiceConfig, userCred?: UserCredential): Promise<SyncItem[]>;
+
+	/** Auth headers needed to proxy images from this service */
+	getImageHeaders?(config: ServiceConfig, userCred?: UserCredential): Promise<Record<string, string>>;
+
+	/** Sub-items: seasons, albums, tracks, platforms, collections */
+	getSubItems?(config: ServiceConfig, parentId: string, type: string,
+		opts?: { limit?: number; offset?: number; sort?: string },
+		userCred?: UserCredential): Promise<{ items: UnifiedMedia[]; total: number }>;
+
+	/** Detail for child items: album tracks, season episodes */
+	getSubItemDetail?(config: ServiceConfig, parentId: string, childId: string,
+		userCred?: UserCredential): Promise<UnifiedMedia[]>;
+
+	/** Related items: same-author books, instant mix, similar games */
+	getRelated?(config: ServiceConfig, sourceId: string,
+		userCred?: UserCredential): Promise<UnifiedMedia[]>;
+
+	/** Browsing categories: genres, tags, platforms, authors */
+	getCategories?(config: ServiceConfig,
+		userCred?: UserCredential): Promise<Array<{ id: string; name: string; count?: number; image?: string }>>;
+
+	/** Set item status: read/unread, favorite, watched */
+	setItemStatus?(config: ServiceConfig, sourceId: string,
+		status: Record<string, unknown>, userCred?: UserCredential): Promise<void>;
+
+	/** Collection/playlist CRUD */
+	manageCollection?(config: ServiceConfig,
+		action: 'create' | 'update' | 'delete' | 'addItems' | 'removeItems',
+		data: { id?: string; name?: string; itemIds?: string[]; [key: string]: unknown },
+		userCred?: UserCredential): Promise<{ id: string } | void>;
+
+	/** Channel/creator subscriptions */
+	manageSubscription?(config: ServiceConfig,
+		action: 'subscribe' | 'unsubscribe',
+		channelId: string, userCred?: UserCredential): Promise<void>;
+
+	/** Upload binary content (save states, save files) */
+	uploadContent?(config: ServiceConfig, parentId: string, type: string,
+		blob: Blob, fileName: string, userCred?: UserCredential): Promise<void>;
+
+	/** Download binary content (books, ROMs, save states) */
+	downloadContent?(config: ServiceConfig, sourceId: string,
+		format?: string, userCred?: UserCredential): Promise<Response>;
+
+	/** Enrich an existing item with additional metadata */
+	enrichItem?(config: ServiceConfig, item: UnifiedMedia,
+		enrichmentType?: string, userCred?: UserCredential): Promise<UnifiedMedia>;
+
+	/** Fetch service-specific data that doesn't map to UnifiedMedia */
+	getServiceData?(config: ServiceConfig, dataType: string,
+		params?: Record<string, unknown>,
+		userCred?: UserCredential): Promise<unknown>;
 }
