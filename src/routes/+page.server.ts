@@ -12,12 +12,13 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const hasServices = getEnabledConfigs().length > 0;
 
 	// Parallel: live Continue Watching + pre-computed homepage cache + calendar + upcoming
-	const [dashboardRows, homepageCache, calendarRes, upcomingMoviesRes, upcomingTvRes] = await Promise.all([
+	const [dashboardRows, homepageCache, calendarRes, upcomingMoviesRes, upcomingTvRes, suggestionsRes] = await Promise.all([
 		getDashboardFast(userId),
 		userId ? getHomepageCache(userId) : Promise.resolve(null),
 		fetch('/api/calendar?days=7').then((r) => (r.ok ? r.json() : [])).catch(() => []),
 		fetch('/api/discover?category=upcoming-movies&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-		fetch('/api/discover?category=upcoming-tv&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+		fetch('/api/discover?category=upcoming-tv&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+		userId ? fetch('/api/user/suggestions').then((r) => (r.ok ? r.json() : [])).catch(() => []) : Promise.resolve([])
 	]);
 	const calendarItems: CalendarItem[] = calendarRes;
 
@@ -68,6 +69,31 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		});
 	}
 
+	// Build suggestions row from auto-suggest service
+	const suggestionsRow: HomepageRow | null = (suggestionsRes as any[])?.length > 0
+		? {
+				id: 'suggestions',
+				title: 'Suggested for You',
+				subtitle: 'Based on your recent activity',
+				type: 'system',
+				items: (suggestionsRes as any[]).slice(0, 20).map((s: any): HomepageItem => ({
+					id: s.item.id,
+					sourceId: s.item.sourceId,
+					serviceId: s.item.serviceId,
+					serviceType: s.item.serviceType,
+					title: s.item.title,
+					poster: s.item.poster,
+					backdrop: s.item.backdrop,
+					year: s.item.year,
+					mediaType: s.item.type ?? 'movie',
+					rating: s.item.rating,
+					genres: s.item.genres,
+					description: s.item.description,
+					context: s.reason
+				}))
+			}
+		: null;
+
 	// Build Continue Watching row from live data
 	const cwDashRow = dashboardRows.find((r) => r.id === 'continue');
 	const cwItems: HomepageItem[] = (cwDashRow?.items ?? []).map(cwToItem);
@@ -105,6 +131,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 
 		// Inject New in Library + upcoming into the cached rows
 		const allRows = [...homepageCache.rows, ...upcomingRows];
+		if (suggestionsRow) allRows.push(suggestionsRow);
 		if (newRow) allRows.push(newRow);
 
 		const orderedRows = applyRowOrder(allRows, rowOrder);
@@ -128,6 +155,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => eagerCache);
 
 			const allRows = [...eagerCache.rows, ...upcomingRows];
+			if (suggestionsRow) allRows.push(suggestionsRow);
 			if (newRow) allRows.push(newRow);
 			const orderedRows = applyRowOrder(allRows);
 			if (continueRow) orderedRows.unshift(continueRow);
@@ -159,6 +187,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	if (continueRow) coldRows.push(continueRow);
 	if (newRow) coldRows.push(newRow);
 	coldRows.push(...upcomingRows);
+	if (suggestionsRow) coldRows.push(suggestionsRow);
 
 	const heroSource = cwDashRow?.items[0] ?? newDashRow?.items[0];
 	const coldHero: HeroItem[] = heroSource?.backdrop
