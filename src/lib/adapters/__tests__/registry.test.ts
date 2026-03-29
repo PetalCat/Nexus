@@ -28,7 +28,7 @@ describe('AdapterRegistry', () => {
 	it('library adapters have isLibrary set', () => {
 		const libraries = registry.all().filter((a) => a.isLibrary);
 		const libraryIds = libraries.map((a) => a.id).sort();
-		expect(libraryIds).toEqual(['calibre', 'invidious', 'jellyfin', 'romm']);
+		expect(libraryIds).toEqual(['calibre', 'invidious', 'jellyfin', 'plex', 'romm']);
 	});
 
 	it('searchable adapters have isSearchable set', () => {
@@ -63,7 +63,7 @@ describe('AdapterRegistry', () => {
 	it('libraries() returns only isLibrary adapters', () => {
 		const libs = registry.libraries();
 		expect(libs.every((a) => a.isLibrary)).toBe(true);
-		expect(libs.length).toBe(4);
+		expect(libs.length).toBe(5);
 	});
 
 	it('searchable() returns sorted by priority', () => {

@@ -26,6 +26,7 @@ import { sonarrAdapter } from './sonarr';
 import { streamystatsAdapter } from './streamystats';
 import { bazarrAdapter } from './bazarr';
 import { invidiousAdapter } from './invidious';
+import { plexAdapter } from './plex';
 
 class AdapterRegistry {
 	private adapters = new Map<string, ServiceAdapter>();
@@ -84,13 +85,15 @@ export const registry = new AdapterRegistry()
 	.register(calibreAdapter)
 	.register(rommAdapter)
 	.register(overseerrAdapter)
+	.register({ ...overseerrAdapter, id: 'seerr', displayName: 'Seerr', color: '#6366f1', abbreviation: 'SR' })
 	.register(radarrAdapter)
 	.register(sonarrAdapter)
 	.register(lidarrAdapter)
 	.register(prowlarrAdapter)
 	.register(streamystatsAdapter)
 	.register(bazarrAdapter)
-	.register(invidiousAdapter);
+	.register(invidiousAdapter)
+	.register(plexAdapter);
 
 // ── Custom adapter registration ──────────────────────────────────────────────
 // Add your own adapters here. They will be picked up automatically.
