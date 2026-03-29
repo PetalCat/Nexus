@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
-import { toggleRomFavorite } from '$lib/adapters/romm';
+import { registry } from '$lib/adapters/registry';
 import type { RequestHandler } from './$types';
 
 export const PUT: RequestHandler = async ({ params, request, locals, url }) => {
@@ -10,9 +10,9 @@ export const PUT: RequestHandler = async ({ params, request, locals, url }) => {
 	if (!serviceId) throw error(400, 'serviceId required');
 	const config = getServiceConfig(serviceId);
 	if (!config || config.type !== 'romm') throw error(404);
+	const adapter = registry.get(config.type);
 	const userCred = getUserCredentialForService(locals.user.id, serviceId) ?? undefined;
 	const { favorite } = await request.json();
-	const ok = await toggleRomFavorite(config, params.id, !!favorite, userCred);
-	if (!ok) throw error(500, 'Failed to toggle favorite');
+	await adapter?.setItemStatus?.(config, params.id, { favorite: !!favorite }, userCred);
 	return json({ ok: true });
 };

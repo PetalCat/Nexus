@@ -73,6 +73,7 @@ export const actions: Actions = {
 		cookies.set(COOKIE_NAME, token, {
 			path: '/',
 			httpOnly: true,
+			secure: false,
 			sameSite: 'lax',
 			maxAge: 60 * 60 * 24 * 30
 		});

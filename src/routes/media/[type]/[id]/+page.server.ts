@@ -4,7 +4,6 @@ import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getSeasons as getJellyfinSeasons } from '$lib/adapters/jellyfin';
 import { getSubtitleStatus, getItemSubtitleHistory } from '$lib/adapters/bazarr';
-import { getRomSaves, getRomStates, getRomScreenshots } from '$lib/adapters/romm';
 import { isPlayableInBrowser } from '$lib/emulator/cores';
 import { getRelatedBooks, getCalibreBookFormats } from '$lib/adapters/calibre';
 import { emitMediaAction } from '$lib/server/analytics';
@@ -250,17 +249,20 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	}
 
 	// ── Game-specific data (RomM saves, states, screenshots) ────────────
-	let gameSaves: Awaited<ReturnType<typeof getRomSaves>> = [];
-	let gameStates: Awaited<ReturnType<typeof getRomStates>> = [];
-	let gameScreenshots: Awaited<ReturnType<typeof getRomScreenshots>> = [];
+	let gameSaves: any[] = [];
+	let gameStates: any[] = [];
+	let gameScreenshots: any[] = [];
 
 	if (item.type === 'game' && resolvedServiceType === 'romm') {
 		try {
-			[gameSaves, gameStates, gameScreenshots] = await Promise.all([
-				getRomSaves(config, params.id, userCred),
-				getRomStates(config, params.id, userCred),
-				getRomScreenshots(config, params.id, userCred)
+			const enriched = await Promise.all([
+				adapter.enrichItem?.(config, { sourceId: params.id } as any, 'saves', userCred),
+				adapter.enrichItem?.(config, { sourceId: params.id } as any, 'states', userCred),
+				adapter.enrichItem?.(config, { sourceId: params.id } as any, 'screenshots', userCred)
 			]);
+			gameSaves = (enriched[0]?.metadata?.saves ?? []) as any[];
+			gameStates = (enriched[1]?.metadata?.states ?? []) as any[];
+			gameScreenshots = (enriched[2]?.metadata?.screenshots ?? []) as any[];
 		} catch { /* silent — best-effort enrichment */ }
 	}
 
