@@ -479,16 +479,56 @@ export const overseerrAdapter: ServiceAdapter = {
 		const category = opts?.category ?? 'trending';
 		try {
 			let endpoint: string;
-			if (category === 'movies') endpoint = `/discover/movies?page=${page}`;
-			else if (category === 'tv') endpoint = `/discover/tv?page=${page}`;
-			else endpoint = `/discover/trending?page=${page}`;
-
+			switch (category) {
+				case 'movies': endpoint = `/discover/movies?page=${page}`; break;
+				case 'tv': endpoint = `/discover/tv?page=${page}`; break;
+				case 'upcoming-movies': endpoint = `/discover/movies/upcoming?page=${page}`; break;
+				case 'upcoming-tv': endpoint = `/discover/tv/upcoming?page=${page}`; break;
+				case 'popular-movies': endpoint = `/discover/movies?page=${page}`; break;
+				case 'popular-tv': endpoint = `/discover/tv?page=${page}`; break;
+				case 'genre-movie': endpoint = `/discover/movies/genre/${opts?.genreId}?page=${page}`; break;
+				case 'genre-tv': endpoint = `/discover/tv/genre/${opts?.genreId}?page=${page}`; break;
+				case 'network': endpoint = `/discover/tv/network/${opts?.networkId}?page=${page}`; break;
+				default: endpoint = `/discover/trending?page=${page}`;
+			}
 			const data = await osFetch(config, endpoint, userCred);
 			return {
 				items: (data.results ?? []).map((i: unknown) => normalize(config, i)),
 				hasMore: page < (data.totalPages ?? 1)
 			};
 		} catch { return { items: [], hasMore: false }; }
+	},
+
+	async getServiceData(config, dataType, params, userCred) {
+		switch (dataType) {
+			case 'genres-movie': {
+				const data = await osFetch(config, '/genres/movie', userCred);
+				return data;
+			}
+			case 'genres-tv': {
+				const data = await osFetch(config, '/genres/tv', userCred);
+				return data;
+			}
+			case 'person': {
+				const data = await osFetch(config, `/person/${params?.personId}`, userCred);
+				return data;
+			}
+			case 'person-credits': {
+				const data = await osFetch(config, `/person/${params?.personId}/combined_credits`, userCred);
+				return data;
+			}
+			case 'recommendations': {
+				const mediaType = params?.mediaType ?? 'movie';
+				const data = await osFetch(config, `/${mediaType}/${params?.tmdbId}/recommendations`, userCred);
+				return (data?.results ?? []).map((i: unknown) => normalize(config, i));
+			}
+			case 'similar': {
+				const mediaType = params?.mediaType ?? 'movie';
+				const data = await osFetch(config, `/${mediaType}/${params?.tmdbId}/similar`, userCred);
+				return (data?.results ?? []).map((i: unknown) => normalize(config, i));
+			}
+			default: return null;
+		}
 	},
 
 	async getItem(config, sourceId, userCred?) {
