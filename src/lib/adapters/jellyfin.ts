@@ -946,6 +946,14 @@ export const jellyfinAdapter: ServiceAdapter = {
 		}
 
 		return items;
+	},
+
+	async getImageHeaders(config, userCred) {
+		const token = userCred?.accessToken ?? config.apiKey ?? '';
+		return {
+			Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-image-${config.id}", Version="1.0.0", Token="${token}"`,
+			'X-Emby-Token': token
+		};
 	}
 };
 
