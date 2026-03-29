@@ -1,7 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
-import { getAllBooks, getCalibreSeries, getCalibreCategories, getCalibreAuthors } from '$lib/adapters/calibre';
 import { getDb, schema } from '$lib/db';
 import { eq, and } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
@@ -22,14 +21,20 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const userCred = userId ? getUserCredentialForService(userId, calibreConfig.id) ?? undefined : undefined;
 
+	const adapter = registry.get(calibreConfig.type);
+
 	// Single fetch — all helpers (series, categories, authors) use withCache on the same data
 	// Run them in parallel; they share the same underlying cached fetchBooks call
-	const [allBooks, categories, series, authors] = await Promise.all([
-		getAllBooks(calibreConfig, userCred),
-		getCalibreCategories(calibreConfig, userCred),
-		getCalibreSeries(calibreConfig, userCred),
-		getCalibreAuthors(calibreConfig, userCred)
+	const [allBooksRaw, categoriesRaw, seriesRaw, authorsRaw] = await Promise.all([
+		adapter?.getServiceData?.(calibreConfig, 'all', {}, userCred),
+		adapter?.getServiceData?.(calibreConfig, 'categories', {}, userCred),
+		adapter?.getServiceData?.(calibreConfig, 'series', {}, userCred),
+		adapter?.getServiceData?.(calibreConfig, 'authors', {}, userCred)
 	]);
+	const allBooks = (allBooksRaw ?? []) as UnifiedMedia[];
+	const categories = (categoriesRaw ?? []) as string[];
+	const series = (seriesRaw ?? []) as any[];
+	const authors = (authorsRaw ?? []) as any[];
 
 	// Sort
 	let items = [...allBooks];
