@@ -1,78 +1,17 @@
 import { getRawDb } from '$lib/db';
 import { getEnabledConfigs } from './services';
-import type { ServiceConfig } from '$lib/adapters/types';
+import { registry } from '$lib/adapters/registry';
+import type { SyncItem } from '$lib/adapters/types';
 
 // ---------------------------------------------------------------------------
 // Media Items Sync
 //
-// Populates the media_items table from Jellyfin library data.
+// Populates the media_items table from library data via adapter syncLibraryItems.
 // This enables content-based and time-aware recommendation providers.
 // Runs on startup and periodically via rec-scheduler.
 // ---------------------------------------------------------------------------
 
-const BATCH_SIZE = 200;
-const SYNC_TIMEOUT = 30_000;
-
-interface JellyfinItem {
-	Id: string;
-	Name: string;
-	SortName?: string;
-	Overview?: string;
-	ProductionYear?: number;
-	CommunityRating?: number;
-	Genres?: string[];
-	Studios?: Array<{ Name: string }>;
-	RunTimeTicks?: number;
-	Type: string;
-	ImageTags?: Record<string, string>;
-	BackdropImageTags?: string[];
-	Status?: string;
-}
-
-function jellyfinTypeToLocal(type: string): string | null {
-	switch (type) {
-		case 'Movie': return 'movie';
-		case 'Series': return 'show';
-		case 'MusicAlbum': return 'album';
-		case 'Audio': return 'music';
-		default: return null;
-	}
-}
-
-async function fetchJellyfinItems(
-	config: ServiceConfig,
-	includeTypes: string,
-	offset: number,
-	limit: number
-): Promise<{ items: JellyfinItem[]; total: number }> {
-	const url = new URL(`${config.url}/Items`);
-	url.searchParams.set('IncludeItemTypes', includeTypes);
-	url.searchParams.set('Recursive', 'true');
-	url.searchParams.set('SortBy', 'DateCreated');
-	url.searchParams.set('SortOrder', 'Descending');
-	url.searchParams.set('Limit', String(limit));
-	url.searchParams.set('StartIndex', String(offset));
-	url.searchParams.set('Fields', 'Overview,Genres,Studios,BackdropImageTags,ImageTags');
-	url.searchParams.set('EnableImages', 'true');
-
-	const headers: Record<string, string> = {
-		Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${config.apiKey ?? ''}"`,
-		'X-Emby-Token': config.apiKey ?? ''
-	};
-
-	const res = await fetch(url.toString(), {
-		headers,
-		signal: AbortSignal.timeout(SYNC_TIMEOUT)
-	});
-	if (!res.ok) throw new Error(`Jellyfin Items → ${res.status}`);
-	const data = await res.json();
-	return {
-		items: data.Items ?? [],
-		total: data.TotalRecordCount ?? 0
-	};
-}
-
-function upsertMediaItems(config: ServiceConfig, items: JellyfinItem[]) {
+function upsertSyncItems(serviceId: string, serviceType: string, items: SyncItem[]) {
 	const raw = getRawDb();
 	const stmt = raw.prepare(
 		`INSERT INTO media_items (id, source_id, service_id, type, title, sort_title, description, poster, backdrop, year, rating, genres, studios, duration, status, cached_at)
@@ -92,27 +31,21 @@ function upsertMediaItems(config: ServiceConfig, items: JellyfinItem[]) {
 
 	const tx = raw.transaction(() => {
 		for (const item of items) {
-			const localType = jellyfinTypeToLocal(item.Type);
-			if (!localType) continue;
-
-			const hasPoster = item.ImageTags?.Primary;
-			const hasBackdrop = item.BackdropImageTags && item.BackdropImageTags.length > 0;
-
 			stmt.run(
-				`${item.Id}:${config.id}`,
-				item.Id,
-				config.id,
-				localType,
-				item.Name,
-				item.SortName ?? null,
-				item.Overview ?? null,
-				hasPoster ? `${config.url}/Items/${item.Id}/Images/Primary?quality=90&maxWidth=600` : null,
-				hasBackdrop ? `${config.url}/Items/${item.Id}/Images/Backdrop/0?quality=90&maxWidth=1920` : null,
-				item.ProductionYear ?? null,
-				item.CommunityRating ?? null,
-				item.Genres ? JSON.stringify(item.Genres) : null,
-				item.Studios ? JSON.stringify(item.Studios.map(s => s.Name)) : null,
-				item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000_000) : null
+				`${item.sourceId}:${serviceId}`,
+				item.sourceId,
+				serviceId,
+				item.mediaType,
+				item.title,
+				item.sortTitle ?? null,
+				null, // description not on SyncItem (kept lean)
+				item.poster ?? null,
+				item.backdrop ?? null,
+				item.year ?? null,
+				item.rating ?? null,
+				item.genres ? JSON.stringify(item.genres) : null,
+				null, // studios not on SyncItem
+				item.duration ?? null
 			);
 		}
 	});
@@ -120,40 +53,23 @@ function upsertMediaItems(config: ServiceConfig, items: JellyfinItem[]) {
 	tx();
 }
 
-/** Sync all Jellyfin library items into media_items table */
+/** Sync all library items from adapters that implement syncLibraryItems */
 export async function syncMediaItems(): Promise<number> {
-	const configs = getEnabledConfigs().filter(c => c.type === 'jellyfin');
-	if (configs.length === 0) {
-		console.log('[media-sync] No Jellyfin services configured');
-		return 0;
-	}
-
+	const configs = getEnabledConfigs();
 	let totalSynced = 0;
 
 	for (const config of configs) {
+		const adapter = registry.get(config.type);
+		if (!adapter?.syncLibraryItems) continue;
+
 		try {
 			console.log(`[media-sync] Syncing from ${config.name ?? config.id}...`);
-
-			// Fetch movies and series (the types recommendation engine cares about)
-			for (const includeType of ['Movie', 'Series']) {
-				let offset = 0;
-				let total = Infinity;
-
-				while (offset < total) {
-					const result = await fetchJellyfinItems(config, includeType, offset, BATCH_SIZE);
-					total = result.total;
-
-					if (result.items.length === 0) break;
-
-					upsertMediaItems(config, result.items);
-					totalSynced += result.items.length;
-					offset += result.items.length;
-				}
-			}
-
-			console.log(`[media-sync] Synced ${totalSynced} items from ${config.name ?? config.id}`);
+			const items = await adapter.syncLibraryItems(config);
+			upsertSyncItems(config.id, config.type, items);
+			totalSynced += items.length;
+			console.log(`[media-sync] Synced ${items.length} items from ${config.name ?? config.id}`);
 		} catch (e) {
-			console.error(`[media-sync] Error syncing ${config.id}:`, e);
+			console.error(`[media-sync] ${config.type} error:`, e instanceof Error ? e.message : e);
 		}
 	}
 
