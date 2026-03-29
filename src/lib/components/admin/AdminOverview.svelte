@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { JellyfinSession } from '../../../routes/admin/+page.server';
 	import DownloadQueue from './DownloadQueue.svelte';
+	import QualityOverview from './QualityOverview.svelte';
 
 	let { data }: { data: any } = $props();
 
@@ -290,6 +291,9 @@
 		</div>
 	</section>
 {/if}
+
+<!-- ── Library Quality ────────────────────────────────────────────────── -->
+<QualityOverview />
 
 <!-- ── Download Queue (full panel with polling) ────────────────────────── -->
 <DownloadQueue />
