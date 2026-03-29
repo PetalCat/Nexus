@@ -379,6 +379,9 @@ export const bazarrAdapter: ServiceAdapter = {
 	id: 'bazarr',
 	displayName: 'Bazarr',
 	defaultPort: 6767,
+	color: '#e0b818',
+	abbreviation: 'BZ',
+	isEnrichmentOnly: true,
 	icon: 'bazarr',
 
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {

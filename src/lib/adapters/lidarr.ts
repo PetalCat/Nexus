@@ -154,6 +154,10 @@ export const lidarrAdapter: ServiceAdapter = {
 	id: 'lidarr',
 	displayName: 'Lidarr',
 	defaultPort: 8686,
+	color: '#1db954',
+	abbreviation: 'LI',
+	isSearchable: true,
+	searchPriority: 2,
 	icon: 'lidarr',
 	mediaTypes: ['music'],
 

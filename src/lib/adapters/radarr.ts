@@ -44,6 +44,10 @@ export const radarrAdapter: ServiceAdapter = {
 	id: 'radarr',
 	displayName: 'Radarr',
 	defaultPort: 7878,
+	color: '#fbbf24',
+	abbreviation: 'RD',
+	isSearchable: true,
+	searchPriority: 3,
 	icon: 'radarr',
 	mediaTypes: ['movie'],
 
