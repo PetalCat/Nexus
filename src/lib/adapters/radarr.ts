@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
 
 async function radarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v3${path}`);
@@ -105,5 +105,22 @@ export const radarrAdapter: ServiceAdapter = {
 		} catch {
 			return { items: [], total: 0, source: 'radarr' };
 		}
+	},
+
+	async getCalendar(config, start, end) {
+		try {
+			const data = await radarrFetch(config, `/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&unmonitored=false`);
+			return (data ?? []).map((item: any): CalendarItem => ({
+				id: `radarr-cal-${item.id}:${config.id}`,
+				sourceId: String(item.tmdbId ?? item.id),
+				serviceId: config.id,
+				title: item.title ?? 'Unknown',
+				mediaType: 'movie',
+				releaseDate: item.digitalRelease ?? item.physicalRelease ?? item.inCinemas ?? '',
+				poster: item.images?.find((i: any) => i.coverType === 'poster')?.remoteUrl,
+				overview: item.overview,
+				status: item.hasFile ? 'released' : 'upcoming'
+			}));
+		} catch { return []; }
 	}
 };

@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
 
 async function sonarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v3${path}`);
@@ -104,5 +104,26 @@ export const sonarrAdapter: ServiceAdapter = {
 		} catch {
 			return { items: [], total: 0, source: 'sonarr' };
 		}
+	},
+
+	async getCalendar(config, start, end) {
+		try {
+			const data = await sonarrFetch(config, `/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&includeSeries=true&includeEpisodeFile=true&unmonitored=false`);
+			return (data ?? []).map((ep: any): CalendarItem => {
+				const s = String(ep.seasonNumber ?? 0).padStart(2, '0');
+				const e = String(ep.episodeNumber ?? 0).padStart(2, '0');
+				return {
+					id: `sonarr-cal-${ep.id}:${config.id}`,
+					sourceId: String(ep.series?.tvdbId ?? ep.seriesId),
+					serviceId: config.id,
+					title: `${ep.series?.title ?? ''} S${s}E${e}`,
+					mediaType: 'show',
+					releaseDate: ep.airDateUtc ?? '',
+					poster: ep.series?.images?.find((i: any) => i.coverType === 'poster')?.remoteUrl,
+					overview: ep.overview ?? ep.title,
+					status: ep.hasFile ? 'released' : 'upcoming'
+				};
+			});
+		} catch { return []; }
 	}
 };
