@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult } from './types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, CalendarItem } from './types';
 
 async function lidarrFetch(config: ServiceConfig, path: string) {
 	const url = new URL(`${config.url}/api/v1${path}`);
@@ -211,5 +211,22 @@ export const lidarrAdapter: ServiceAdapter = {
 		} catch {
 			return { items: [], total: 0, source: 'lidarr' };
 		}
+	},
+
+	async getCalendar(config, start, end) {
+		try {
+			const data = await lidarrFetch(config, `/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&unmonitored=false`);
+			return (data ?? []).map((album: any): CalendarItem => ({
+				id: `lidarr-cal-${album.id}:${config.id}`,
+				sourceId: String(album.foreignAlbumId ?? album.id),
+				serviceId: config.id,
+				title: album.artist?.artistName ? `${album.artist.artistName} — ${album.title}` : album.title ?? 'Unknown',
+				mediaType: 'music',
+				releaseDate: album.releaseDate ?? '',
+				poster: album.images?.find((i: any) => i.coverType === 'cover')?.remoteUrl,
+				overview: album.overview,
+				status: album.statistics?.percentOfTracks === 100 ? 'released' : 'upcoming'
+			}));
+		} catch { return []; }
 	}
 };
