@@ -126,15 +126,16 @@ export interface NexusSession {
 	durationSeconds?: number;
 	device?: string;
 	client?: string;
-	metadata?: {
-		resolution?: string;
-		videoCodec?: string;
-		audioCodec?: string;
-		audioChannels?: number;
-		hdr?: boolean;
-		transcoding?: boolean;
-		bitrate?: number;
-	};
+	/** Media year (e.g. production year) */
+	year?: number;
+	/** Genre list */
+	genres?: string[];
+	/** Parent item ID (e.g. series ID for an episode) */
+	parentId?: string;
+	/** Parent item title (e.g. series name for an episode) */
+	parentTitle?: string;
+	/** Adapter-specific playback metadata (codecs, transcoding, etc.) */
+	metadata?: Record<string, unknown>;
 }
 
 /** Item returned by syncLibraryItems for recommendation engine ingestion */

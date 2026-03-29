@@ -1,5 +1,6 @@
 import type { ServiceAdapter } from './base';
-import type { ExternalUser, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
+import type { ExternalUser, NexusSession, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
+import { heightToResolution, channelsToLabel } from '../server/analytics';
 
 // ---------------------------------------------------------------------------
 // Auth & fetch
@@ -448,6 +449,85 @@ export async function getInstantMix(
 }
 
 // ---------------------------------------------------------------------------
+// Session polling types & helpers (used by pollSessions)
+// ---------------------------------------------------------------------------
+
+interface JfSession {
+	Id: string;
+	UserId: string;
+	UserName: string;
+	Client: string;
+	DeviceName: string;
+	DeviceId: string;
+	NowPlayingItem?: {
+		Id: string;
+		Name: string;
+		Type: string;
+		ProductionYear?: number;
+		Genres?: string[];
+		SeriesId?: string;
+		SeriesName?: string;
+		RunTimeTicks?: number;
+		MediaStreams?: any[];
+	};
+	PlayState?: {
+		PositionTicks?: number;
+		IsPaused?: boolean;
+		IsMuted?: boolean;
+	};
+	TranscodingInfo?: {
+		IsTranscoding?: boolean;
+		Bitrate?: number;
+		TranscodeReasons?: string[];
+	};
+}
+
+const JF_SESSION_TYPE_MAP: Record<string, string> = {
+	Movie: 'movie',
+	Series: 'show',
+	Episode: 'episode',
+	Audio: 'music',
+	MusicAlbum: 'album'
+};
+
+function extractSessionMetadata(session: JfSession): Record<string, unknown> {
+	const meta: Record<string, unknown> = {};
+	const item = session.NowPlayingItem;
+	if (!item) return meta;
+
+	const streams = (item.MediaStreams ?? []) as any[];
+	const video = streams.find((s: any) => s.Type === 'Video');
+	const audio = streams.find((s: any) => s.Type === 'Audio');
+	const subtitle = streams.find((s: any) => s.Type === 'Subtitle');
+
+	if (video) {
+		meta.resolution = heightToResolution(video.Height);
+		meta.videoCodec = video.Codec;
+		meta.hdr = video.VideoRangeType ?? 'sdr';
+	}
+	if (audio) {
+		meta.audioCodec = audio.Codec;
+		meta.audioChannels = channelsToLabel(audio.Channels);
+		meta.audioTrackLanguage = audio.Language;
+	}
+	if (subtitle) {
+		meta.subtitleLanguage = subtitle.Language;
+		meta.subtitleFormat = subtitle.Codec;
+		meta.closedCaptions = !!subtitle.IsForced;
+	}
+
+	const ti = session.TranscodingInfo;
+	if (ti) {
+		meta.isTranscoding = ti.IsTranscoding;
+		meta.bitrate = ti.Bitrate;
+		meta.transcodeReason = ti.TranscodeReasons?.join(', ');
+		meta.streamType = ti.IsTranscoding ? 'transcode' : 'direct-play';
+	}
+
+	return meta;
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
@@ -463,6 +543,7 @@ export const jellyfinAdapter: ServiceAdapter = {
 	icon: 'jellyfin',
 	mediaTypes: ['movie', 'show', 'music', 'live'],
 	userLinkable: true,
+	pollIntervalMs: 10_000,
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
@@ -760,6 +841,57 @@ export const jellyfinAdapter: ServiceAdapter = {
 			signal: AbortSignal.timeout(8000)
 		});
 		if (!res.ok) throw new Error(`Password reset failed: ${res.status}`);
+	},
+
+	async pollSessions(config): Promise<NexusSession[]> {
+		const base = config.url.replace(/\/+$/, '');
+		const res = await fetch(`${base}/Sessions`, {
+			headers: {
+				Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-poller-${config.id}", Version="1.0.0", Token="${config.apiKey ?? ''}"`,
+				'X-Emby-Token': config.apiKey ?? ''
+			},
+			signal: AbortSignal.timeout(5000)
+		});
+		if (!res.ok) throw new Error(`Jellyfin /Sessions -> ${res.status}`);
+
+		const sessions: JfSession[] = await res.json();
+		const results: NexusSession[] = [];
+
+		for (const session of sessions) {
+			if (!session.NowPlayingItem) continue;
+			const item = session.NowPlayingItem;
+			const isPaused = session.PlayState?.IsPaused ?? false;
+			const mType = JF_SESSION_TYPE_MAP[item.Type] ?? 'movie';
+			const positionTicks = session.PlayState?.PositionTicks;
+			const runtimeTicks = item.RunTimeTicks;
+
+			let progress = 0;
+			if (positionTicks && runtimeTicks) {
+				progress = Math.min(1, positionTicks / runtimeTicks);
+			}
+
+			results.push({
+				sessionId: session.Id,
+				userId: session.UserId,
+				username: session.UserName,
+				mediaId: item.Id,
+				mediaTitle: item.Name,
+				mediaType: mType as any,
+				state: isPaused ? 'paused' : 'playing',
+				progress,
+				positionSeconds: positionTicks ? positionTicks / 10_000_000 : undefined,
+				durationSeconds: runtimeTicks ? runtimeTicks / 10_000_000 : undefined,
+				device: session.DeviceName,
+				client: session.Client,
+				year: item.ProductionYear,
+				genres: item.Genres,
+				parentId: item.SeriesId,
+				parentTitle: item.SeriesName,
+				metadata: extractSessionMetadata(session)
+			});
+		}
+
+		return results;
 	}
 };
 
