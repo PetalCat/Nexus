@@ -1,5 +1,5 @@
 import type { ServiceAdapter } from './base';
-import type { ExternalUser, NexusSession, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
+import type { ExternalUser, NexusSession, ServiceConfig, ServiceHealth, SyncItem, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { heightToResolution, channelsToLabel } from '../server/analytics';
 
 // ---------------------------------------------------------------------------
@@ -892,6 +892,60 @@ export const jellyfinAdapter: ServiceAdapter = {
 		}
 
 		return results;
+	},
+
+	async syncLibraryItems(config): Promise<SyncItem[]> {
+		const BATCH = 200;
+		const INCLUDE_TYPES = 'Movie,Series,MusicAlbum';
+		const items: SyncItem[] = [];
+
+		let offset = 0;
+		let total = Infinity;
+
+		while (offset < total) {
+			const data = await jfFetch(config, '/Items', {
+				IncludeItemTypes: INCLUDE_TYPES,
+				Recursive: 'true',
+				SortBy: 'DateCreated',
+				SortOrder: 'Descending',
+				Limit: String(BATCH),
+				StartIndex: String(offset),
+				Fields: 'Overview,Genres,Studios,BackdropImageTags,ImageTags,ProviderIds',
+				EnableImages: 'true'
+			}, 30_000);
+
+			total = data.TotalRecordCount ?? 0;
+			const batch = data.Items ?? [];
+			if (batch.length === 0) break;
+
+			for (const item of batch) {
+				const mt = mediaType(item.Type);
+				// Skip unknown types
+				if (mt === 'movie' && item.Type !== 'Movie') continue;
+
+				const hasPoster = item.ImageTags?.Primary;
+				const hasBackdrop = item.BackdropImageTags && item.BackdropImageTags.length > 0;
+
+				items.push({
+					sourceId: item.Id,
+					title: item.Name,
+					sortTitle: item.SortName,
+					mediaType: mt,
+					year: item.ProductionYear,
+					genres: item.Genres,
+					poster: hasPoster ? posterUrl(config, item.Id) : undefined,
+					backdrop: hasBackdrop ? backdropUrl(config, item.Id) : undefined,
+					duration: item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000_000) : undefined,
+					rating: item.CommunityRating,
+					tmdbId: item.ProviderIds?.Tmdb,
+					imdbId: item.ProviderIds?.Imdb
+				});
+			}
+
+			offset += batch.length;
+		}
+
+		return items;
 	}
 };
 
