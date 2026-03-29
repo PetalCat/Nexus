@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { JellyfinSession } from '../../../routes/admin/+page.server';
+	import DownloadQueue from './DownloadQueue.svelte';
 
 	let { data }: { data: any } = $props();
 
-	const queue = $derived(data.queue ?? []);
 	const health = $derived(data.health ?? []);
 
 	// ── helpers ───────────────────────────────────────────────────────────────
@@ -66,16 +66,6 @@
 		if (method === 'Transcode') return 'Transcode';
 		if (method === 'DirectStream') return 'Stream';
 		return 'Direct';
-	}
-
-	function queueStatusColor(status: string | undefined) {
-		switch (status) {
-			case 'downloading': return 'var(--color-accent)';
-			case 'available': return '#34d399';
-			case 'missing': return '#f87171';
-			case 'requested': return '#f59e0b';
-			default: return '#64748b';
-		}
 	}
 
 	const statusColor: Record<string, string> = {
@@ -301,57 +291,11 @@
 	</section>
 {/if}
 
-<!-- ── Queue + Requests two-column grid ───────────────────────────────── -->
-<div class="grid gap-6 lg:grid-cols-2">
-	<!-- Download Queue (top 5) -->
-	<section>
-		<div class="mb-4 flex items-center justify-between">
-			<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
-				Download Queue
-				{#if queue.length > 0}
-					<span class="ml-1 normal-case font-normal text-[var(--color-muted)]">· {queue.length}</span>
-				{/if}
-			</h2>
-			{#if queue.length > 5}
-				<button class="text-xs text-[var(--color-accent)] hover:underline">View all &rarr;</button>
-			{/if}
-		</div>
+<!-- ── Download Queue (full panel with polling) ────────────────────────── -->
+<DownloadQueue />
 
-		{#if queue.length === 0}
-			<div class="rounded-2xl py-8 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
-				<p class="text-sm text-[var(--color-muted)]">Nothing downloading</p>
-			</div>
-		{:else}
-			<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
-				{#each queue.slice(0, 5) as item (item.id)}
-					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
-						{#if item.poster}
-							<img src={item.poster} alt={item.title} class="h-10 w-7 flex-shrink-0 rounded object-cover" style="background: rgba(255,255,255,0.05)" />
-						{:else}
-							<div class="flex h-10 w-7 flex-shrink-0 items-center justify-center rounded" style="background: rgba(255,255,255,0.05)">
-								<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" class="opacity-30">
-									<path d="M6 2v8M3 7l3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							</div>
-						{/if}
-
-						<div class="min-w-0 flex-1">
-							<p class="truncate text-xs font-medium">{item.title}</p>
-							<div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-muted)]">
-								<span>{item.serviceType}</span>
-							</div>
-						</div>
-
-						<span class="flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase"
-							style="background: {queueStatusColor(item.status)}18; color: {queueStatusColor(item.status)}; border: 1px solid {queueStatusColor(item.status)}33">
-							{item.status ?? 'unknown'}
-						</span>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</section>
-
+<!-- ── Requests ────────────────────────────────────────────────────────── -->
+<div class="grid gap-6 lg:grid-cols-1">
 	<!-- Request Queue (top 5) -->
 	<section>
 		<div class="mb-4 flex items-center justify-between">
