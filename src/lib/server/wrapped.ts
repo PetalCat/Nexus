@@ -21,61 +21,61 @@ export function computeWrapped(userId: string, year?: number): WrappedStats {
 	// Total time by media type
 	const byTypeRows = raw.prepare(`
 		SELECT media_type,
-		       SUM(duration_seconds) as total_seconds,
+		       SUM(duration_ms) as total_ms,
 		       COUNT(DISTINCT media_id) as item_count
 		FROM play_sessions
 		WHERE user_id = ? AND started_at >= ? AND started_at < ?
 		GROUP BY media_type
 	`).all(userId, startDate, endDate) as Array<{
-		media_type: string; total_seconds: number; item_count: number;
+		media_type: string; total_ms: number; item_count: number;
 	}>;
 
 	const byType: Record<string, { hours: number; count: number }> = {};
-	let totalSeconds = 0;
+	let totalMs = 0;
 	for (const row of byTypeRows) {
-		const hours = Math.round(row.total_seconds / 360) / 10;
+		const hours = Math.round(row.total_ms / 3_600_000 * 10) / 10;
 		byType[row.media_type] = { hours, count: row.item_count };
-		totalSeconds += row.total_seconds;
+		totalMs += row.total_ms;
 	}
 
 	// Top items
 	const topItemRows = raw.prepare(`
 		SELECT media_title as title, media_type as type,
-		       SUM(duration_seconds) as total_seconds
+		       SUM(duration_ms) as total_ms
 		FROM play_sessions
 		WHERE user_id = ? AND started_at >= ? AND started_at < ?
 		GROUP BY media_id
-		ORDER BY total_seconds DESC
+		ORDER BY total_ms DESC
 		LIMIT 10
 	`).all(userId, startDate, endDate) as Array<{
-		title: string; type: string; total_seconds: number;
+		title: string; type: string; total_ms: number;
 	}>;
 
 	// Top genres
 	const genreRows = raw.prepare(`
-		SELECT json_extract(metadata, '$.genres') as genres, duration_seconds
+		SELECT json_extract(metadata, '$.genres') as genres, duration_ms
 		FROM play_sessions
 		WHERE user_id = ? AND started_at >= ? AND started_at < ?
 		  AND json_extract(metadata, '$.genres') IS NOT NULL
-	`).all(userId, startDate, endDate) as Array<{ genres: string; duration_seconds: number }>;
+	`).all(userId, startDate, endDate) as Array<{ genres: string; duration_ms: number }>;
 
 	const genreHours = new Map<string, number>();
 	for (const row of genreRows) {
 		try {
 			const genres = JSON.parse(row.genres) as string[];
 			for (const g of genres) {
-				genreHours.set(g, (genreHours.get(g) ?? 0) + row.duration_seconds);
+				genreHours.set(g, (genreHours.get(g) ?? 0) + row.duration_ms);
 			}
 		} catch { /* skip malformed */ }
 	}
 	const topGenres = Array.from(genreHours.entries())
-		.map(([genre, secs]) => ({ genre, hours: Math.round(secs / 360) / 10 }))
+		.map(([genre, secs]) => ({ genre, hours: Math.round(secs / 3_600_000 * 10) / 10 }))
 		.sort((a, b) => b.hours - a.hours)
 		.slice(0, 10);
 
 	// Monthly activity
 	const monthly = raw.prepare(`
-		SELECT strftime('%Y-%m', started_at) as month, SUM(duration_seconds) as total
+		SELECT strftime('%Y-%m', started_at) as month, SUM(duration_ms) as total
 		FROM play_sessions
 		WHERE user_id = ? AND started_at >= ? AND started_at < ?
 		GROUP BY month ORDER BY month
@@ -102,7 +102,7 @@ export function computeWrapped(userId: string, year?: number): WrappedStats {
 	}
 	longest = Math.max(longest, current);
 
-	const totalHours = Math.round(totalSeconds / 360) / 10;
+	const totalHours = Math.round(totalMs / 3_600_000 * 10) / 10;
 	const totalItems = byTypeRows.reduce((a, b) => a + b.item_count, 0);
 
 	return {
@@ -113,7 +113,7 @@ export function computeWrapped(userId: string, year?: number): WrappedStats {
 		topItems: topItemRows.map(t => ({
 			title: t.title,
 			type: t.type,
-			hours: Math.round(t.total_seconds / 360) / 10
+			hours: Math.round(t.total_ms / 3_600_000 * 10) / 10
 		})),
 		milestones: [
 			{ label: 'Total Hours', value: String(totalHours), icon: 'clock' },
@@ -124,7 +124,7 @@ export function computeWrapped(userId: string, year?: number): WrappedStats {
 		streaks: { longest, current },
 		monthlyActivity: monthly.map(m => ({
 			month: m.month,
-			hours: Math.round(m.total / 360) / 10
+			hours: Math.round(m.total / 3_600_000 * 10) / 10
 		}))
 	};
 }
