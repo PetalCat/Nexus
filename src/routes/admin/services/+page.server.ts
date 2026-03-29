@@ -10,6 +10,8 @@ export const load: PageServerLoad = async () => {
 		id: a.id,
 		displayName: a.displayName,
 		defaultPort: a.defaultPort,
+		color: a.color,
+		abbreviation: a.abbreviation,
 		supportsGetUsers: !!a.getUsers,
 		userLinkable: !!a.userLinkable
 	}));

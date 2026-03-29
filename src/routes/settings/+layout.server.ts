@@ -104,5 +104,11 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		}
 	}
 
-	return { services, myCredentials, linkableServices, isAdmin, unclaimedCounts };
+	// Build adapter metadata map for UI (colors, abbreviations)
+	const adapterMeta: Record<string, { color?: string; abbreviation?: string }> = {};
+	for (const a of registry.all()) {
+		adapterMeta[a.id] = { color: a.color, abbreviation: a.abbreviation };
+	}
+
+	return { services, myCredentials, linkableServices, isAdmin, unclaimedCounts, adapterMeta };
 };
