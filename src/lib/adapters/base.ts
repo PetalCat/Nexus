@@ -10,7 +10,7 @@
  * except `ping`, `id`, `displayName`, and `defaultPort`.
  */
 
-import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem } from './types';
+import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem, CalendarItem } from './types';
 
 export interface ServiceAdapter {
 	/** Unique identifier matching the `type` field in the services table */
@@ -128,6 +128,10 @@ export interface ServiceAdapter {
 
 	/** Fetch all episodes for a given season of a show */
 	getSeasonEpisodes?(config: ServiceConfig, seriesId: string, seasonNumber: number, userCred?: UserCredential): Promise<UnifiedMedia[]>;
+
+	/** Upcoming media releases within a date range */
+	getCalendar?(config: ServiceConfig, start: string, end: string,
+		userCred?: UserCredential): Promise<CalendarItem[]>;
 
 	// ---- Request management (Overseerr and similar) ----
 
