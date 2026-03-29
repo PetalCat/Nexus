@@ -12,7 +12,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const isAdmin = locals.user.isAdmin;
 	const userId = locals.user.id;
 
-	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
+	const overseerrConfigs = getEnabledConfigs().filter((c) => {
+		const adapter = registry.get(c.type);
+		return !!adapter?.getRequests;
+	});
 	const hasOverseerr = overseerrConfigs.length > 0;
 
 	let hasLinkedOverseerr = false;

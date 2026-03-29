@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import type { UnifiedMedia } from '$lib/adapters/types';
@@ -14,7 +14,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const serviceId = url.searchParams.get('service');
 	if (!videoId) return json({ error: 'videoId required' }, { status: 400 });
 
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return json({ recommendations: [] });
 
 	const config = serviceId

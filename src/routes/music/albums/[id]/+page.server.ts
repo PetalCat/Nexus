@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getMusicAlbumDetail, getMusicAlbums } from '$lib/server/music';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getEnabledConfigs, getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 
@@ -17,10 +17,9 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	// Fetch the album item itself (not included in detail)
 	let album = null;
-	const configs = getEnabledConfigs();
 	const config = serviceId
-		? configs.find((c) => c.id === serviceId)
-		: configs.find((c) => c.type === 'jellyfin');
+		? getEnabledConfigs().find((c) => c.id === serviceId)
+		: getConfigsForMediaType('music')[0];
 
 	if (config) {
 		const adapter = registry.get(config.type);

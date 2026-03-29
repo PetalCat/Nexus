@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getServiceConfig, getEnabledConfigs } from '$lib/server/services';
+import { getServiceConfig, getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getRomSaves, getRomStates } from '$lib/adapters/romm';
@@ -12,7 +12,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let serviceId = url.searchParams.get('serviceId');
 
 	if (!serviceId) {
-		const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+		const rommConfigs = getConfigsForMediaType('game');
 		if (rommConfigs.length > 0) serviceId = rommConfigs[0].id;
 	}
 	if (!serviceId) throw error(400, 'serviceId required');

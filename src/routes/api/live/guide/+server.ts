@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getChannelPrograms, getLiveTvGuide } from '$lib/adapters/jellyfin';
 import { withCache } from '$lib/server/cache';
@@ -11,7 +11,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	const channelId = url.searchParams.get('channelId');
-	const jellyfinConfigs = getEnabledConfigs().filter((c) => c.type === 'jellyfin');
+	const jellyfinConfigs = getConfigsForMediaType('live');
 
 	if (jellyfinConfigs.length === 0) {
 		return json({ guide: channelId ? [] : {} });

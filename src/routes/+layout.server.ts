@@ -34,7 +34,10 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	// Pending request count — streamed, NEVER blocks navigation
 	async function fetchPendingRequests(): Promise<number> {
 		if (!locals.user?.isAdmin) return 0;
-		const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
+		const overseerrConfigs = getEnabledConfigs().filter((c) => {
+			const adapter = registry.get(c.type);
+			return !!adapter?.getRequests;
+		});
 		const counts = await Promise.allSettled(
 			overseerrConfigs.map((config) =>
 				withCache(`pending-count:${config.id}`, 30_000, async () => {

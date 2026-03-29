@@ -1,13 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getCollections, createCollection } from '$lib/adapters/romm';
 import { invalidatePrefix } from '$lib/server/cache';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401);
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 	if (rommConfigs.length === 0) return json({ collections: [] });
 
 	const config = rommConfigs[0];
@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401);
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 	if (rommConfigs.length === 0) throw error(404, 'No RomM service configured');
 
 	const config = rommConfigs[0];

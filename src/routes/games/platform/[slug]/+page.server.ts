@@ -1,4 +1,4 @@
-import { getLibraryItems, getEnabledConfigs } from '$lib/server/services';
+import { getLibraryItems, getConfigsForMediaType } from '$lib/server/services';
 import { getPlatforms } from '$lib/adapters/romm';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { error } from '@sveltejs/kit';
@@ -7,7 +7,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const sortBy = url.searchParams.get('sort') || 'title';
 	const userId = locals.user?.id;
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 	if (rommConfigs.length === 0) throw error(404, 'No RomM service configured');
 
 	const config = rommConfigs[0];

@@ -1,4 +1,4 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getAllBooks, getCalibreSeries, getCalibreCategories, getCalibreAuthors } from '$lib/adapters/calibre';
@@ -17,8 +17,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[], hasBookService: false, readingStats: { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 } };
 
-	const configs = getEnabledConfigs();
-	const calibreConfig = configs.find(c => c.type === 'calibre');
+	const calibreConfig = getConfigsForMediaType('book')[0];
 	if (!calibreConfig) return empty;
 
 	const userCred = userId ? getUserCredentialForService(userId, calibreConfig.id) ?? undefined : undefined;

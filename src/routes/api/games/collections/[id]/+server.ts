@@ -1,12 +1,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { updateCollection, deleteCollection, getCollection, updateCollectionRoms } from '$lib/adapters/romm';
 import { invalidatePrefix } from '$lib/server/cache';
 
 function getRommConfig() {
-	const configs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const configs = getConfigsForMediaType('game');
 	if (configs.length === 0) throw error(404, 'No RomM service configured');
 	return configs[0];
 }

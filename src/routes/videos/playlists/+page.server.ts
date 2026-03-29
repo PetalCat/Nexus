@@ -1,11 +1,11 @@
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getUserPlaylists } from '$lib/adapters/invidious';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
-	const configs = getEnabledConfigs().filter((c) => c.type === 'invidious');
+	const configs = getConfigsForMediaType('video');
 	if (configs.length === 0) return { playlists: [], hasLinkedAccount: false };
 
 	const config = configs[0];

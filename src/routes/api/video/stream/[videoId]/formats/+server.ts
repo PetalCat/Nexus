@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
@@ -15,7 +15,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	const { videoId } = params;
-	const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
+	const invConfig = getConfigsForMediaType('video')[0];
 	if (!invConfig) return json({ error: 'No Invidious service' }, { status: 404 });
 
 	const userCred = getUserCredentialForService(locals.user.id, invConfig.id) ?? undefined;

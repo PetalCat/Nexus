@@ -1,11 +1,11 @@
-import { getLibraryItems, getEnabledConfigs } from '$lib/server/services';
+import { getLibraryItems, getConfigsForMediaType } from '$lib/server/services';
 import { getPlatforms } from '$lib/adapters/romm';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 
 	const [libraryResult, ...platformResults] = await Promise.all([
 		getLibraryItems({ type: 'game', limit: 2000 }, userId),

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getEnabledConfigs } from '$lib/server/services';
+import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getPlatforms } from '$lib/adapters/romm';
 import { enrichPlatform } from '$lib/server/platform-meta';
@@ -13,7 +13,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	const platformId = url.searchParams.get('id');
-	const rommConfigs = getEnabledConfigs().filter((c) => c.type === 'romm');
+	const rommConfigs = getConfigsForMediaType('game');
 
 	if (rommConfigs.length === 0) {
 		return json({ platforms: [] });
