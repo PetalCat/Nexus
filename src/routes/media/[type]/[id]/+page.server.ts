@@ -149,6 +149,23 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		? getUserCredentialForService(userId, serviceId) ?? undefined
 		: undefined;
 
+	// ── Quality enrichment from *arr services ──────────────────────────
+	const qualityConfigs = getEnabledConfigs().filter((c) => {
+		const a = registry.get(c.type);
+		return a?.enrichItem && ['radarr', 'sonarr', 'lidarr'].includes(c.type);
+	});
+	for (const qc of qualityConfigs) {
+		const qa = registry.get(qc.type);
+		if (!qa?.enrichItem) continue;
+		try {
+			const enriched = await qa.enrichItem(qc, item, 'quality');
+			if (enriched?.metadata?.quality) {
+				item.metadata = { ...item.metadata, quality: enriched.metadata.quality };
+				break;
+			}
+		} catch { /* silent */ }
+	}
+
 	// ── Fetch similar items ─────────────────────────────────────────────
 	let similar: UnifiedMedia[] = [];
 	try {
