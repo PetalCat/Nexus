@@ -149,22 +149,25 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		? getUserCredentialForService(userId, serviceId) ?? undefined
 		: undefined;
 
-	// ── Quality enrichment from *arr services ──────────────────────────
-	const qualityConfigs = getEnabledConfigs().filter((c) => {
-		const a = registry.get(c.type);
-		return a?.enrichItem && ['radarr', 'sonarr', 'lidarr'].includes(c.type);
-	});
-	for (const qc of qualityConfigs) {
-		const qa = registry.get(qc.type);
-		if (!qa?.enrichItem) continue;
-		try {
-			const enriched = await qa.enrichItem(qc, item, 'quality');
-			if (enriched?.metadata?.quality) {
-				item.metadata = { ...item.metadata, quality: enriched.metadata.quality };
-				break;
-			}
-		} catch { /* silent */ }
-	}
+	// ── Quality enrichment (non-blocking, runs in parallel below) ─────
+	const qualityPromise = (async () => {
+		const qualityConfigs = getEnabledConfigs().filter((c) => {
+			const a = registry.get(c.type);
+			return a?.enrichItem && ['radarr', 'sonarr', 'lidarr'].includes(c.type);
+		});
+		for (const qc of qualityConfigs) {
+			const qa = registry.get(qc.type);
+			if (!qa?.enrichItem) continue;
+			try {
+				const enriched = await Promise.race([
+					qa.enrichItem(qc, item, 'quality'),
+					new Promise<null>((r) => setTimeout(() => r(null), 2000))
+				]);
+				if (enriched?.metadata?.quality) return enriched.metadata.quality;
+			} catch { continue; }
+		}
+		return null;
+	})();
 
 	// ── Fetch similar items ─────────────────────────────────────────────
 	let similar: UnifiedMedia[] = [];
@@ -445,6 +448,12 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		(item.metadata?.trailerUrl as string) ?? null,
 		userId
 	);
+
+	// Resolve quality enrichment (was running in parallel)
+	const quality = await qualityPromise;
+	if (quality) {
+		item.metadata = { ...item.metadata, quality };
+	}
 
 	return {
 		item,
