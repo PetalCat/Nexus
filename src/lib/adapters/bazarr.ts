@@ -69,18 +69,33 @@ export interface LanguageProfile {
 async function bazarrFetch(
 	config: ServiceConfig,
 	path: string,
-	timeoutMs = 8000
+	opts?: { method?: string; body?: string | FormData; timeoutMs?: number; rawResponse?: boolean }
 ): Promise<unknown> {
+	const timeoutMs = opts?.timeoutMs ?? 8000;
 	const url = `${config.url.replace(/\/+$/, '')}${path}`;
+	const headers: Record<string, string> = {
+		'X-API-KEY': config.apiKey ?? '',
+		Accept: 'application/json'
+	};
+	// Only set Content-Type for string bodies (FormData sets its own boundary)
+	if (typeof opts?.body === 'string') {
+		headers['Content-Type'] = 'application/json';
+	}
 	const res = await fetch(url, {
-		headers: {
-			'X-API-KEY': config.apiKey ?? '',
-			Accept: 'application/json'
-		},
+		method: opts?.method ?? 'GET',
+		headers,
+		body: opts?.body,
 		signal: AbortSignal.timeout(timeoutMs)
 	});
 	if (!res.ok) throw new Error(`Bazarr ${path} -> ${res.status}`);
-	return res.json();
+	if (opts?.rawResponse) return res;
+	const text = await res.text();
+	if (!text) return {};
+	// Detect HTML responses (Bazarr SPA fallback for unknown routes)
+	if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+		throw new Error(`Bazarr ${path} returned HTML instead of JSON — check API version compatibility`);
+	}
+	return JSON.parse(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +387,17 @@ export async function getSystemHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Exported action helpers
+// ---------------------------------------------------------------------------
+
+export async function resetProviders(config: ServiceConfig): Promise<void> {
+	await bazarrFetch(config, '/api/providers', {
+		method: 'POST',
+		body: JSON.stringify({ action: 'reset' })
+	});
+}
+
+// ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
 
@@ -387,7 +413,7 @@ export const bazarrAdapter: ServiceAdapter = {
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {
-			await bazarrFetch(config, '/api/system/health', 5000);
+			await bazarrFetch(config, '/api/system/health', { timeoutMs: 5000 });
 			return {
 				serviceId: config.id,
 				name: config.name,
@@ -405,5 +431,87 @@ export const bazarrAdapter: ServiceAdapter = {
 				error: e instanceof Error ? e.message : String(e)
 			};
 		}
+	},
+
+	async setItemStatus(config: ServiceConfig, sourceId: string, status: Record<string, unknown>): Promise<void> {
+		const action = status.action as string;
+
+		if (action === 'download-subtitle') {
+			const isMovie = status.mediaType === 'movie';
+			const endpoint = isMovie ? '/api/movies/subtitles' : '/api/episodes/subtitles';
+			await bazarrFetch(config, endpoint, {
+				method: 'PATCH',
+				body: JSON.stringify({
+					id: Number(sourceId),
+					language: status.language,
+					hi: status.hi ?? false,
+					forced: status.forced ?? false,
+					...(status.provider ? { provider: status.provider } : {})
+				})
+			});
+		}
+
+		if (action === 'sync-subtitle') {
+			await bazarrFetch(config, '/api/subtitles', {
+				method: 'PATCH',
+				body: JSON.stringify({
+					action: 'sync',
+					language: status.language,
+					path: status.path,
+					id: Number(sourceId),
+					mediaType: status.mediaType === 'movie' ? 'radarr' : 'sonarr'
+				})
+			});
+		}
+
+		if (action === 'translate-subtitle') {
+			await bazarrFetch(config, '/api/subtitles', {
+				method: 'PATCH',
+				body: JSON.stringify({
+					action: 'translate',
+					language: status.language,
+					path: status.path,
+					id: Number(sourceId),
+					mediaType: status.mediaType === 'movie' ? 'radarr' : 'sonarr'
+				})
+			});
+		}
+
+		if (action === 'delete-subtitle') {
+			const isMovie = status.mediaType === 'movie';
+			const endpoint = isMovie ? '/api/movies/subtitles' : '/api/episodes/subtitles';
+			await bazarrFetch(config, endpoint, {
+				method: 'DELETE',
+				body: JSON.stringify({
+					id: Number(sourceId),
+					language: status.language,
+					path: status.path
+				})
+			});
+		}
+	},
+
+	async uploadContent(config: ServiceConfig, parentId: string, type: string, blob: Blob, fileName: string): Promise<void> {
+		if (type !== 'subtitle') return;
+
+		// Determine media type from fileName convention: "movie:en" or "episode:en"
+		// The parentId encodes the Radarr/Sonarr ID, and the caller should pass
+		// mediaType info via the fileName as "movie/{radarrId}/{lang}" or "episode/{sonarrEpisodeId}/{lang}"
+		const parts = fileName.split('/');
+		const isMovie = parts[0] === 'movie';
+		const endpoint = isMovie ? '/api/movies/subtitles' : '/api/episodes/subtitles';
+		const language = parts[2] ?? 'en';
+
+		const form = new FormData();
+		form.append('file', blob, fileName);
+		form.append('id', parentId);
+		form.append('language', language);
+		form.append('hi', 'false');
+		form.append('forced', 'false');
+
+		await bazarrFetch(config, endpoint, {
+			method: 'POST',
+			body: form
+		});
 	}
 };
