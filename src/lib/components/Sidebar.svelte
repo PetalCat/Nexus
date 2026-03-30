@@ -12,22 +12,18 @@
 
 	const topNav = [
 		{ href: '/', label: 'Home', icon: 'home' },
-		{ href: '/discover', label: 'Discover', icon: 'discover' },
 		{ href: '/movies', label: 'Movies', icon: 'movies' },
 		{ href: '/shows', label: 'TV Shows', icon: 'shows' },
 		{ href: '/music', label: 'Music', icon: 'music' },
 		{ href: '/books', label: 'Books', icon: 'books' },
 		{ href: '/games', label: 'Games', icon: 'games' },
-		{ href: '/videos', label: 'Videos', icon: 'videos' },
 		{ href: '/live', label: 'Live TV', icon: 'live' }
 	];
 
 	const secondaryNav = [
+		{ href: '/discover', label: 'Discover', icon: 'discover' },
 		{ href: '/requests', label: 'Requests', icon: 'requests' },
-		{ href: '/collections', label: 'Collections', icon: 'collections' },
-		{ href: '/calendar', label: 'Calendar', icon: 'calendar' },
-		{ href: '/activity', label: 'Activity', icon: 'activity' },
-		{ href: '/wrapped', label: 'Wrapped', icon: 'wrapped' }
+		{ href: '/activity', label: 'Activity', icon: 'activity' }
 	];
 
 	function isActive(href: string) {

@@ -140,9 +140,19 @@ export const radarrAdapter: ServiceAdapter = {
 	async enrichItem(config, item, enrichmentType) {
 		if (enrichmentType !== 'quality') return item;
 		try {
+			// Try radarrId first, then look up by TMDB ID
+			let movie: any = null;
 			const radarrId = item.metadata?.radarrId;
-			if (!radarrId) return item;
-			const movie = await radarrFetch(config, `/movie/${radarrId}`);
+			if (radarrId) {
+				movie = await radarrFetch(config, `/movie/${radarrId}`);
+			} else {
+				const tmdbId = item.metadata?.tmdbId ?? item.metadata?.providerIds?.Tmdb;
+				if (tmdbId) {
+					const movies = await radarrFetch(config, `/movie?tmdbId=${tmdbId}`);
+					movie = Array.isArray(movies) ? movies[0] : movies;
+				}
+			}
+			if (!movie) return item;
 			if (!movie?.movieFile) return item;
 
 			const { profiles, formats } = await getRadarrQualityMeta(config);
