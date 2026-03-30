@@ -11,6 +11,7 @@
 	import AchievementCard from '$lib/components/games/AchievementCard.svelte';
 	import GameNotes from '$lib/components/games/GameNotes.svelte';
 	import HeroSection from '$lib/components/HeroSection.svelte';
+	import QualityBadge from '$lib/components/QualityBadge.svelte';
 	import WatchlistButton from '$lib/components/WatchlistButton.svelte';
 	import AddToCollectionModal from '$lib/components/AddToCollectionModal.svelte';
 	import { Play, ThumbsUp, ChevronRight, Bookmark, Share2, Check, Loader2, ListVideo, FolderPlus } from 'lucide-svelte';
@@ -104,7 +105,7 @@
 	const ratingSource = $derived.by(() => {
 		const st = data.serviceType;
 		if (st === 'jellyfin') return 'Community';
-		if (st === 'overseerr') return 'TMDB';
+		if (st === 'overseerr' || st === 'seerr') return 'TMDB';
 		if (st === 'radarr') return 'IMDb';
 		if (st === 'sonarr') return 'TMDB';
 		return 'Rating';
@@ -769,6 +770,13 @@
 									<span class="end-val">Ends at {endTime()}</span>
 								{/if}
 							</div>
+
+							<!-- Quality badges -->
+							{#if item.metadata?.quality}
+								<div class="anim" style="--d:250ms">
+									<QualityBadge quality={item.metadata.quality} mode="inline" />
+								</div>
+							{/if}
 
 							<!-- Season / Ep -->
 							{#if item.type === 'episode' && seasonNumber != null && episodeNumber != null}
