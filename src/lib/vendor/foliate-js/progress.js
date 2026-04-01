@@ -1,3 +1,4 @@
+// @ts-nocheck
 // assign a unique ID for each TOC item
 const assignIDs = toc => {
     let id = 0

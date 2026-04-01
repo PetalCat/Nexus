@@ -1,3 +1,4 @@
+// @ts-nocheck
 const normalizeWhitespace = str => str ? str
     .replace(/[\t\n\f\r ]+/g, ' ')
     .replace(/^[\t\n\f\r ]+/, '')

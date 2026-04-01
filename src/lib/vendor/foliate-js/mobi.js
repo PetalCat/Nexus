@@ -1,3 +1,4 @@
+// @ts-nocheck
 const unescapeHTML = str => {
     if (!str) return ''
     const textarea = document.createElement('textarea')

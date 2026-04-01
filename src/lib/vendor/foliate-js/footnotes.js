@@ -1,3 +1,4 @@
+// @ts-nocheck
 const getTypes = el => new Set(el?.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type')?.split(' '))
 const getRoles = el => new Set(el?.getAttribute?.('role')?.split(' '))
 
