@@ -21,7 +21,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	try {
-		const id = createUser(username, displayName, password, isAdmin ?? false);
+		const id = createUser(username, displayName, password, isAdmin ?? false, {
+			status: 'active',
+			forcePasswordReset: true
+		});
 		return json({ id, username, displayName, isAdmin: isAdmin ?? false });
 	} catch (e) {
 		const msg = String(e);

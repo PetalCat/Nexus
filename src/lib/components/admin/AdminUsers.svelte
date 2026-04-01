@@ -28,6 +28,15 @@
 	let autoLinkLoading = $state(false);
 	let autoLinkResult = $state<any[] | null>(null);
 
+	// Create user form state
+	let showCreateUser = $state(false);
+	let createUsername = $state('');
+	let createDisplayName = $state('');
+	let createPassword = $state('');
+	let createLoading = $state(false);
+	let createError = $state<string | null>(null);
+	let createSuccess = $state<string | null>(null);
+
 	// ── Data loading ──────────────────────────────────────────────────────────
 	async function loadData() {
 		loading = true;
@@ -127,6 +136,38 @@
 		} catch (e) {
 			console.error('Failed to toggle force reset', e);
 			toast.error('Failed to update force reset');
+		}
+	}
+
+	async function createLocalUser() {
+		if (!createUsername.trim() || !createDisplayName.trim() || !createPassword.trim()) return;
+		createLoading = true;
+		createError = null;
+		createSuccess = null;
+		try {
+			const res = await fetch('/api/admin/users', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					username: createUsername.trim(),
+					displayName: createDisplayName.trim(),
+					password: createPassword
+				})
+			});
+			const data = await res.json();
+			if (!res.ok) {
+				createError = data.error ?? `Error ${res.status}`;
+				return;
+			}
+			createSuccess = data.username;
+			createUsername = '';
+			createDisplayName = '';
+			createPassword = '';
+			await loadData();
+		} catch (e) {
+			createError = String(e);
+		} finally {
+			createLoading = false;
 		}
 	}
 
@@ -385,10 +426,83 @@
 
 		<!-- ── 3. User List ─────────────────────────────────────────────── -->
 		<section>
-			<h2 class="mb-4 text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
-				Users
-				<span class="ml-1 font-normal normal-case text-[var(--color-muted)]">· {users.length}</span>
-			</h2>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">
+					Users
+					<span class="ml-1 font-normal normal-case text-[var(--color-muted)]">· {users.length}</span>
+				</h2>
+				<button
+					class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+					style="background: rgba(124,108,248,0.12); color: var(--color-accent); border: 1px solid rgba(124,108,248,0.22)"
+					onclick={() => { showCreateUser = !showCreateUser; createError = null; createSuccess = null; }}
+					aria-expanded={showCreateUser}
+				>
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+						<path d="M6 1v10M1 6h10" />
+					</svg>
+					Create User
+				</button>
+			</div>
+
+			<!-- Create User Form -->
+			{#if showCreateUser}
+				<div class="mb-4 rounded-2xl p-5" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
+					<p class="mb-4 text-xs text-[var(--color-muted)]">
+						Creates a local account. The user will be required to set a new password on first login.
+					</p>
+					<div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+						<div class="flex-1 min-w-0">
+							<label for="cu-username" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
+							<input
+								id="cu-username"
+								type="text"
+								placeholder="username"
+								autocomplete="off"
+								class="w-full rounded-lg border border-cream/10 bg-cream/5 px-3 py-2 text-sm text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+								bind:value={createUsername}
+							/>
+						</div>
+						<div class="flex-1 min-w-0">
+							<label for="cu-displayname" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Display Name</label>
+							<input
+								id="cu-displayname"
+								type="text"
+								placeholder="Display Name"
+								autocomplete="off"
+								class="w-full rounded-lg border border-cream/10 bg-cream/5 px-3 py-2 text-sm text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+								bind:value={createDisplayName}
+							/>
+						</div>
+						<div class="flex-1 min-w-0">
+							<label for="cu-password" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">Temporary Password</label>
+							<input
+								id="cu-password"
+								type="password"
+								placeholder="Temporary password"
+								autocomplete="new-password"
+								class="w-full rounded-lg border border-cream/10 bg-cream/5 px-3 py-2 text-sm text-[var(--color-cream)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+								bind:value={createPassword}
+							/>
+						</div>
+						<button
+							class="rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+							style="background: rgba(124,108,248,0.15); color: var(--color-accent); border: 1px solid rgba(124,108,248,0.25)"
+							disabled={createLoading || !createUsername.trim() || !createDisplayName.trim() || !createPassword.trim()}
+							onclick={createLocalUser}
+						>
+							{createLoading ? 'Creating...' : 'Create'}
+						</button>
+					</div>
+					{#if createError}
+						<p class="mt-3 text-xs text-[#f87171]">{createError}</p>
+					{/if}
+					{#if createSuccess}
+						<p class="mt-3 text-xs text-[#34d399]">
+							User <strong>@{createSuccess}</strong> created. They will be prompted to set a new password on first login.
+						</p>
+					{/if}
+				</div>
+			{/if}
 
 			{#if users.length === 0}
 				<div class="rounded-2xl py-12 text-center" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06)">
