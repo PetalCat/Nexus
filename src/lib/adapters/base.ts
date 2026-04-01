@@ -58,6 +58,12 @@ export interface ServiceAdapter {
 	/** No user-facing content — background enrichment only (e.g. Bazarr, Prowlarr) */
 	readonly isEnrichmentOnly?: boolean;
 
+	/** Parent adapter types this service can auto-link through. Order = preference. */
+	readonly derivedFrom?: string[];
+
+	/** If true, this service ONLY works through a parent — no manual link fallback. */
+	readonly parentRequired?: boolean;
+
 	/** Poll interval in ms for pollSessions. Defaults to 10000 (10s). */
 	readonly pollIntervalMs?: number;
 

@@ -258,6 +258,11 @@ export async function importJellyfinUser(config: ServiceConfig, jellyfinUserId: 
 	}
 }
 
+/** Returns true if the given service type is an Overseerr-compatible adapter (overseerr or seerr). */
+export function isOverseerrType(type: string): boolean {
+	return type === 'overseerr' || type === 'seerr';
+}
+
 export const overseerrAdapter: ServiceAdapter = {
 	id: 'overseerr',
 	displayName: 'Overseerr',
@@ -267,6 +272,8 @@ export const overseerrAdapter: ServiceAdapter = {
 	isSearchable: true,
 	searchPriority: 1,
 	authVia: 'jellyfin',
+	derivedFrom: ['jellyfin', 'plex'],
+	parentRequired: false,
 	icon: 'overseerr',
 	mediaTypes: ['movie', 'show'],
 	userLinkable: true,
