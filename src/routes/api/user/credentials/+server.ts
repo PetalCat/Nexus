@@ -28,7 +28,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 			serviceId: c.serviceId,
 			externalUserId: c.externalUserId,
 			externalUsername: c.externalUsername,
-			linkedAt: c.linkedAt
+			linkedAt: c.linkedAt,
+			managed: c.managed,
+			linkedVia: c.linkedVia
 		}))
 	);
 };
@@ -242,7 +244,36 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
 	const serviceId = url.searchParams.get('serviceId');
 	if (!serviceId) return json({ error: 'Missing serviceId parameter' }, { status: 400 });
 
-	deleteUserCredential(locals.user.id, serviceId);
-	invalidateUserCaches(locals.user.id);
+	const config = getServiceConfig(serviceId);
+	const userId = locals.user.id;
+
+	// Fetch all user creds now (needed for both managed cleanup and cascade)
+	const allCreds = getUserCredentials(userId);
+	const targetCred = allCreds.find((c) => c.serviceId === serviceId);
+
+	// Best-effort: delete managed external account before unlinking
+	if (config && targetCred?.managed) {
+		const adapter = registry.get(config.type);
+		if (adapter && 'deleteUser' in adapter && typeof (adapter as any).deleteUser === 'function') {
+			try {
+				await (adapter as any).deleteUser(config, targetCred.externalUserId);
+			} catch (e) {
+				console.warn('[API] managed deleteUser failed (ignored):', e instanceof Error ? e.message : e);
+			}
+		}
+	}
+
+	deleteUserCredential(userId, serviceId);
+
+	// Cascade: remove credentials for services that were linked via this service type
+	if (config) {
+		for (const c of allCreds) {
+			if (c.serviceId !== serviceId && c.linkedVia === config.type) {
+				deleteUserCredential(userId, c.serviceId);
+			}
+		}
+	}
+
+	invalidateUserCaches(userId);
 	return json({ ok: true });
 };
