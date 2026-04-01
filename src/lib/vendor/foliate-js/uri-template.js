@@ -1,3 +1,4 @@
+// @ts-nocheck
 // URI Template: https://datatracker.ietf.org/doc/html/rfc6570
 
 const regex = /{([+#./;?&])?([^}]+?)}/g

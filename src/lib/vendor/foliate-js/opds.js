@@ -1,3 +1,4 @@
+// @ts-nocheck
 const NS = {
     ATOM: 'http://www.w3.org/2005/Atom',
     OPDS: 'http://opds-spec.org/2010/catalog',

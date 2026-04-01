@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { nodeResolve } from '@rollup/plugin-node-resolve'
 import terser from '@rollup/plugin-terser'
 import { copy } from 'fs-extra'

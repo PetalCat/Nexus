@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as CFI from './epubcfi.js'
 import { TOCProgress, SectionProgress } from './progress.js'
 import { Overlayer } from './overlayer.js'

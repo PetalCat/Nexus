@@ -1,3 +1,4 @@
+// @ts-nocheck
 const decoder = new TextDecoder()
 const decode = decoder.decode.bind(decoder)
 

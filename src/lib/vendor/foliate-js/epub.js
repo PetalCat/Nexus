@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as CFI from './epubcfi.js'
 
 const NS = {

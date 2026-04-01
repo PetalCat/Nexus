@@ -1,3 +1,4 @@
+// @ts-nocheck
 const NS = {
     XML: 'http://www.w3.org/XML/1998/namespace',
     SSML: 'http://www.w3.org/2001/10/synthesis',

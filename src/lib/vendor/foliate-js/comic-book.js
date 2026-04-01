@@ -1,3 +1,4 @@
+// @ts-nocheck
 export const makeComicBook = ({ entries, loadBlob, getSize }, file) => {
     const cache = new Map()
     const urls = new Map()

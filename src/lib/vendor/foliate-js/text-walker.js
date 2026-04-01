@@ -1,3 +1,4 @@
+// @ts-nocheck
 const walkRange = (range, walker) => {
     const nodes = []
     for (let node = walker.currentNode; node; node = walker.nextNode()) {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const debounce = (f, wait, immediate) => {

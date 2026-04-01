@@ -1,3 +1,4 @@
+// @ts-nocheck
 // length for context in excerpts
 const CONTEXT_LENGTH = 50
 

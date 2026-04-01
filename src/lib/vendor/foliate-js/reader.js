@@ -1,3 +1,4 @@
+// @ts-nocheck
 import './view.js'
 import { createTOCView } from './ui/tree.js'
 import { createMenu } from './ui/menu.js'

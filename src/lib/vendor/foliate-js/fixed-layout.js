@@ -1,3 +1,4 @@
+// @ts-nocheck
 const parseViewport = str => str
     ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
     ?.filter(x => x)

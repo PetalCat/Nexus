@@ -1,3 +1,4 @@
+// @ts-nocheck
 const createMenuItemRadioGroup = (label, arr, onclick) => {
     const group = document.createElement('ul')
     group.setAttribute('role', 'group')
