@@ -9,6 +9,8 @@
 	let { data }: { data: PageData } = $props();
 
 	const calendarItems = $derived(data.calendarItems ?? []);
+
+	let nudgeDismissed = $state(false);
 </script>
 
 <svelte:head>
@@ -19,6 +21,25 @@
 	<!-- ═══ Hero Carousel ═══ -->
 	{#if data.hero.length > 0}
 		<HeroCarousel items={data.hero} />
+	{/if}
+
+	<!-- ═══ Unlinked Services Nudge ═══ -->
+	{#if data.unlinkedServiceCount > 0 && !nudgeDismissed}
+		<div class="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl px-4 py-2.5" style="background: rgba(124,108,248,0.08); border: 1px solid rgba(124,108,248,0.18)">
+			<p class="text-xs text-[var(--color-muted)]">
+				{data.unlinkedServiceCount} service{data.unlinkedServiceCount > 1 ? 's' : ''} not linked to your account.
+				<a href="/settings/accounts" class="font-medium text-[var(--color-accent)] underline-offset-2 hover:underline">Set up your accounts</a> to unlock more features.
+			</p>
+			<button
+				onclick={() => nudgeDismissed = true}
+				class="flex-shrink-0 rounded-md p-1 text-[var(--color-muted)] transition-colors hover:text-[var(--color-cream)]"
+				aria-label="Dismiss"
+			>
+				<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+					<path d="M2 2l8 8M10 2l-8 8" />
+				</svg>
+			</button>
+		</div>
 	{/if}
 
 	<!-- ═══ Content Rows ═══ -->

@@ -4,12 +4,25 @@ import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/se
 import { withCache } from '$lib/server/cache';
 import { getRecommendations } from '$lib/server/recommendations/aggregator';
 import { getRawDb } from '$lib/db';
+import { registry } from '$lib/adapters/registry';
+import { getUserCredentialForService } from '$lib/server/auth';
 import type { CalendarItem } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const userId = locals.user?.id;
 	const hasServices = getEnabledConfigs().length > 0;
+
+	// Count linkable services the user hasn't linked yet
+	let unlinkedServiceCount = 0;
+	if (userId) {
+		unlinkedServiceCount = getEnabledConfigs().filter((config) => {
+			const adapter = registry.get(config.type);
+			if (!adapter?.userLinkable && !adapter?.derivedFrom) return false;
+			const cred = getUserCredentialForService(userId, config.id);
+			return !(cred?.accessToken || cred?.externalUserId);
+		}).length;
+	}
 
 	// Parallel: live Continue Watching + pre-computed homepage cache + calendar + upcoming
 	const [dashboardRows, homepageCache, calendarRes, upcomingMoviesRes, upcomingTvRes, suggestionsRes] = await Promise.all([
@@ -142,7 +155,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			rows: orderedRows,
 			personalized: true,
 			hasServices,
-			calendarItems
+			calendarItems,
+			unlinkedServiceCount
 		};
 	}
 
@@ -165,7 +179,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				rows: orderedRows,
 				personalized: true,
 				hasServices,
-				calendarItems
+				calendarItems,
+				unlinkedServiceCount
 			};
 		}
 
@@ -218,6 +233,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		rows: coldRows,
 		personalized: false,
 		hasServices,
-		calendarItems
+		calendarItems,
+		unlinkedServiceCount
 	};
 };
