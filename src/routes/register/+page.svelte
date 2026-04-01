@@ -1,8 +1,51 @@
 <script lang="ts">
-	import type { ActionData } from './$types';
+	import type { PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	type RegisterForm = {
+		error?: string;
+		authType?: string;
+		serviceId?: string;
+		username?: string;
+	} | null;
+
+	let { data, form: rawForm }: { data: PageData; form: RegisterForm } = $props();
+	const form = $derived(rawForm as RegisterForm);
 	let loading = $state(false);
+
+	/** Which service the user clicked to register with (null = local registration) */
+	let activeServiceId = $state<string | null>(null);
+
+	// Sync state from server form response
+	$effect(() => {
+		if (form?.authType === 'service') {
+			activeServiceId = form.serviceId ?? null;
+		}
+		loading = false;
+	});
+
+	function selectService(id: string) {
+		activeServiceId = id;
+		loading = false;
+	}
+
+	function backToLocal() {
+		activeServiceId = null;
+		loading = false;
+	}
+
+	const activeService = $derived(data.authServices.find((s) => s.id === activeServiceId));
+
+	function serviceIcon(type: string) {
+		if (type === 'jellyfin') return 'J';
+		if (type === 'plex') return 'P';
+		return '?';
+	}
+
+	function serviceColor(type: string) {
+		if (type === 'jellyfin') return '#00a4dc';
+		if (type === 'plex') return '#e5a00d';
+		return 'var(--color-accent)';
+	}
 </script>
 
 <svelte:head>
@@ -23,34 +66,132 @@
 			</div>
 		</div>
 
-		<form method="POST" class="card p-6 flex flex-col gap-4" onsubmit={() => (loading = true)}>
-			{#if form?.error}
-				<div class="rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">
-					{form.error}
+		{#if data.authServices.length > 0 && !activeServiceId}
+			<!-- Service auth buttons -->
+			<div class="flex flex-col gap-2 mb-4">
+				{#each data.authServices as svc}
+					<button
+						type="button"
+						class="card flex items-center gap-3 px-4 py-3 text-sm font-medium text-[var(--color-display)] transition-colors hover:bg-[var(--color-glass-bold)] cursor-pointer"
+						onclick={() => selectService(svc.id)}
+					>
+						<span
+							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+							style="background: {serviceColor(svc.type)}"
+						>
+							{serviceIcon(svc.type)}
+						</span>
+						<span>Sign up with {svc.name}</span>
+					</button>
+				{/each}
+			</div>
+
+			<!-- Divider -->
+			<div class="flex items-center gap-3 mb-4">
+				<div class="h-px flex-1 bg-[var(--color-glass-bold)]"></div>
+				<span class="text-xs text-[var(--color-muted)]">or create with password</span>
+				<div class="h-px flex-1 bg-[var(--color-glass-bold)]"></div>
+			</div>
+		{/if}
+
+		{#if activeServiceId && activeService}
+			<!-- Service credential form -->
+			<form method="POST" class="card p-6 flex flex-col gap-4" onsubmit={() => (loading = true)}>
+				<input type="hidden" name="authType" value="service" />
+				<input type="hidden" name="serviceId" value={activeServiceId} />
+
+				<div class="flex items-center gap-3 mb-1">
+					<span
+						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+						style="background: {serviceColor(activeService.type)}"
+					>
+						{serviceIcon(activeService.type)}
+					</span>
+					<div>
+						<p class="text-sm font-semibold text-[var(--color-display)]">Sign up with {activeService.name}</p>
+						<p class="text-xs text-[var(--color-muted)]">Use your {activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} credentials</p>
+					</div>
 				</div>
-			{/if}
 
-			<div>
-				<label for="reg-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
-				<input id="reg-username" name="username" class="input" placeholder="your-username" autocomplete="username" required />
-			</div>
-			<div>
-				<label for="reg-display" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Display Name</label>
-				<input id="reg-display" name="displayName" class="input" placeholder="Your name" required />
-			</div>
-			<div>
-				<label for="reg-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
-				<input id="reg-password" name="password" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
-			</div>
-			<div>
-				<label for="reg-confirm" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Confirm Password</label>
-				<input id="reg-confirm" name="confirm" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
-			</div>
+				{#if form?.error && form?.authType === 'service'}
+					<div class="rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">
+						{form.error}
+					</div>
+				{/if}
 
-			<button type="submit" class="btn btn-primary mt-2" disabled={loading}>
-				{loading ? 'Creating account…' : 'Create Account'}
-			</button>
-		</form>
+				<div>
+					<label for="service-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+						{activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} Username
+					</label>
+					<input
+						id="service-username"
+						name="username"
+						class="input"
+						placeholder="username"
+						autocomplete="username"
+						value={form?.username ?? ''}
+						required
+					/>
+				</div>
+
+				<div>
+					<label for="service-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+						{activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} Password
+					</label>
+					<input
+						id="service-password"
+						name="password"
+						type="password"
+						class="input"
+						placeholder="••••••••"
+						autocomplete="current-password"
+						required
+					/>
+				</div>
+
+				<button type="submit" class="btn btn-primary mt-2" disabled={loading}>
+					{loading ? 'Creating account...' : 'Create Account'}
+				</button>
+
+				<button
+					type="button"
+					class="text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] transition-colors cursor-pointer"
+					onclick={backToLocal}
+				>
+					Back to all sign-up options
+				</button>
+			</form>
+		{:else}
+			<!-- Local registration form -->
+			<form method="POST" class="card p-6 flex flex-col gap-4" onsubmit={() => (loading = true)}>
+				{#if form?.error && form?.authType !== 'service'}
+					<div class="rounded-lg border border-[var(--color-warm)]/30 bg-[var(--color-warm)]/10 px-3 py-2 text-sm text-[var(--color-warm)]">
+						{form.error}
+					</div>
+				{/if}
+
+				<div>
+					<label for="reg-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Username</label>
+					<input id="reg-username" name="username" class="input" placeholder="your-username" autocomplete="username" required />
+				</div>
+				<div>
+					<label for="reg-display" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Display Name</label>
+					<input id="reg-display" name="displayName" class="input" placeholder="Your name" required />
+				</div>
+				<div>
+					<label for="reg-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Password</label>
+					<input id="reg-password" name="password" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
+				</div>
+				<div>
+					<label for="reg-confirm" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Confirm Password</label>
+					<input id="reg-confirm" name="confirm" type="password" class="input" placeholder="••••••••" autocomplete="new-password" required />
+				</div>
+
+				<button type="submit" class="btn btn-primary mt-2" disabled={loading}>
+					{loading ? 'Creating account...' : 'Create Account'}
+				</button>
+			</form>
+		{/if}
 
 		<p class="mt-4 text-center text-xs text-[var(--color-muted)]">
 			Already have an account? <a href="/login" class="text-[var(--color-accent)] hover:underline">Sign in</a>
