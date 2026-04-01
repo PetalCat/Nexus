@@ -7,7 +7,6 @@ import {
 	consumeInviteCode,
 	validateSession
 } from '$lib/server/auth';
-import { provisionUserOnServices } from '$lib/server/services';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
@@ -61,12 +60,6 @@ export const actions: Actions = {
 		try {
 			const userId = createUser(username, displayName, password, false);
 			consumeInviteCode(code);
-
-			// Auto-provision accounts on all user-linkable backend services
-			// Uses the same password so the user's accounts are in sync
-			provisionUserOnServices(userId, username, password).catch((e) => {
-				console.error('[Invite] Background provisioning error:', e);
-			});
 
 			const token = createSession(userId);
 			cookies.set(COOKIE_NAME, token, {
