@@ -145,6 +145,8 @@ export const streamystatsAdapter: ServiceAdapter = {
 	color: '#b088f9',
 	abbreviation: 'SS',
 	authVia: 'jellyfin',
+	derivedFrom: ['jellyfin'],
+	parentRequired: true,
 	mediaTypes: ['movie', 'show'],
 	// StreamyStats has no per-user accounts — it authenticates via the user's Jellyfin token.
 	// resolveUserCred in services.ts handles this special case automatically.
