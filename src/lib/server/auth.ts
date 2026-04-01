@@ -66,7 +66,7 @@ export function createUser(
 	displayName: string,
 	password: string,
 	isAdmin = false,
-	opts?: { authProvider?: string; externalId?: string; status?: string }
+	opts?: { authProvider?: string; externalId?: string; status?: string; forcePasswordReset?: boolean }
 ) {
 	const db = getDb();
 	const id = randomBytes(16).toString('hex');
@@ -79,7 +79,8 @@ export function createUser(
 		isAdmin,
 		authProvider: opts?.authProvider ?? 'local',
 		externalId: opts?.externalId,
-		status: opts?.status ?? 'active'
+		status: opts?.status ?? 'active',
+		forcePasswordReset: opts?.forcePasswordReset ?? false
 	}).run();
 	return id;
 }
