@@ -1,6 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { COOKIE_NAME, createSession, createUser, getSetting, validateSession } from '$lib/server/auth';
-import { provisionUserOnServices } from '$lib/server/services';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ cookies }) => {
@@ -55,11 +54,6 @@ export const actions: Actions = {
 			if (requiresApproval) {
 				throw redirect(303, '/pending-approval');
 			}
-
-			// Fire-and-forget: provision accounts on external services (Calibre, etc.)
-			provisionUserOnServices(userId, username, password).catch((e) => {
-				console.error('[Register] Service provisioning error:', e);
-			});
 
 			throw redirect(303, '/');
 		} catch (e) {
