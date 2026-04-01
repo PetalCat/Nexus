@@ -52,7 +52,9 @@ export const userServiceCredentials = sqliteTable('user_service_credentials', {
 	externalUsername: text('external_username'),
 	linkedAt: text('linked_at')
 		.notNull()
-		.default(sql`(datetime('now'))`)
+		.default(sql`(datetime('now'))`),
+	managed: integer('managed', { mode: 'boolean' }).notNull().default(false),
+	linkedVia: text('linked_via')
 });
 
 // Invite links for user registration
