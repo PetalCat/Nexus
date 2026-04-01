@@ -215,9 +215,13 @@ export function getUserCredentialForService(userId: string, serviceId: string): 
 export function upsertUserCredential(
 	userId: string,
 	serviceId: string,
-	cred: { accessToken?: string; externalUserId?: string; externalUsername?: string }
+	cred: { accessToken?: string; externalUserId?: string; externalUsername?: string },
+	opts?: { managed?: boolean; linkedVia?: string; skipDerivedLink?: boolean }
 ) {
 	const db = getDb();
+	const managed = opts?.managed ?? false;
+	const linkedVia = opts?.linkedVia ?? null;
+
 	// Try insert, on conflict update
 	db.insert(schema.userServiceCredentials)
 		.values({
@@ -225,7 +229,9 @@ export function upsertUserCredential(
 			serviceId,
 			accessToken: cred.accessToken ?? null,
 			externalUserId: cred.externalUserId ?? null,
-			externalUsername: cred.externalUsername ?? null
+			externalUsername: cred.externalUsername ?? null,
+			managed,
+			linkedVia
 		})
 		.onConflictDoUpdate({
 			target: [schema.userServiceCredentials.userId, schema.userServiceCredentials.serviceId],
@@ -233,10 +239,28 @@ export function upsertUserCredential(
 				accessToken: cred.accessToken ?? null,
 				externalUserId: cred.externalUserId ?? null,
 				externalUsername: cred.externalUsername ?? null,
+				managed,
+				linkedVia,
 				linkedAt: new Date().toISOString()
 			}
 		})
 		.run();
+
+	// Fire-and-forget: auto-link derived services (e.g. Overseerr, StreamyStats)
+	// Uses dynamic import to avoid circular dependency with services.ts
+	if (!opts?.skipDerivedLink) {
+		import('./services.js')
+			.then(({ getServiceConfig }) => {
+				const config = getServiceConfig(serviceId);
+				if (!config) return;
+				return import('./derived-linker.js').then(({ linkDerivedServices }) =>
+					linkDerivedServices(userId, serviceId, config.type)
+				);
+			})
+			.catch((e) => {
+				console.warn('[auth] Derived linker failed:', e instanceof Error ? e.message : e);
+			});
+	}
 }
 
 export function deleteUserCredential(userId: string, serviceId: string) {
