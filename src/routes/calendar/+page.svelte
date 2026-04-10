@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import SetupHint from '$lib/components/onboarding/SetupHint.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data }: { data: PageData } = $props();
@@ -59,6 +60,10 @@
 <svelte:head>
 	<title>Calendar — Nexus</title>
 </svelte:head>
+
+{#if data.missingCategories?.length}
+	<SetupHint missing={data.missingCategories} />
+{/if}
 
 <div class="calendar-page">
 	<!-- Header -->
