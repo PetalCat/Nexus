@@ -62,7 +62,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		}
 
 		if (!resolvedServiceType) resolvedServiceType = config.type;
-		const userCred = userId && adapter.userLinkable
+		const userCred = userId && adapter?.userLinkable
 			? getUserCredentialForService(userId, serviceId) ?? undefined
 			: undefined;
 
@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			? `${params.type === 'show' ? 'tv' : params.type}:${params.id}`
 			: params.id;
 
-		if (!item) {
+		if (!item && adapter?.getItem) {
 			item = await adapter.getItem(config, sourceId, userCred);
 		}
 	} else {
@@ -109,24 +109,26 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 		if (tmdbId || radarrId || sonarrId) {
 			try {
-				const subtitleTimeout = Promise.race([
-					Promise.all([
-						getSubtitleStatus(bazarrConfig, tmdbId, {
-							radarrId,
-							sonarrId,
-							type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
-						}),
+				const subtitleType = item.type === 'show' || item.type === 'episode' ? 'show' : 'movie';
+				const subtitleStatus = await Promise.race([
+					getSubtitleStatus(bazarrConfig, tmdbId, {
+						radarrId,
+						sonarrId,
+						type: subtitleType
+					}),
+					new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
+				]);
+
+				if (subtitleStatus) {
+					const subtitleHistory = await Promise.race([
 						getItemSubtitleHistory(bazarrConfig, tmdbId, {
 							radarrId,
 							sonarrId,
-							type: item.type === 'show' || item.type === 'episode' ? 'show' : 'movie'
-						})
-					]),
-					new Promise<[null, null]>((resolve) => setTimeout(() => resolve([null, null]), 3000))
-				]);
-				const [subtitleStatus, subtitleHistory] = await subtitleTimeout;
+							type: subtitleType
+						}),
+						new Promise<[]>((resolve) => setTimeout(() => resolve([]), 1000))
+					]);
 
-				if (subtitleStatus) {
 					item.metadata = {
 						...item.metadata,
 						subtitles: {

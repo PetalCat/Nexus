@@ -1,7 +1,7 @@
 # docker-compose.yml
 services:
   nexus:
-    image: ghcr.io/parkerbugg/nexus:latest
+    image: ghcr.io/petalcat/nexus:latest
     build: .
     ports:
       - "${PORT:-8585}:${PORT:-8585}"

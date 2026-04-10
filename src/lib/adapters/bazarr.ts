@@ -2,6 +2,41 @@ import type { ServiceAdapter } from './base';
 import type { ServiceConfig, ServiceHealth } from './types';
 import { withCache } from '../server/cache';
 
+const capabilityBackoffUntil = new Map<string, number>();
+
+class BazarrCapabilityError extends Error {
+	constructor(
+		message: string,
+		readonly capabilityKey: string
+	) {
+		super(message);
+		this.name = 'BazarrCapabilityError';
+	}
+}
+
+function getCapabilityCacheKey(config: ServiceConfig, capability: string) {
+	return `${config.id}:${capability}`;
+}
+
+function isCapabilityBackedOff(config: ServiceConfig, capability: string) {
+	const key = getCapabilityCacheKey(config, capability);
+	const until = capabilityBackoffUntil.get(key);
+	if (!until) return false;
+	if (until <= Date.now()) {
+		capabilityBackoffUntil.delete(key);
+		return false;
+	}
+	return true;
+}
+
+function backOffCapability(config: ServiceConfig, capability: string, ms = 10 * 60 * 1000) {
+	capabilityBackoffUntil.set(getCapabilityCacheKey(config, capability), Date.now() + ms);
+}
+
+function isBazarrCapabilityError(error: unknown): error is BazarrCapabilityError {
+	return error instanceof BazarrCapabilityError;
+}
+
 // ---------------------------------------------------------------------------
 // Bazarr adapter
 //
@@ -71,6 +106,15 @@ async function bazarrFetch(
 	path: string,
 	opts?: { method?: string; body?: string | FormData; timeoutMs?: number; rawResponse?: boolean }
 ): Promise<unknown> {
+	const capability =
+		path.startsWith('/api/history/movies') ? 'history-movies'
+		: path.startsWith('/api/history/series') ? 'history-series'
+		: null;
+
+	if (capability && isCapabilityBackedOff(config, capability)) {
+		throw new BazarrCapabilityError(`Bazarr ${path} temporarily disabled after compatibility failure`, capability);
+	}
+
 	const timeoutMs = opts?.timeoutMs ?? 8000;
 	const url = `${config.url.replace(/\/+$/, '')}${path}`;
 	const headers: Record<string, string> = {
@@ -93,6 +137,7 @@ async function bazarrFetch(
 	if (!text) return {};
 	// Detect HTML responses (Bazarr SPA fallback for unknown routes)
 	if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+		if (capability) backOffCapability(config, capability);
 		throw new Error(`Bazarr ${path} returned HTML instead of JSON — check API version compatibility`);
 	}
 	return JSON.parse(text);
@@ -283,6 +328,9 @@ export async function getItemSubtitleHistory(
 
 			return filtered.map(normalizeHistoryEvent);
 		} catch (e) {
+			if (isBazarrCapabilityError(e)) {
+				return [];
+			}
 			console.error(`[Bazarr] getItemSubtitleHistory failed:`, e);
 			return [];
 		}
@@ -380,6 +428,9 @@ export async function getSystemHistory(
 
 			return { events: allEvents, total };
 		} catch (e) {
+			if (isBazarrCapabilityError(e)) {
+				return { events: [], total: 0 };
+			}
 			console.error(`[Bazarr] getSystemHistory failed:`, e);
 			return { events: [], total: 0 };
 		}

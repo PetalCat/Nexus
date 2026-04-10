@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { registry } from '../adapters/registry';
 import type { DashboardRow, ServiceConfig, ServiceHealth, UnifiedMedia, UserCredential } from '../adapters/types';
 import { getStreamyStatsRecommendations } from '../adapters/streamystats';
-import { importJellyfinUser } from '../adapters/overseerr';
+import { importJellyfinUser, isOverseerrType } from '../adapters/overseerr';
 import { getDb, getRawDb, schema } from '../db';
 import { getAllUsers, getUserCredentialForService, upsertUserCredential } from './auth';
 import { withCache, withStaleCache, invalidate } from './cache';
@@ -463,7 +463,7 @@ export async function unifiedSearch(query: string, userId?: string, source?: 'li
 	);
 
 	// When Overseerr is present, skip radarr/sonarr to avoid duplicate results
-	const hasOverseerr = configs.some((c) => c.type === 'overseerr');
+	const hasOverseerr = configs.some((c) => isOverseerrType(c.type));
 	const overseerrRedundant = new Set(['radarr', 'sonarr']);
 
 	const searchConfigs = configs.filter((c) => {
@@ -531,7 +531,7 @@ export function needsAutoLink(userId: string): boolean {
 	if (!jellyfinCred?.externalUserId) return false;
 	return services.some(
 		(s) =>
-			s.type === 'overseerr' &&
+			isOverseerrType(s.type) &&
 			s.enabled &&
 			!!s.username &&
 			!getUserCredentialForService(userId, s.id)?.externalUserId
@@ -550,7 +550,7 @@ export async function autoLinkJellyfinServices(userId: string): Promise<void> {
 	if (!jellyfinCred?.externalUserId) return;
 
 	const overseerrServices = services.filter(
-		(s) => s.type === 'overseerr' && s.enabled && !!s.username
+		(s) => isOverseerrType(s.type) && s.enabled && !!s.username
 	);
 
 	await Promise.allSettled(
@@ -558,7 +558,7 @@ export async function autoLinkJellyfinServices(userId: string): Promise<void> {
 			const existing = getUserCredentialForService(userId, svc.id);
 			if (existing?.externalUserId) return; // already linked
 
-			const adapter = registry.get('overseerr');
+			const adapter = registry.get(svc.type);
 			if (!adapter?.getUsers) return;
 
 			try {

@@ -146,7 +146,7 @@ export const radarrAdapter: ServiceAdapter = {
 			if (radarrId) {
 				movie = await radarrFetch(config, `/movie/${radarrId}`);
 			} else {
-				const tmdbId = item.metadata?.tmdbId ?? item.metadata?.providerIds?.Tmdb;
+				const tmdbId = item.metadata?.tmdbId ?? (item.metadata?.providerIds as Record<string, string> | undefined)?.Tmdb;
 				if (tmdbId) {
 					const movies = await radarrFetch(config, `/movie?tmdbId=${tmdbId}`);
 					movie = Array.isArray(movies) ? movies[0] : movies;

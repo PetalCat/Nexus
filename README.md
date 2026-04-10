@@ -4,8 +4,6 @@ One interface for your entire media library — movies, shows, music, books, gam
 
 ![CI](https://github.com/PetalCat/Nexus/actions/workflows/ci.yml/badge.svg)
 
-<!-- TODO: add screenshots -->
-
 ## What Nexus Does
 
 Nexus connects to your existing media services and brings them together into a single interface. It doesn't replace your media server, download manager, or library tools — it sits on top of them and gives you one place to browse, play, discover, and manage everything.
@@ -109,4 +107,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, adapter guide, and
 
 ## License
 
-All rights reserved. Copyright 2026.
+AGPL-3.0 — see [LICENSE](LICENSE).
+
+This project is built with AI assistance (Claude Code, Codex). Copyright applies to human-authored and human-directed portions under current law. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.

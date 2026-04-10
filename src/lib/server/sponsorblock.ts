@@ -86,21 +86,17 @@ export async function fetchSegments(videoId: string, categories?: SBCategory[]):
 		const catParam = encodeURIComponent(JSON.stringify(cats));
 
 		const url = `${SB_BASE}/skipSegments/${prefix}?categories=${catParam}`;
-		console.log('[SB API] Fetching:', url);
 
 		const res = await fetch(url, {
 			headers: { 'Accept': 'application/json' },
 			signal: AbortSignal.timeout(5000)
 		});
 
-		console.log('[SB API] Response status:', res.status);
-		if (res.status === 404) { console.log('[SB API] No segments (404)'); return []; }
-		if (!res.ok) { console.warn('[SB API] Error response:', res.status, res.statusText); return []; }
+		if (res.status === 404) return [];
+		if (!res.ok) return [];
 
 		const results: Array<{ videoID: string; segments: SBSegment[] }> = await res.json();
-		console.log('[SB API] Results count:', results.length, 'Looking for videoId:', videoId);
 		const match = results.find(r => r.videoID === videoId);
-		console.log('[SB API] Matched segments:', match?.segments?.length ?? 0);
 		return match?.segments ?? [];
 	} catch (err) {
 		console.error('[SB API] Error:', err);

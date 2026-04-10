@@ -513,6 +513,78 @@
 		activePanel = activePanel === p ? 'none' : p;
 	}
 
+	function getDirectVideoSrc(itag: string) {
+		return `${streamUrl}?itag=${itag}`;
+	}
+
+	async function switchDirectQuality(nextFormat: VideoFormat, previousItag?: string) {
+		if (!videoEl) return;
+
+		const wasPlaying = !videoEl.paused;
+		const savedTime = videoEl.currentTime;
+		const previousQuality = currentDirectQuality;
+		const previousError = errorMsg;
+		const nextQuality = String(nextFormat.itag);
+		const nextSrc = getDirectVideoSrc(nextQuality);
+		const previousFormat = previousItag
+			? directFormats.find((f) => String(f.itag) === previousItag && !f.isAudio)
+			: undefined;
+
+		currentDirectQuality = nextQuality;
+		errorMsg = '';
+		isLoading = true;
+		cleanupSyncAudio();
+
+		await new Promise<void>((resolve) => {
+			const onCanPlay = () => {
+				videoEl!.removeEventListener('error', onError);
+				if (savedTime > 0) videoEl!.currentTime = savedTime;
+				if (wasPlaying) videoEl!.play().catch(() => {});
+				isLoading = false;
+				resolve();
+			};
+
+			const onError = () => {
+				videoEl!.removeEventListener('canplay', onCanPlay);
+
+				// Restore the previous working source instead of leaving playback dead.
+				if (previousFormat && previousQuality && previousQuality !== nextQuality) {
+					currentDirectQuality = previousQuality;
+					const restoreSrc = getDirectVideoSrc(previousQuality);
+					cleanupSyncAudio();
+					videoEl!.src = restoreSrc;
+					videoEl!.load();
+
+					if (!previousFormat.muxed) {
+						const audioItag = getBestAudioItag();
+						if (audioItag) setupSyncAudio(audioItag);
+					}
+
+					videoEl!.addEventListener('canplay', () => {
+						if (savedTime > 0) videoEl!.currentTime = savedTime;
+						if (wasPlaying) videoEl!.play().catch(() => {});
+						isLoading = false;
+					}, { once: true });
+				} else {
+					isLoading = false;
+					errorMsg = previousError || 'Unable to switch quality for this stream.';
+				}
+
+				resolve();
+			};
+
+			videoEl!.addEventListener('canplay', onCanPlay, { once: true });
+			videoEl!.addEventListener('error', onError, { once: true });
+			videoEl!.src = nextSrc;
+			videoEl!.load();
+
+			if (!nextFormat.muxed) {
+				const audioItag = getBestAudioItag();
+				if (audioItag) setupSyncAudio(audioItag);
+			}
+		});
+	}
+
 	/* ── Track selection ── */
 	async function setQuality(index: number) {
 		if (dashPlayer) {
@@ -536,26 +608,7 @@
 			const videoFmts = directFormats.filter(f => !f.isAudio);
 			const fmt = videoFmts[index];
 			if (fmt && videoEl) {
-				const wasPlaying = !videoEl.paused;
-				const savedTime = videoEl.currentTime;
-				currentDirectQuality = String(fmt.itag);
-				isLoading = true;
-
-				cleanupSyncAudio();
-
-				videoEl.src = `${streamUrl}?itag=${fmt.itag}`;
-				videoEl.load();
-
-				if (!fmt.muxed) {
-					const audioItag = getBestAudioItag();
-					if (audioItag) setupSyncAudio(audioItag);
-				}
-
-				videoEl.addEventListener('canplay', () => {
-					videoEl!.currentTime = savedTime;
-					if (wasPlaying) videoEl!.play().catch(() => {});
-					isLoading = false;
-				}, { once: true });
+				await switchDirectQuality(fmt, currentDirectQuality || undefined);
 			}
 			activePanel = 'none';
 			return;

@@ -391,14 +391,14 @@ export const invidiousAdapter: ServiceAdapter = {
 			case 'channel-videos': return getChannelVideos(config, params?.channelId as string, params?.sort as string);
 			case 'comments': return getComments(config, params?.videoId as string, params?.sort as string);
 			case 'search-suggestions': return getSearchSuggestions(config, params?.query as string);
-			case 'trending-by-category': return getTrendingByCategory(config, params?.category as string);
+			case 'trending-by-category': return getTrendingByCategory(config, params?.category as 'music' | 'gaming' | 'news' | 'movies');
 			default: return null;
 		}
 	},
 
 	async manageCollection(config: ServiceConfig, action: 'create' | 'update' | 'delete' | 'addItems' | 'removeItems', data: { id?: string; name?: string; itemIds?: string[]; [key: string]: unknown }, userCred?: UserCredential) {
 		switch (action) {
-			case 'create': return createPlaylist(config, data.name!, (data.privacy as string) ?? 'private', userCred!);
+			case 'create': return createPlaylist(config, data.name!, (data.privacy as 'public' | 'unlisted' | 'private') ?? 'private', userCred!);
 			case 'delete': await deletePlaylist(config, data.id!, userCred!); return;
 			case 'addItems': await addToPlaylist(config, data.id!, data.itemIds![0], userCred!); return;
 			case 'removeItems': await removeFromPlaylist(config, data.id!, data.itemIds![0], userCred!); return;

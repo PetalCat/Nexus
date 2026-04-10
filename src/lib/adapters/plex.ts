@@ -311,9 +311,6 @@ export const plexAdapter: ServiceAdapter = {
 		// Verify the token works against this server.
 		const token = password;
 		const tempCred: UserCredential = {
-			id: '',
-			userId: '',
-			serviceId: config.id,
 			accessToken: token
 		};
 
