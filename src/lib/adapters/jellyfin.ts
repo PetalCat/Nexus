@@ -538,7 +538,7 @@ export const jellyfinAdapter: ServiceAdapter = {
 	id: 'jellyfin',
 	displayName: 'Jellyfin',
 	defaultPort: 8096,
-	color: '#00a4dc',
+	color: '#a95dc9',
 	abbreviation: 'JF',
 	isLibrary: true,
 	isSearchable: true,
