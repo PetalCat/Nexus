@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Service configurations stored locally
 export const services = sqliteTable('services', {
@@ -55,7 +55,9 @@ export const userServiceCredentials = sqliteTable('user_service_credentials', {
 		.default(sql`(datetime('now'))`),
 	managed: integer('managed', { mode: 'boolean' }).notNull().default(false),
 	linkedVia: text('linked_via')
-});
+}, (table) => [
+	uniqueIndex('idx_user_service_creds_unique').on(table.userId, table.serviceId),
+]);
 
 // Invite links for user registration
 export const inviteLinks = sqliteTable('invite_links', {
