@@ -40,7 +40,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (!body.id || !body.name || !body.type || !body.url) {
 			return json({ error: 'Missing required fields: id, name, type, url' }, { status: 400 });
 		}
+
 		upsertService(body);
+
+		// For Jellyfin/Plex: if admin provided username+password but no API key,
+		// authenticate against the service to obtain an API token automatically.
+		// Done AFTER saving so the service is always persisted even if auth fails.
+		let authWarning: string | undefined;
+		if ((body.type === 'jellyfin' || body.type === 'plex') && body.username && body.password && !body.apiKey) {
+			const adapter = registry.get(body.type);
+			if (adapter?.authenticateUser) {
+				try {
+					const cred = await adapter.authenticateUser(body, body.username, body.password);
+					body.apiKey = cred.accessToken;
+					upsertService(body);
+				} catch (e) {
+					authWarning = `Service saved, but auto-authentication failed: ${e instanceof Error ? e.message : String(e)}. You can add an API key manually.`;
+				}
+			}
+		}
 		// Service config changed — invalidate everything that depends on services
 		invalidatePrefix('health');
 		invalidatePrefix('recently-added');
@@ -49,7 +67,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		invalidatePrefix('library:');
 		invalidatePrefix('live-channels:');
 		invalidatePrefix('queue');
-		return json({ ok: true });
+		return json({ ok: true, warning: authWarning });
 	} catch (e) {
 		console.error('[API] services POST error', e);
 		return json({ error: 'Failed to save service' }, { status: 500 });

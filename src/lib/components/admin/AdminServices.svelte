@@ -420,18 +420,29 @@
 						class="rounded-lg px-3 py-2 text-sm font-mono"
 						style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--color-cream)"
 					/>
+					{#if addType === 'jellyfin' || addType === 'plex'}
+						<span class="text-[10px] text-[var(--color-muted)] opacity-70">Not needed if you enter your admin username and password below. Nexus will authenticate automatically.</span>
+					{/if}
 				</label>
 
 				<!-- Username -->
 				<label class="flex flex-col gap-1">
-					<span class="text-[10px] font-medium uppercase tracking-wider text-[var(--color-muted)]">Username <span class="normal-case opacity-50">(optional)</span></span>
+					<span class="text-[10px] font-medium uppercase tracking-wider text-[var(--color-muted)]">
+						{addType === 'jellyfin' || addType === 'plex' ? 'Admin Username' : 'Username'}
+						{#if addType !== 'jellyfin' && addType !== 'plex'}
+							<span class="normal-case opacity-50">(optional)</span>
+						{/if}
+					</span>
 					<input
 						type="text"
 						bind:value={addUsername}
-						placeholder="Username"
+						placeholder={addType === 'jellyfin' || addType === 'plex' ? 'Your admin username' : 'Username'}
 						class="rounded-lg px-3 py-2 text-sm"
 						style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--color-cream)"
 					/>
+					{#if addType === 'jellyfin' || addType === 'plex'}
+						<span class="text-[10px] text-[var(--color-muted)] opacity-70">Your {addType === 'jellyfin' ? 'Jellyfin' : 'Plex'} admin login. No API key needed.</span>
+					{/if}
 				</label>
 
 				<!-- Password -->
