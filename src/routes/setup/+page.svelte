@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
+	import { enhance } from '$app/forms';
 	import ServiceCard from '$lib/components/onboarding/ServiceCard.svelte';
 	import ServiceIcon from '$lib/components/onboarding/ServiceIcon.svelte';
 
@@ -163,7 +164,7 @@
 						<p class="mt-3 text-[var(--color-muted)]">Your admin account for managing Nexus.</p>
 					</div>
 
-					<form method="POST" action="?/createAccount" class="w-full rounded-3xl border border-white/[0.06] bg-white/[0.02] p-8 flex flex-col gap-5" onsubmit={() => (loading = true)}>
+					<form method="POST" action="?/createAccount" class="w-full rounded-3xl border border-white/[0.06] bg-white/[0.02] p-8 flex flex-col gap-5" use:enhance={() => { loading = true; return async ({ update }) => { await update({ reset: false }); }; }}>
 						{#if form?.error && form.step === 'account'}
 							<div class="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">{form.error}</div>
 						{/if}
