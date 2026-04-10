@@ -110,6 +110,11 @@ async function calibreFetch(config: ServiceConfig, path: string, userCred?: User
 		signal: AbortSignal.timeout(8000)
 	});
 	if (!res.ok) throw new Error(`Calibre ${path} -> ${res.status}`);
+	// Calibre-Web sometimes returns 200 with an HTML login page instead of 401
+	const contentType = res.headers.get('content-type') ?? '';
+	if (!contentType.includes('json') && path.includes('/ajax/')) {
+		throw new Error(`Calibre authentication failed — got HTML instead of JSON. Check your credentials.`);
+	}
 	return res;
 }
 
