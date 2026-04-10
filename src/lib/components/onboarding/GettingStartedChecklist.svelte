@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { OnboardingMeta } from '$lib/adapters/base';
+	import ServiceCard from './ServiceCard.svelte';
 
 	interface ChecklistAdapter {
 		id: string;
@@ -26,6 +27,49 @@
 
 	let collapsed = $state(false);
 	let dismissing = $state(false);
+	let newlyConnected = $state<Set<string>>(new Set());
+
+	async function connectService(serviceData: { type: string; url: string; apiKey?: string; username?: string; password?: string }): Promise<string | null> {
+		const formData = new FormData();
+		formData.set('type', serviceData.type);
+		formData.set('url', serviceData.url);
+		if (serviceData.apiKey) formData.set('apiKey', serviceData.apiKey);
+		if (serviceData.username) formData.set('username', serviceData.username);
+		if (serviceData.password) formData.set('password', serviceData.password);
+
+		try {
+			const res = await fetch('/api/services', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: serviceData.type,
+					name: serviceData.type,
+					type: serviceData.type,
+					url: serviceData.url,
+					apiKey: serviceData.apiKey,
+					username: serviceData.username,
+					password: serviceData.password,
+					enabled: true,
+				}),
+			});
+			const result = await res.json();
+
+			if (result.error) {
+				return result.error;
+			}
+
+			newlyConnected = new Set([...newlyConnected, serviceData.type]);
+			return null;
+		} catch {
+			return 'Network error — check your connection';
+		}
+	}
+
+	function isConnected(adapterId: string): boolean {
+		return newlyConnected.has(adapterId);
+	}
+
+	const effectiveCompletedCount = $derived(completedCount + newlyConnected.size);
 
 	async function snooze() {
 		dismissing = true;
@@ -51,7 +95,7 @@
 			</svg>
 			<span class="text-sm font-semibold text-[var(--color-cream)]">Getting Started</span>
 			<span class="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-[var(--color-muted)]">
-				{completedCount} of {totalCount}
+				{effectiveCompletedCount} of {totalCount}
 			</span>
 		</div>
 		<svg
@@ -68,48 +112,54 @@
 				{#if group.adapters.length > 0}
 					<div>
 						<h4 class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">{group.label}</h4>
-						<div class="flex flex-col gap-1.5">
+						<div class="flex flex-col gap-2">
 							{#each group.adapters as adapter (adapter.id)}
-								<div class="flex items-center gap-3 rounded-lg px-3 py-2" style="background: {adapter.connected ? adapter.color + '08' : 'transparent'}">
-									<div
-										class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-										style="background: {adapter.color}; opacity: {adapter.connected ? 1 : 0.4}"
-									>
-										{adapter.abbreviation}
-									</div>
-									<div class="min-w-0 flex-1">
-										<span class="text-xs font-medium {adapter.connected ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)]'}">
-											{adapter.displayName}
-										</span>
-									</div>
-									{#if adapter.connected}
-										<span class="text-[10px] font-medium" style="color: {adapter.color}">Connected</span>
-									{:else}
-										<a href="/admin/services?highlight={adapter.id}" class="text-[10px] font-medium text-[var(--color-accent)] hover:underline">Set up</a>
-									{/if}
-								</div>
+								<ServiceCard
+									adapterId={adapter.id}
+									displayName={adapter.displayName}
+									color={adapter.color}
+									abbreviation={adapter.abbreviation}
+									onboarding={adapter.onboarding}
+									connected={adapter.connected || isConnected(adapter.id)}
+									onConnect={async (svcData) => {
+										const err = await connectService(svcData);
+										if (err) {
+											// ServiceCard handles error display internally
+										}
+									}}
+								/>
 							{/each}
 						</div>
 					</div>
 				{/if}
 			{/each}
 
-			<div class="flex items-center gap-3 rounded-lg px-3 py-2">
-				<div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[10px] text-white" style="background: rgba(168,85,247,0.4)">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
-					</svg>
-				</div>
-				<span class="flex-1 text-xs font-medium {registrationConfigured ? 'text-[var(--color-cream)]' : 'text-[var(--color-muted)]'}">
-					Invite Users
-				</span>
-				{#if registrationConfigured}
-					<span class="text-[10px] font-medium text-purple-400">Configured</span>
-				{:else}
-					<a href="/admin/users" class="text-[10px] font-medium text-[var(--color-accent)] hover:underline">Set up</a>
-				{/if}
+			<!-- Invite Users -->
+			<div class="rounded-xl border transition-all duration-200" style="border-color: {registrationConfigured ? 'rgba(168,85,247,0.25)' : 'rgba(255,255,255,0.06)'}; background: {registrationConfigured ? 'rgba(168,85,247,0.05)' : 'rgba(255,255,255,0.02)'}">
+				<a href="/admin/users" class="flex w-full items-center gap-3 px-4 py-3 text-left">
+					<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-white" style="background: rgba(168,85,247,0.6)">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
+						</svg>
+					</div>
+					<div class="min-w-0 flex-1">
+						<div class="text-sm font-medium text-[var(--color-cream)]">Invite Users</div>
+						<div class="text-xs text-[var(--color-muted)]">Create invite links or enable registration</div>
+					</div>
+					{#if registrationConfigured}
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+							<circle cx="10" cy="10" r="10" fill="rgba(168,85,247,0.3)" />
+							<path d="M6 10l3 3 5-5" stroke="rgb(168,85,247)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					{:else}
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="text-[var(--color-muted)]">
+							<path d="M6 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					{/if}
+				</a>
 			</div>
 
+			<!-- Actions -->
 			<div class="flex items-center justify-end gap-3 pt-1 border-t border-white/5">
 				<button
 					class="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-cream)] transition-colors"
