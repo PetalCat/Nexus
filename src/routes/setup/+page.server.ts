@@ -41,7 +41,16 @@ export const actions: Actions = {
 			return fail(400, { error: 'Passwords do not match', step: 'account' });
 		}
 
-		const userId = createUser(username, displayName, password, true);
+		let userId: string;
+		try {
+			userId = createUser(username, displayName, password, true);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			if (msg.includes('UNIQUE')) {
+				return fail(400, { error: 'That username is already taken', step: 'account' });
+			}
+			return fail(500, { error: 'Failed to create account', step: 'account' });
+		}
 		const token = createSession(userId);
 
 		cookies.set(COOKIE_NAME, token, {
