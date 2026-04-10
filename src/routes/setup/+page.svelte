@@ -114,10 +114,8 @@
 	{/if}
 
 	<!-- Page container -->
-	{#key step}
 		<div
 			class="flex flex-1 flex-col items-center justify-center px-6 pb-16 pt-12"
-			style="animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1)"
 		>
 
 			<!-- Step 0: Welcome -->
@@ -318,7 +316,6 @@
 				</div>
 			{/if}
 		</div>
-	{/key}
 </div>
 
 <style>
