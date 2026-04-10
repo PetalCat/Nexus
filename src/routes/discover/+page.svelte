@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import SetupHint from '$lib/components/onboarding/SetupHint.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data }: { data: PageData } = $props();
@@ -172,6 +173,10 @@
 	<title>Discover — Nexus</title>
 	<meta name="description" content="Discover trending movies, TV shows, and upcoming releases" />
 </svelte:head>
+
+{#if data.missingCategories?.length}
+	<SetupHint missing={data.missingCategories} />
+{/if}
 
 <div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
 	<!-- Page header -->

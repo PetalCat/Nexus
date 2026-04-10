@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
+import { getMissingCategories } from '$lib/server/onboarding';
 
-export const load: PageServerLoad = async ({ fetch, url }) => {
+export const load: PageServerLoad = async ({ fetch, url, locals }) => {
 	const category = url.searchParams.get('category') ?? 'trending';
 	const genreId = url.searchParams.get('genreId') ?? '';
 
@@ -14,5 +15,5 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 	const movieGenres = movieGenresRes.ok ? await movieGenresRes.json() : [];
 	const tvGenres = tvGenresRes.ok ? await tvGenresRes.json() : [];
 
-	return { discover, movieGenres, tvGenres, category, genreId };
+	return { discover, movieGenres, tvGenres, category, genreId, missingCategories: locals.user?.isAdmin ? getMissingCategories(['requests']) : [] };
 };
