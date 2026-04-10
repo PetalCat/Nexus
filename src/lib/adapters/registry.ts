@@ -14,7 +14,7 @@
  * adapter based on the service `type` stored in the database.
  */
 
-import type { ServiceAdapter } from './base';
+import type { ServiceAdapter, OnboardingCategory, OnboardingMeta } from './base';
 import { jellyfinAdapter } from './jellyfin';
 import { calibreAdapter } from './calibre';
 import { lidarrAdapter } from './lidarr';
@@ -77,6 +77,16 @@ class AdapterRegistry {
 		if (!adapter.authVia) return undefined;
 		return this.get(adapter.authVia);
 	}
+
+	/** Adapters with onboarding metadata */
+	onboardable(): ServiceAdapter[] {
+		return this.all().filter((a) => a.onboarding);
+	}
+
+	/** Adapters in a specific onboarding category */
+	byOnboardingCategory(category: OnboardingCategory): ServiceAdapter[] {
+		return this.all().filter((a) => a.onboarding?.category === category);
+	}
 }
 
 // Build and export the singleton registry
@@ -102,4 +112,4 @@ export const registry = new AdapterRegistry()
 //   registry.register(myAdapter);
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { ServiceAdapter };
+export type { ServiceAdapter, OnboardingCategory, OnboardingMeta };

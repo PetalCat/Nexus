@@ -12,6 +12,26 @@
 
 import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem, CalendarItem } from './types';
 
+export type OnboardingCategory =
+	| 'media-server'
+	| 'automation'
+	| 'requests'
+	| 'subtitles'
+	| 'analytics'
+	| 'video'
+	| 'games'
+	| 'books'
+	| 'indexer';
+
+export interface OnboardingMeta {
+	category: OnboardingCategory;
+	description: string;
+	priority: number;
+	icon?: string;
+	requiredFields: ('url' | 'apiKey' | 'username' | 'password')[];
+	supportsAutoAuth?: boolean;
+}
+
 export interface ServiceAdapter {
 	/** Unique identifier matching the `type` field in the services table */
 	readonly id: string;
@@ -114,6 +134,8 @@ export interface ServiceAdapter {
 	 * Set to "Jellyfin Username" when the service is configured for Jellyfin auth.
 	 */
 	readonly authUsernameLabel?: string;
+
+	readonly onboarding?: OnboardingMeta;
 
 	// ---- User-level methods (only relevant when userLinkable = true) ----
 
