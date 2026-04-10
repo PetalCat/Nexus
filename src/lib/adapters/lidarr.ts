@@ -169,6 +169,12 @@ export const lidarrAdapter: ServiceAdapter = {
 	searchPriority: 2,
 	icon: 'lidarr',
 	mediaTypes: ['music'],
+	onboarding: {
+		category: 'automation',
+		description: 'Manage and monitor your music collection',
+		priority: 3,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

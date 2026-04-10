@@ -278,6 +278,12 @@ export const overseerrAdapter: ServiceAdapter = {
 	mediaTypes: ['movie', 'show'],
 	userLinkable: true,
 	authUsernameLabel: 'Email',
+	onboarding: {
+		category: 'requests',
+		description: 'Let users request movies and shows',
+		priority: 1,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

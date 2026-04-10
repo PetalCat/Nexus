@@ -582,6 +582,13 @@ export const rommAdapter: ServiceAdapter = {
 	mediaTypes: ['game'],
 	userLinkable: true,
 	pollIntervalMs: 60_000,
+	onboarding: {
+		category: 'games',
+		description: 'Browse and play your retro game collection',
+		priority: 1,
+		requiredFields: ['url', 'username', 'password'],
+		supportsAutoAuth: true,
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
