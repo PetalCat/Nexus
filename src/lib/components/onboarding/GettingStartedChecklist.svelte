@@ -121,12 +121,7 @@
 									abbreviation={adapter.abbreviation}
 									onboarding={adapter.onboarding}
 									connected={adapter.connected || isConnected(adapter.id)}
-									onConnect={async (svcData) => {
-										const err = await connectService(svcData);
-										if (err) {
-											// ServiceCard handles error display internally
-										}
-									}}
+									onConnect={connectService}
 								/>
 							{/each}
 						</div>
