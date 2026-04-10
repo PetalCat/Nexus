@@ -40,10 +40,13 @@
 			.filter((g) => g.adapters.length > 0)
 	);
 
+	let accountCreated = $state(false);
+
 	$effect(() => {
-		if (form?.success && form.step === 'account') {
-			goTo(2);
+		if (form?.success && form.step === 'account' && !accountCreated) {
+			accountCreated = true;
 			loading = false;
+			step = 2;
 		}
 		if (form?.error) loading = false;
 	});
