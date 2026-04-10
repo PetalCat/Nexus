@@ -6,9 +6,9 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let step = $state(0);
+	let step = $state(data.step ?? 0);
 	let loading = $state(false);
-	let connectedServices = $state<string[]>([]);
+	let connectedServices = $state<string[]>(data.connectedServiceIds ?? []);
 	let direction = $state(1);
 
 	const mediaServers = $derived(
@@ -54,6 +54,12 @@
 	function goTo(next: number) {
 		direction = next > step ? 1 : -1;
 		step = next;
+		// Persist progress server-side
+		fetch('/api/onboarding/checklist', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: next >= 4 ? 'complete' : 'setStep', step: next }),
+		}).catch(() => {});
 	}
 
 	async function connectService(serviceData: { type: string; url: string; apiKey?: string; username?: string; password?: string }): Promise<string | null> {
