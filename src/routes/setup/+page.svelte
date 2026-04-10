@@ -210,6 +210,7 @@
 								displayName={adapter.displayName}
 								color={adapter.color}
 								abbreviation={adapter.abbreviation}
+								defaultPort={adapter.defaultPort}
 								onboarding={adapter.onboarding}
 								connected={connectedServices.includes(adapter.id)}
 								hero

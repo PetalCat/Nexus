@@ -7,6 +7,7 @@
 		displayName: string;
 		color: string;
 		abbreviation: string;
+		defaultPort?: number;
 		onboarding: OnboardingMeta;
 		connected?: boolean;
 		hero?: boolean;
@@ -18,14 +19,17 @@
 		displayName,
 		color,
 		abbreviation,
+		defaultPort,
 		onboarding,
 		connected = false,
 		hero = false,
 		onConnect,
 	}: Props = $props();
 
+	const defaultUrl = defaultPort ? `http://localhost:${defaultPort}` : '';
+
 	let expanded = $state(false);
-	let url = $state('');
+	let url = $state(defaultUrl);
 	let apiKey = $state('');
 	let username = $state('');
 	let password = $state('');
@@ -109,7 +113,7 @@
 				{#if onboarding.requiredFields.includes('url')}
 					<label class="flex flex-col gap-2">
 						<span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Server URL</span>
-						<input type="url" bind:value={url} placeholder="http://192.168.1.100:8096" class="input" />
+						<input type="url" bind:value={url} placeholder={defaultUrl || 'http://localhost:8096'} class="input" />
 					</label>
 				{/if}
 
@@ -193,7 +197,7 @@
 				{#if onboarding.requiredFields.includes('url')}
 					<label class="flex flex-col gap-1.5">
 						<span class="text-[11px] font-medium uppercase tracking-wider text-[var(--color-muted)]">Server URL</span>
-						<input type="url" bind:value={url} placeholder="http://192.168.1.100:8080" class="input text-sm" />
+						<input type="url" bind:value={url} placeholder={defaultUrl || 'http://localhost:8080'} class="input text-sm" />
 					</label>
 				{/if}
 

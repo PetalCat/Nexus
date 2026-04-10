@@ -16,6 +16,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		displayName: a.displayName,
 		color: a.color ?? '#888',
 		abbreviation: a.abbreviation ?? a.id.slice(0, 2).toUpperCase(),
+		defaultPort: a.defaultPort,
 		onboarding: a.onboarding!,
 	}));
 
