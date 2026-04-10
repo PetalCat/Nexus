@@ -4,9 +4,11 @@ import { upsertService } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
-	if (getUserCount() > 0) {
-		throw redirect(303, '/');
+export const load: PageServerLoad = async ({ cookies }) => {
+	// Allow the page if: no users yet, OR user has an active session (mid-wizard).
+	const hasSession = !!cookies.get(COOKIE_NAME);
+	if (getUserCount() > 0 && !hasSession) {
+		throw redirect(303, '/login');
 	}
 
 	const adapters = registry.onboardable().map((a) => ({
@@ -22,10 +24,6 @@ export const load: PageServerLoad = async () => {
 
 export const actions: Actions = {
 	createAccount: async ({ request, cookies }) => {
-		if (getUserCount() > 0) {
-			throw redirect(303, '/');
-		}
-
 		const data = await request.formData();
 		const username = (data.get('username') as string)?.trim();
 		const displayName = (data.get('displayName') as string)?.trim();
