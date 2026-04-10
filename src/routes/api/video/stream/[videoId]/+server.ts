@@ -161,6 +161,21 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		}
 	}
 
+	// Cached CDN URLs can expire or become invalid for a specific itag.
+	// Re-resolve once on the common stale-URL statuses before failing playback.
+	if (cdnUrl && !upstream!.ok && [403, 404, 410, 416].includes(upstream!.status)) {
+		await upstream!.body?.cancel().catch(() => {});
+		cdnCache.delete(`${videoId}:${itag}`);
+		try {
+			upstream = await fetch(
+				`${invConfig.url}/latest_version?id=${encodeURIComponent(videoId)}&itag=${encodeURIComponent(itag)}`,
+				{ headers: { ...apiHeaders, ...proxyHeaders }, redirect: 'follow' }
+			);
+		} catch {
+			return new Response('Stream unavailable', { status: 502 });
+		}
+	}
+
 	if (!upstream!.ok && upstream!.status !== 206) {
 		await upstream!.body?.cancel().catch(() => {});
 		return new Response('Stream error', { status: upstream!.status });

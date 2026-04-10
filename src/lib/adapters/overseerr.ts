@@ -1,6 +1,11 @@
 import type { ServiceAdapter } from './base';
 import type { NexusRequest, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 
+/** Check if a service type is Overseerr or Seerr (same API, dual registration) */
+export function isOverseerrType(type: string): boolean {
+	return type === 'overseerr' || type === 'seerr';
+}
+
 /** Build request headers — prefer user session cookie over admin API key */
 function authHeaders(config: ServiceConfig, userCred?: UserCredential): Record<string, string> {
 	if (userCred?.accessToken) {
@@ -24,7 +29,7 @@ async function osFetch(
 		},
 		signal: AbortSignal.timeout(8000)
 	});
-	if (!res.ok) throw new Error(`Overseerr ${path} → ${res.status}`);
+	if (!res.ok) throw new Error(`Overseerr/Seerr ${path} → ${res.status}`);
 	return res.json();
 }
 
@@ -265,7 +270,7 @@ export function isOverseerrType(type: string): boolean {
 
 export const overseerrAdapter: ServiceAdapter = {
 	id: 'overseerr',
-	displayName: 'Overseerr',
+	displayName: 'Overseerr / Seerr',
 	defaultPort: 5055,
 	color: '#f59e0b',
 	abbreviation: 'OS',

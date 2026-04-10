@@ -192,11 +192,11 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	try {
 		let upstream_res = await doFetch();
 
-		// Jellyfin returns 500 while the transcoder is spinning up for the first segment.
-		// Retry up to 2x with increasing delays before giving up.
-		if (!upstream_res.ok && isSegment && upstream_res.status >= 500) {
+		// Jellyfin can return transient 404/5xx responses while a new transcode
+		// session spins up after a quality change. Retry with backoff before failing.
+		if (!upstream_res.ok && isSegment && (upstream_res.status === 404 || upstream_res.status >= 500)) {
 			upstream_res = await doFetch(1500);
-			if (!upstream_res.ok && upstream_res.status >= 500) {
+			if (!upstream_res.ok && (upstream_res.status === 404 || upstream_res.status >= 500)) {
 				upstream_res = await doFetch(3000);
 			}
 		}

@@ -62,7 +62,7 @@ Make Nexus truly adapter-agnostic so contributors can add services with zero ser
 | done | Self-describing adapter metadata (color, abbreviation) | — | — |
 | done | Route-level interface migration (Invidious, RomM, Calibre, Jellyfin) | — | [plan](docs/superpowers/plans/2026-03-29-adapter-interface-migration.md) |
 
-## Milestone 3: *arr API Deep Integration (IN PROGRESS)
+## Milestone 3: *arr API Deep Integration (DONE)
 
 Leverage the full power of every connected service.
 
@@ -78,20 +78,20 @@ Leverage the full power of every connected service.
 | done | Download queue with rich metadata | — | [plan](docs/superpowers/plans/2026-03-29-arr-phase1-calendar-quality-queue.md) |
 | done | Admin downloads panel with actions | — | [plan](docs/superpowers/plans/2026-03-29-arr-phase1-calendar-quality-queue.md) |
 
-### Phase 2: Discovery, Collections, Credits (PLANNED)
+### Phase 2: Discovery, Collections, Credits (DONE)
 
 | Status | Item | Issue | Spec/Plan |
 |--------|------|-------|-----------|
-| planned | Overseerr/Seerr discovery passthrough (trending, popular, upcoming) | [#27](https://github.com/PetalCat/Nexus/issues/27) | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | Genre/network filtering for discovery | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | TMDB recommendations + similar via Seerr | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | /discover page with tabs + infinite scroll | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | Collections/franchises from Radarr + Seerr | [#41](https://github.com/PetalCat/Nexus/issues/41) | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | /collections browse page | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | Credits/cast via Seerr person endpoints | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
-| planned | Person detail page (/person/{id}) with filmography | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | Overseerr/Seerr discovery passthrough (trending, popular, upcoming) | [#27](https://github.com/PetalCat/Nexus/issues/27) | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | Genre/network filtering for discovery | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | TMDB recommendations + similar via Seerr | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | /discover page with tabs + infinite scroll | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | Collections/franchises from Radarr + Seerr | [#41](https://github.com/PetalCat/Nexus/issues/41) | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | /collections browse page | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | Credits/cast via Seerr person endpoints | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
+| done | Person detail page (/person/{id}) with filmography | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
 
-### Phase 3: Power User & Admin (PLANNED)
+### Phase 3: Power User & Admin (IN PROGRESS)
 
 | Status | Item | Issue | Spec/Plan |
 |--------|------|-------|-----------|
@@ -100,18 +100,18 @@ Leverage the full power of every connected service.
 | planned | Issue reporting via Seerr | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
 | planned | Direct search triggers (Radarr/Sonarr/Lidarr/Bazarr commands) | — | [spec](docs/superpowers/specs/2026-03-29-arr-api-features-design.md) |
 
-## Milestone 4: Cross-Service Intelligence
+## Milestone 4: Cross-Service Intelligence (MOSTLY DONE)
 
 Features that only work because Nexus connects everything.
 
 | Status | Item | Issue | Spec/Plan |
 |--------|------|-------|-----------|
-| in-progress | Universal Continue — one row across all media | [#40](https://github.com/PetalCat/Nexus/issues/40) | Calibre+RomM+Invidious done |
-| planned | Cross-media franchise pages | [#41](https://github.com/PetalCat/Nexus/issues/41) | — |
-| in-progress | Unified calendar across all media types | [#42](https://github.com/PetalCat/Nexus/issues/42) | Invidious building |
-| planned | Smart auto-requests based on viewing patterns | [#43](https://github.com/PetalCat/Nexus/issues/43) | — |
-| in-progress | Unified quality dashboard with upgrades | [#46](https://github.com/PetalCat/Nexus/issues/46) | Admin panel building |
-| planned | Nexus Wrapped — annual stats all media | [#48](https://github.com/PetalCat/Nexus/issues/48) | — |
+| done | Universal Continue — one row across all media | [#40](https://github.com/PetalCat/Nexus/issues/40) | Calibre+RomM+Invidious+Jellyfin |
+| done | Cross-media franchise pages | [#41](https://github.com/PetalCat/Nexus/issues/41) | — |
+| done | Unified calendar across all media types | [#42](https://github.com/PetalCat/Nexus/issues/42) | Radarr+Sonarr+Lidarr+Invidious |
+| done | Smart auto-requests based on viewing patterns | [#43](https://github.com/PetalCat/Nexus/issues/43) | — |
+| done | Unified quality dashboard | [#46](https://github.com/PetalCat/Nexus/issues/46) | Admin panel done |
+| done | Nexus Wrapped — annual stats all media | [#48](https://github.com/PetalCat/Nexus/issues/48) | — |
 | future | AI-powered personal DJ and curator | [#44](https://github.com/PetalCat/Nexus/issues/44) | — |
 | future | Social watch parties with SyncPlay | [#45](https://github.com/PetalCat/Nexus/issues/45) | — |
 | future | Unified parental controls | [#49](https://github.com/PetalCat/Nexus/issues/49) | — |
@@ -127,6 +127,29 @@ All UI working across screen sizes and input methods.
 | planned | Touch targets minimum 44x44px | — | — |
 | planned | Mobile-optimized player controls | — | — |
 | planned | Mobile-optimized admin dashboard | — | — |
+
+## Milestone 5.5: Website & Messaging
+
+Public-facing communication, onboarding language, and project positioning.
+
+| Status | Item | Issue | Spec/Plan |
+|--------|------|-------|-----------|
+| planned | Public-facing website for Nexus | [#50](https://github.com/PetalCat/Nexus/issues/50) | — |
+| planned | Non-affiliation and user-responsibility copy pass across website/docs/onboarding | [#50](https://github.com/PetalCat/Nexus/issues/50) | Clarify that Nexus is an independent frontend for user-configured services and does not provide media, accounts, or legal/privacy guarantees |
+| planned | Replace direct consumer-brand-led marketing copy with neutral integration/adaptor language | [#50](https://github.com/PetalCat/Nexus/issues/50) | Avoid implying endorsement or official relationships with third-party platforms |
+| planned | README and setup docs copy audit for neutral integration language | [#50](https://github.com/PetalCat/Nexus/issues/50) | Keep specific third-party names limited to compatibility/setup contexts where operationally necessary |
+| planned | Add short non-affiliation disclaimer and user-responsibility note to website/docs/onboarding | [#50](https://github.com/PetalCat/Nexus/issues/50) | Make project boundaries explicit without leading public copy with legalese |
+
+## Milestone 5.6: Issue & Tracking Hygiene
+
+Bring GitHub issue descriptions and tracker status back in line with the actual product.
+
+| Status | Item | Issue | Spec/Plan |
+|--------|------|-------|-----------|
+| planned | Rewrite thin or stale issue bodies for active roadmap items | — | Prioritize [#27](https://github.com/PetalCat/Nexus/issues/27), [#47](https://github.com/PetalCat/Nexus/issues/47), [#50](https://github.com/PetalCat/Nexus/issues/50), [#51](https://github.com/PetalCat/Nexus/issues/51) |
+| planned | Update partially implemented issue descriptions to reflect current shipped status | — | Includes [#40](https://github.com/PetalCat/Nexus/issues/40), [#41](https://github.com/PetalCat/Nexus/issues/41), [#42](https://github.com/PetalCat/Nexus/issues/42), [#46](https://github.com/PetalCat/Nexus/issues/46), [#48](https://github.com/PetalCat/Nexus/issues/48) |
+| planned | Close or final-pass issues that appear already implemented | — | Review [#52](https://github.com/PetalCat/Nexus/issues/52) and any other shipped items still open |
+| planned | Keep roadmap, issue bodies, and shipped `main` features synchronized | — | Prevent tracker drift between GitHub issues, roadmap notes, and landed work |
 
 ## Milestone 6: TV Mode
 
@@ -164,7 +187,7 @@ Each adapter is one file + one registry line. Community contributions welcome.
 | planned | **Readarr** | Book automation (Sonarr for books) | [#30](https://github.com/PetalCat/Nexus/issues/30) |
 | planned | **Kapowarr** | Comic book collection manager | [#28](https://github.com/PetalCat/Nexus/issues/28) |
 | planned | **Tdarr** | Transcode automation monitoring | [#29](https://github.com/PetalCat/Nexus/issues/29) |
-| planned | **Plex** | Plex Media Server support | [#24](https://github.com/PetalCat/Nexus/issues/24) |
+| done | **Plex** | Plex Media Server support | [#24](https://github.com/PetalCat/Nexus/issues/24) |
 
 ### Medium Priority
 
@@ -184,20 +207,18 @@ Each adapter is one file + one registry line. Community contributions welcome.
 | future | **Wizarr** | User invitation system | [#37](https://github.com/PetalCat/Nexus/issues/37) |
 | future | **Trailarr** | Local trailer downloads | [#38](https://github.com/PetalCat/Nexus/issues/38) |
 | future | **Posterizarr** | Poster generation | [#39](https://github.com/PetalCat/Nexus/issues/39) |
-| future | **DeArrow** | YouTube thumbnail/title cleanup | [#22](https://github.com/PetalCat/Nexus/issues/22) |
+| done | **DeArrow** | YouTube thumbnail/title cleanup | [#22](https://github.com/PetalCat/Nexus/issues/22) |
 
 ---
 
 ## Execution Order
 
 ```
-Milestone 3 Phase 2 (discovery/collections/credits)
-    ↓
-Milestone 3 Phase 3 (subtitles/health/issues/commands)
-    ↓
-Milestone 4 (cross-service intelligence)
+Milestone 3 Phase 3 (subtitles/health/issues/commands) ← NEXT
     ↓
 Milestone 5 (responsive + a11y)
+    ↓
+Milestone 5.5 (website + messaging)
     ↓
 Milestone 6 (TV mode)
     ↓
@@ -212,7 +233,7 @@ Milestone 8 (new adapters) — ongoing, parallel with everything
 | File | Topic | Status |
 |------|-------|--------|
 | `docs/superpowers/specs/2026-03-28-adapter-consolidation-design.md` | Adapter architecture | Implemented |
-| `docs/superpowers/specs/2026-03-29-arr-api-features-design.md` | *arr API features (3 phases) | Phase 1 done |
+| `docs/superpowers/specs/2026-03-29-arr-api-features-design.md` | *arr API features (3 phases) | Phase 1+2 done |
 | `docs/superpowers/specs/2026-03-29-adapter-interface-migration-design.md` | Route-level import migration | Implemented |
 | `docs/plans/2026-03-28-android-tv-support-design.md` | TV mode + native apps | Approved, not started |
 
