@@ -144,9 +144,9 @@
 						<p class="mt-4 text-xl text-[var(--color-muted)]">Your media, unified.</p>
 					</div>
 
-					<p class="text-base leading-relaxed text-[var(--color-muted)] max-w-md">
+					<p class="text-base leading-relaxed max-w-md" style="color: #f0ebe3">
 						Nexus brings all your media services together into one beautiful interface.
-						Movies, shows, music, books, games -- everything in one place.
+						Movies, shows, music, books, games — everything in one place.
 					</p>
 
 					<div class="flex flex-col items-center gap-3 mt-2">
