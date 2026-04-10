@@ -216,6 +216,13 @@ export const calibreAdapter: ServiceAdapter = {
 	icon: 'calibre',
 	mediaTypes: ['book'],
 	userLinkable: true,
+	onboarding: {
+		category: 'books',
+		description: 'Read books, take notes, and track reading progress',
+		priority: 1,
+		requiredFields: ['url', 'username', 'password'],
+		supportsAutoAuth: true,
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

@@ -168,6 +168,13 @@ export const plexAdapter: ServiceAdapter = {
 	userLinkable: true,
 	pollIntervalMs: 10_000,
 	authUsernameLabel: 'Email (optional)',
+	onboarding: {
+		category: 'media-server',
+		description: 'Stream your Plex media library',
+		priority: 2,
+		requiredFields: ['url', 'username', 'password'],
+		supportsAutoAuth: true,
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

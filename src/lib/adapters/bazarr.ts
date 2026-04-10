@@ -460,6 +460,12 @@ export const bazarrAdapter: ServiceAdapter = {
 	abbreviation: 'BZ',
 	isEnrichmentOnly: true,
 	icon: 'bazarr',
+	onboarding: {
+		category: 'subtitles',
+		description: 'Manage subtitles across your library',
+		priority: 1,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();

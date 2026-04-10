@@ -236,6 +236,12 @@ export const invidiousAdapter: ServiceAdapter = {
 	mediaTypes: ['video'],
 	userLinkable: true,
 	authUsernameLabel: 'Username',
+	onboarding: {
+		category: 'video',
+		description: 'Privacy-friendly video streaming with ad-blocking',
+		priority: 1,
+		requiredFields: ['url'],
+	},
 
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();

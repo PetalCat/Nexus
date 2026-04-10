@@ -62,6 +62,12 @@ export const radarrAdapter: ServiceAdapter = {
 	searchPriority: 3,
 	icon: 'radarr',
 	mediaTypes: ['movie'],
+	onboarding: {
+		category: 'automation',
+		description: 'Manage and monitor your movie collection',
+		priority: 1,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

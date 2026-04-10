@@ -61,6 +61,12 @@ export const sonarrAdapter: ServiceAdapter = {
 	searchPriority: 3,
 	icon: 'sonarr',
 	mediaTypes: ['show'],
+	onboarding: {
+		category: 'automation',
+		description: 'Manage and monitor your TV show collection',
+		priority: 2,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

@@ -547,6 +547,13 @@ export const jellyfinAdapter: ServiceAdapter = {
 	mediaTypes: ['movie', 'show', 'music', 'live'],
 	userLinkable: true,
 	pollIntervalMs: 10_000,
+	onboarding: {
+		category: 'media-server',
+		description: 'Stream your movies, shows, and music library',
+		priority: 1,
+		requiredFields: ['url', 'username', 'password'],
+		supportsAutoAuth: true,
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();

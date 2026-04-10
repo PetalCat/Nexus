@@ -150,6 +150,12 @@ export const streamystatsAdapter: ServiceAdapter = {
 	mediaTypes: ['movie', 'show'],
 	// StreamyStats has no per-user accounts — it authenticates via the user's Jellyfin token.
 	// resolveUserCred in services.ts handles this special case automatically.
+	onboarding: {
+		category: 'analytics',
+		description: 'Track viewing activity and statistics',
+		priority: 1,
+		requiredFields: ['url'],
+	},
 
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();

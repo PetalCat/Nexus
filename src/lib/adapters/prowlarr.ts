@@ -84,6 +84,12 @@ export const prowlarrAdapter: ServiceAdapter = {
 	isEnrichmentOnly: true,
 	icon: 'prowlarr',
 	mediaTypes: ['other'],
+	onboarding: {
+		category: 'indexer',
+		description: 'Unified indexer management for automation services',
+		priority: 1,
+		requiredFields: ['url', 'apiKey'],
+	},
 
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
