@@ -278,20 +278,6 @@ export const invidiousAdapter: ServiceAdapter = {
 		};
 	},
 
-	async createUser(
-		config: ServiceConfig,
-		username: string,
-		password: string
-	): Promise<{ accessToken: string; externalUserId: string; externalUsername: string }> {
-		// Invidious auto-registers unknown users on signin when registration is enabled
-		const sid = await formAuth(config, username, password);
-		return {
-			accessToken: sid,
-			externalUserId: username,
-			externalUsername: username
-		};
-	},
-
 	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
 		if (!userCred?.accessToken) return [];
 		try {

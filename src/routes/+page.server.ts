@@ -13,12 +13,27 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const userId = locals.user?.id;
 	const hasServices = getEnabledConfigs().length > 0;
 
-	// Count linkable services the user hasn't linked yet
+	// Count linkable services the user hasn't linked yet.
+	// Only count services the user can actually action (not derived services
+	// with no parent linked, not enrichment-only services).
 	let unlinkedServiceCount = 0;
 	if (userId) {
-		unlinkedServiceCount = getEnabledConfigs().filter((config) => {
+		const configs = getEnabledConfigs();
+		const linkedTypes = new Set<string>();
+		for (const c of configs) {
+			const cred = getUserCredentialForService(userId, c.id);
+			if (cred?.accessToken || cred?.externalUserId) linkedTypes.add(c.type);
+		}
+		unlinkedServiceCount = configs.filter((config) => {
 			const adapter = registry.get(config.type);
-			if (!adapter?.userLinkable && !adapter?.derivedFrom) return false;
+			if (!adapter) return false;
+			if (adapter.isEnrichmentOnly) return false;
+			if (!adapter.userLinkable && !adapter.derivedFrom) return false;
+			// Skip derived services where the parent isn't linked (user can't action these)
+			if (adapter.derivedFrom && adapter.parentRequired) {
+				const parentLinked = adapter.derivedFrom.some((p) => linkedTypes.has(p));
+				if (!parentLinked) return false;
+			}
 			const cred = getUserCredentialForService(userId, config.id);
 			return !(cred?.accessToken || cred?.externalUserId);
 		}).length;
