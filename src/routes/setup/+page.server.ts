@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { COOKIE_NAME, createSession, createUser, getUserCount } from '$lib/server/auth';
-import { upsertService } from '$lib/server/services';
+import { COOKIE_NAME, createSession, createUser, getUserCount, getSetting, setSetting } from '$lib/server/auth';
+import { upsertService, getEnabledConfigs } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -9,6 +9,11 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const hasSession = !!cookies.get(COOKIE_NAME);
 	if (getUserCount() > 0 && !hasSession) {
 		throw redirect(303, '/login');
+	}
+
+	// If onboarding is complete, go to home
+	if (getSetting('onboarding_complete') === 'true' && hasSession) {
+		throw redirect(303, '/');
 	}
 
 	const adapters = registry.onboardable().map((a) => ({
@@ -20,7 +25,15 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		onboarding: a.onboarding!,
 	}));
 
-	return { adapters };
+	// Restore wizard progress
+	const savedStep = parseInt(getSetting('onboarding_step') ?? '0', 10);
+	const connectedConfigs = getEnabledConfigs();
+	const connectedServiceIds = connectedConfigs.map((c) => c.type);
+
+	// If account exists, start at least at step 2
+	const step = getUserCount() > 0 ? Math.max(savedStep, 2) : savedStep;
+
+	return { adapters, step, connectedServiceIds };
 };
 
 export const actions: Actions = {
@@ -60,6 +73,7 @@ export const actions: Actions = {
 			maxAge: 60 * 60 * 24 * 30
 		});
 
+		setSetting('onboarding_step', '2');
 		return { success: true, step: 'account' };
 	},
 
