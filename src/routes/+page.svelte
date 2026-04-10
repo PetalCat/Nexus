@@ -5,6 +5,7 @@
 	import ContinueWatchingCard from '$lib/components/ContinueWatchingCard.svelte';
 	import MediaRow from '$lib/components/MediaRow.svelte';
 	import CalendarRow from '$lib/components/CalendarRow.svelte';
+	import GettingStartedChecklist from '$lib/components/onboarding/GettingStartedChecklist.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -21,6 +22,16 @@
 	<!-- ═══ Hero Carousel ═══ -->
 	{#if data.hero.length > 0}
 		<HeroCarousel items={data.hero} />
+	{/if}
+
+	<!-- ═══ Getting Started Checklist (admin only) ═══ -->
+	{#if data.checklistData}
+		<GettingStartedChecklist
+			groups={data.checklistData.groups}
+			completedCount={data.checklistData.completedCount}
+			totalCount={data.checklistData.totalCount}
+			registrationConfigured={data.checklistData.registrationConfigured}
+		/>
 	{/if}
 
 	<!-- ═══ Unlinked Services Nudge ═══ -->

@@ -5,8 +5,10 @@ import { withCache } from '$lib/server/cache';
 import { getRecommendations } from '$lib/server/recommendations/aggregator';
 import { getRawDb } from '$lib/db';
 import { registry } from '$lib/adapters/registry';
-import { getUserCredentialForService } from '$lib/server/auth';
+import { getUserCredentialForService, getSetting } from '$lib/server/auth';
+import { getChecklistState, isChecklistVisible } from '$lib/server/onboarding';
 import type { CalendarItem } from '$lib/adapters/types';
+import type { OnboardingCategory } from '$lib/adapters/base';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
@@ -126,6 +128,50 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		: null;
 
+	// Onboarding checklist (admin only)
+	let checklistData = null;
+	if (locals.user?.isAdmin && isChecklistVisible()) {
+		const state = getChecklistState();
+		const configs = getEnabledConfigs();
+		const connectedTypes = new Set(configs.map((c) => c.type));
+
+		const categoryOrder: [string, string][] = [
+			['media-server', 'Media Servers'],
+			['automation', 'Automation'],
+			['requests', 'Requests'],
+			['subtitles', 'Subtitles'],
+			['analytics', 'Analytics'],
+			['video', 'Video'],
+			['games', 'Games'],
+			['books', 'Books'],
+			['indexer', 'Indexers'],
+		];
+
+		const groups = categoryOrder
+			.map(([cat, label]) => ({
+				category: cat,
+				label,
+				adapters: registry.byOnboardingCategory(cat as OnboardingCategory).map((a) => ({
+					id: a.id,
+					displayName: a.displayName,
+					color: a.color ?? '#888',
+					abbreviation: a.abbreviation ?? a.id.slice(0, 2).toUpperCase(),
+					onboarding: a.onboarding!,
+					connected: connectedTypes.has(a.id),
+				})),
+			}))
+			.filter((g) => g.adapters.length > 0);
+
+		const registrationConfigured = getSetting('registration_enabled') === 'true';
+
+		checklistData = {
+			groups,
+			completedCount: state.completedCategories.length,
+			totalCount: state.totalOnboardable,
+			registrationConfigured,
+		};
+	}
+
 	if (homepageCache) {
 		// Cache hit — full personalized homepage
 		let rowOrder: string[] | undefined;
@@ -156,7 +202,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			personalized: true,
 			hasServices,
 			calendarItems,
-			unlinkedServiceCount
+			unlinkedServiceCount,
+			checklistData
 		};
 	}
 
@@ -180,7 +227,8 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				personalized: true,
 				hasServices,
 				calendarItems,
-				unlinkedServiceCount
+				unlinkedServiceCount,
+				checklistData
 			};
 		}
 
@@ -234,6 +282,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		personalized: false,
 		hasServices,
 		calendarItems,
-		unlinkedServiceCount
+		unlinkedServiceCount,
+		checklistData
 	};
 };
