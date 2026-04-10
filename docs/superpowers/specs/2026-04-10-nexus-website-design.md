@@ -62,13 +62,13 @@ The hero section is full-viewport height. Behind the centered text content, colu
 
 ### Poster Sources (Public Domain)
 
-All artwork pre-1929 or explicitly CC0:
+All artwork published 1930 or earlier (public domain in the US as of January 1, 2026), or explicitly CC0. Aim for 30-40+ unique images across categories for visual variety.
 
-- **Film**: Metropolis (1927), Nosferatu (1922), The Cabinet of Dr. Caligari (1920), A Trip to the Moon (1902), The General (1926)
-- **Books**: Classic novel covers — Frankenstein, Dracula, The Great Gatsby (1925 first edition), Alice in Wonderland
-- **Music**: Classical concert/opera posters, vintage sheet music covers
-- **Art**: Paintings used as poster stand-ins — Hokusai's Great Wave, Klimt's The Kiss (public domain in US), Van Gogh's Starry Night
-- **Games**: Vintage chess/card game illustrations, early board game art
+- **Film**: Metropolis (1927), Nosferatu (1922), The Cabinet of Dr. Caligari (1920), A Trip to the Moon (1902), The General (1926), Battleship Potemkin (1925), The Phantom of the Opera (1925), Sunrise: A Song of Two Humans (1927), The Gold Rush (1925), Un Chien Andalou (1929), Pandora's Box (1929), All Quiet on the Western Front (1930), The Blue Angel (1930), Animal Crackers (1930)
+- **Books**: Classic novel covers and title pages — Frankenstein (1818), Dracula (1897), The Great Gatsby (1925 first edition), Alice in Wonderland (1865), The War of the Worlds (1898), The Wonderful Wizard of Oz (1900), Treasure Island (1883), 20,000 Leagues Under the Sea (1870), The Maltese Falcon (1930), As I Lay Dying (1930)
+- **Music**: Classical concert/opera posters, vintage sheet music covers, jazz age artwork (1920s-1930), Art Nouveau music illustrations
+- **Art**: Hokusai's Great Wave, Klimt's The Kiss, Van Gogh's Starry Night, Monet's Water Lilies, Vermeer's Girl with a Pearl Earring, Munch's The Scream (1893), Art Deco posters from the 1920s-1930, Mucha's Art Nouveau posters, vintage travel posters
+- **Games**: Vintage chess/card game illustrations, early board game art, Victorian-era game advertisements
 
 The poster images should be cropped to 2:3 aspect ratio, color-graded to fit the warm dark palette (desaturated, darkened, warm-shifted). Around 30-40 unique images for visual variety across the grid.
 
