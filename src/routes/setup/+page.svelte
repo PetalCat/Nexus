@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
-	import { enhance } from '$app/forms';
+	import { enhance, deserialize } from '$app/forms';
 	import ServiceCard from '$lib/components/onboarding/ServiceCard.svelte';
 	import ServiceIcon from '$lib/components/onboarding/ServiceIcon.svelte';
 
@@ -63,25 +63,19 @@
 
 		try {
 			const res = await fetch('?/connectService', { method: 'POST', body: formData });
-			const text = await res.text();
-			let result: any;
-			try {
-				const match = text.match(/data:\s*(\[.*\])/s);
-				if (match) {
-					const parsed = JSON.parse(match[1]);
-					result = parsed[0]?.data ?? parsed[1]?.data;
-				} else {
-					result = JSON.parse(text);
-				}
-			} catch { result = {}; }
+			const result = deserialize(await res.text());
 
-			if (result?.error || (res.status >= 400 && !result?.success)) {
-				return result?.error ?? 'Connection failed -- check your URL and credentials';
+			if (result.type === 'failure') {
+				return (result.data as any)?.error ?? 'Connection failed — check your URL and credentials';
 			}
+			if (result.type === 'error') {
+				return result.error?.message ?? 'Server error';
+			}
+
 			connectedServices = [...connectedServices, serviceData.type];
 			return null;
 		} catch {
-			return 'Network error -- check your connection';
+			return 'Network error — check your connection';
 		}
 	}
 
