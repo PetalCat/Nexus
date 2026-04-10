@@ -6,6 +6,7 @@ import { getDb, schema } from '$lib/db';
 import { eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
 
+
 export const load: LayoutServerLoad = async ({ locals }) => {
 	// Silently wire up Overseerr (and future Jellyfin-auth services) in the background.
 	// The guard is a fast synchronous DB check — only fires async work when needed.
@@ -57,6 +58,6 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		unreadNotifications,
 		autoplayTrailers,
 		// Streamed — never blocks page navigation
-		pendingRequests: fetchPendingRequests()
+		pendingRequests: fetchPendingRequests(),
 	};
 };
