@@ -445,7 +445,14 @@ export async function getQueue(): Promise<UnifiedMedia[]> {
 				return adapter?.getQueue?.(config) ?? [];
 			})
 		);
-		return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+		const items = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+		// Deduplicate by id — multiple services can return the same item
+		const seen = new Set<string>();
+		return items.filter((item) => {
+			if (seen.has(item.id)) return false;
+			seen.add(item.id);
+			return true;
+		});
 	});
 }
 
