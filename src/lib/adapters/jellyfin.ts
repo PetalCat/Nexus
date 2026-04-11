@@ -26,12 +26,55 @@ async function jfFetch(
 ) {
 	const url = new URL(`${config.url}${path}`);
 	if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-	const res = await fetch(url.toString(), {
+	let res = await fetch(url.toString(), {
 		headers: authHeaders(config),
 		signal: AbortSignal.timeout(timeoutMs)
 	});
+
+	// Token expired — re-authenticate if credentials are stored
+	if (res.status === 401 && config.username && config.password) {
+		const freshToken = await refreshToken(config);
+		if (freshToken) {
+			config.apiKey = freshToken;
+			res = await fetch(url.toString(), {
+				headers: authHeaders(config),
+				signal: AbortSignal.timeout(timeoutMs)
+			});
+		}
+	}
+
 	if (!res.ok) throw new Error(`Jellyfin ${path} → ${res.status}`);
 	return res.json();
+}
+
+/** Re-authenticate with stored credentials and persist the new token. */
+async function refreshToken(config: ServiceConfig): Promise<string | null> {
+	try {
+		const authRes = await fetch(`${config.url}/Users/AuthenticateByName`, {
+			method: 'POST',
+			headers: {
+				...authHeaders(config),
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ Username: config.username, Pw: config.password }),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!authRes.ok) return null;
+		const data = await authRes.json();
+		const token = data.AccessToken as string;
+
+		// Persist the new token so it survives server restarts
+		try {
+			const { upsertService } = await import('$lib/server/services');
+			upsertService({ ...config, apiKey: token });
+		} catch {
+			// May fail if called from a context without DB access
+		}
+
+		return token;
+	} catch {
+		return null;
+	}
 }
 
 /**
