@@ -94,8 +94,11 @@ export const actions: Actions = {
 			return fail(400, { error: 'Unknown service type', step: 'service' });
 		}
 
+		// Use type as ID for single-instance services (most cases).
+		// This matches how the admin services page creates IDs.
+		const serviceId = serviceType;
 		const config = {
-			id: serviceType,
+			id: serviceId,
 			name: adapter.displayName,
 			type: serviceType,
 			url,
