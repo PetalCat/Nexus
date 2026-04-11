@@ -154,7 +154,8 @@
 				fetch(`/api/admin/autolink?serviceId=${encodeURIComponent(serviceId)}`),
 				fetch('/api/admin/users')
 			]);
-			autoLinkPreview = await previewRes.json();
+			const previewData = await previewRes.json();
+			autoLinkPreview = Array.isArray(previewData) ? previewData : [];
 			const allUsers = await usersRes.json();
 			autoLinkNexusUsers = Array.isArray(allUsers) ? allUsers.filter((u: any) => u.status !== 'pending') : [];
 		} catch (e) {
@@ -194,7 +195,8 @@
 				// Re-fetch preview so table shows updated statuses
 				const refreshRes = await fetch(`/api/admin/autolink?serviceId=${encodeURIComponent(serviceId)}`);
 				if (refreshRes.ok) {
-					autoLinkPreview = await refreshRes.json();
+					const refreshData = await refreshRes.json();
+					autoLinkPreview = Array.isArray(refreshData) ? refreshData : [];
 					manualMappings = {};
 				}
 			}
