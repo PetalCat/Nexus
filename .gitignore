@@ -46,6 +46,8 @@ stream-proxy/target/
 
 # Editor / IDE
 .idea/
+.cursor/
+.vscode/mcp.json
 *.swp
 *.swo
 *~
