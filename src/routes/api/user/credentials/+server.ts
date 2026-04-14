@@ -207,7 +207,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	// ── Manual link path: username + password ──────────────────────────────
-	const { username, password } = body;
+	const { username, password, mode, storePassword } = body;
 	if (!username || !password) {
 		return json({ error: 'Missing username or password' }, { status: 400 });
 	}
@@ -217,11 +217,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	try {
-		const result = await adapter.authenticateUser(config, username, password);
+		const result = await adapter.authenticateUser(
+			config,
+			username,
+			password,
+			mode === 'register' ? 'register' : 'signin'
+		);
 		upsertUserCredential(locals.user.id, serviceId, {
 			accessToken: result.accessToken,
 			externalUserId: result.externalUserId,
-			externalUsername: result.externalUsername
+			externalUsername: result.externalUsername,
+			// Only store the password if the user explicitly opted in AND the
+			// adapter supports stored-password refresh.
+			storedPassword:
+				storePassword === true && adapter.capabilities?.userAuth?.supportsPasswordStorage
+					? password
+					: undefined,
+			extraAuth: result.extraAuth ?? undefined
 		});
 		invalidateUserCaches(locals.user.id);
 		return json({
@@ -230,10 +242,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			externalUsername: result.externalUsername
 		});
 	} catch (e) {
-		// Pass the real error message back — adapter throws with specific messages
+		// Pass structured error kind + message back so the UI can map to copy.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const kind = (e as any)?.kind ?? 'unknown';
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error('[API] credential link error:', msg);
-		return json({ error: msg }, { status: 401 });
+		return json({ error: msg, kind }, { status: 401 });
 	}
 };
 

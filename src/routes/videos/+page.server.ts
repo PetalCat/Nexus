@@ -2,7 +2,9 @@ import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
+import { buildAccountServiceSummary } from '$lib/server/account-services';
 import type { UnifiedMedia } from '$lib/adapters/types';
+import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -13,11 +15,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	let trending: UnifiedMedia[] = [];
 	let hasLinkedAccount = false;
+	let invidiousSummary: AccountServiceSummary | null = null;
 
 	if (hasInvidious && configs[0]) {
 		const config = configs[0];
 		const cred = userId ? getUserCredentialForService(userId, config.id) ?? undefined : undefined;
 		hasLinkedAccount = !!cred?.accessToken;
+		invidiousSummary = buildAccountServiceSummary(userId ?? null, config.id);
 
 		const adapter = registry.get(config.type);
 		trending = await withCache(`videos:trending:${category ?? 'all'}`, 120_000, () =>
@@ -38,7 +42,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				}
 			});
 
-			return { trending, subscriptionFeed, hasInvidious, hasLinkedAccount, category };
+			return { trending, subscriptionFeed, hasInvidious, hasLinkedAccount, category, invidiousSummary };
 		}
 	}
 
@@ -47,6 +51,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		subscriptionFeed: Promise.resolve([] as UnifiedMedia[]),
 		hasInvidious,
 		hasLinkedAccount,
-		category
+		category,
+		invidiousSummary
 	};
 };

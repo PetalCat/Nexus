@@ -216,12 +216,21 @@ export function getUserCredentialForService(userId: string, serviceId: string): 
 export function upsertUserCredential(
 	userId: string,
 	serviceId: string,
-	cred: { accessToken?: string; externalUserId?: string; externalUsername?: string },
-	opts?: { managed?: boolean; linkedVia?: string; skipDerivedLink?: boolean }
+	cred: { accessToken?: string; externalUserId?: string; externalUsername?: string; storedPassword?: string | null; extraAuth?: Record<string, unknown> | null },
+	opts?: { managed?: boolean; linkedVia?: string; skipDerivedLink?: boolean; autoLinked?: boolean; parentServiceId?: string | null }
 ) {
 	const db = getDb();
 	const managed = opts?.managed ?? false;
 	const linkedVia = opts?.linkedVia ?? null;
+	const autoLinked = opts?.autoLinked ?? false;
+	const parentServiceId = opts?.parentServiceId ?? null;
+
+	// Only write storedPassword/extraAuth if explicitly provided — null means
+	// "clear it", undefined means "leave existing value alone".
+	const storedPasswordProvided = cred.storedPassword !== undefined;
+	const storedPassword = cred.storedPassword ?? null;
+	const extraAuthProvided = cred.extraAuth !== undefined;
+	const extraAuth = cred.extraAuth ? JSON.stringify(cred.extraAuth) : null;
 
 	// Try insert, on conflict update
 	db.insert(schema.userServiceCredentials)
@@ -232,7 +241,12 @@ export function upsertUserCredential(
 			externalUserId: cred.externalUserId ?? null,
 			externalUsername: cred.externalUsername ?? null,
 			managed,
-			linkedVia
+			linkedVia,
+			autoLinked,
+			parentServiceId,
+			...(storedPasswordProvided ? { storedPassword } : {}),
+			...(extraAuthProvided ? { extraAuth } : {}),
+			staleSince: null
 		})
 		.onConflictDoUpdate({
 			target: [schema.userServiceCredentials.userId, schema.userServiceCredentials.serviceId],
@@ -242,6 +256,11 @@ export function upsertUserCredential(
 				externalUsername: cred.externalUsername ?? null,
 				managed,
 				linkedVia,
+				autoLinked,
+				parentServiceId,
+				...(storedPasswordProvided ? { storedPassword } : {}),
+				...(extraAuthProvided ? { extraAuth } : {}),
+				staleSince: null,
 				linkedAt: new Date().toISOString()
 			}
 		})

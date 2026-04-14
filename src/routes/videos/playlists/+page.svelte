@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { ListVideo, Plus, PlaySquare, ArrowLeft, Lock, Globe, Eye } from 'lucide-svelte';
+	import { ListVideo, Plus, ArrowLeft, Lock, Globe, Eye } from 'lucide-svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import SignInCard from '$lib/components/account-linking/SignInCard.svelte';
+	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -79,24 +81,19 @@
 		</div>
 	</div>
 
-	{#if !data.hasLinkedAccount}
-		<div class="flex flex-col items-center justify-center py-20 text-center">
-			<div
-				class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface text-muted"
-			>
-				<PlaySquare size={28} strokeWidth={1.5} />
-			</div>
-			<p class="font-medium text-cream">No Invidious account linked</p>
-			<p class="mt-1 text-sm text-muted">
-				Link your Invidious account in settings to manage playlists.
-			</p>
-			<a
-				href="/settings/accounts"
-				class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80"
-			>
-				Go to Settings
-			</a>
-		</div>
+	{#if data.invidiousSummary?.staleSince}
+		<StaleCredentialBanner
+			service={data.invidiousSummary}
+			context="Your playlists require Invidious"
+			onReconnected={() => invalidateAll()}
+		/>
+	{:else if !data.hasLinkedAccount && data.invidiousSummary}
+		<SignInCard
+			service={data.invidiousSummary}
+			features={['playlists', 'saved videos']}
+			variant="hero"
+			onConnected={() => invalidateAll()}
+		/>
 	{:else}
 		<!-- Create playlist form -->
 		<div

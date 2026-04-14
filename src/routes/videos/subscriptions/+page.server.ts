@@ -2,20 +2,31 @@ import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
+import { buildAccountServiceSummary } from '$lib/server/account-services';
 import type { UnifiedMedia } from '$lib/adapters/types';
+import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
 	const configs = getConfigsForMediaType('video');
-	if (configs.length === 0) return { today: [], thisWeek: [], earlier: [], hasLinkedAccount: false };
+	if (configs.length === 0) {
+		return {
+			today: [],
+			thisWeek: [],
+			earlier: [],
+			hasLinkedAccount: false,
+			invidiousSummary: null as AccountServiceSummary | null
+		};
+	}
 
 	const config = configs[0];
 	const cred = userId ? getUserCredentialForService(userId, config.id) ?? undefined : undefined;
 	const hasLinkedAccount = !!cred?.accessToken;
+	const invidiousSummary = buildAccountServiceSummary(userId ?? null, config.id);
 
 	if (!hasLinkedAccount || !cred) {
-		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount };
+		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount, invidiousSummary };
 	}
 
 	try {
@@ -44,8 +55,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			else earlier.push(video);
 		}
 
-		return { today, thisWeek, earlier, hasLinkedAccount };
+		return { today, thisWeek, earlier, hasLinkedAccount, invidiousSummary };
 	} catch {
-		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount };
+		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount, invidiousSummary };
 	}
 };

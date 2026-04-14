@@ -189,7 +189,7 @@ export interface ServiceAdapter {
 	// ---- User-level methods (only relevant when userLinkable = true) ----
 
 	/** Authenticate a user against this service; returns an access token + userId */
-	authenticateUser?(config: ServiceConfig, username: string, password: string): Promise<{ accessToken: string; externalUserId: string; externalUsername: string }>;
+	authenticateUser?(config: ServiceConfig, username: string, password: string, mode?: 'signin' | 'register'): Promise<{ accessToken: string; externalUserId: string; externalUsername: string; extraAuth?: Record<string, unknown> }>;
 
 	/** Create a new user on this service; returns auth info for the created user */
 	createUser?(config: ServiceConfig, username: string, password: string): Promise<{ accessToken: string; externalUserId: string; externalUsername: string }>;

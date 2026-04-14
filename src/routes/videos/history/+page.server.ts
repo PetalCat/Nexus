@@ -1,20 +1,30 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
+import { buildAccountServiceSummary } from '$lib/server/account-services';
 import type { UnifiedMedia } from '$lib/adapters/types';
+import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user?.id;
 	const configs = getConfigsForMediaType('video');
-	if (configs.length === 0) return { videos: [], hasMore: false, hasLinkedAccount: false };
+	if (configs.length === 0) {
+		return {
+			videos: [],
+			hasMore: false,
+			hasLinkedAccount: false,
+			invidiousSummary: null as AccountServiceSummary | null
+		};
+	}
 
 	const config = configs[0];
 	const cred = userId ? getUserCredentialForService(userId, config.id) ?? undefined : undefined;
 	const hasLinkedAccount = !!cred?.accessToken;
+	const invidiousSummary = buildAccountServiceSummary(userId ?? null, config.id);
 
 	if (!hasLinkedAccount || !cred) {
-		return { videos: [], hasMore: false, hasLinkedAccount };
+		return { videos: [], hasMore: false, hasLinkedAccount, invidiousSummary };
 	}
 
 	const adapter = registry.get(config.type);
@@ -34,8 +44,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			)
 		).filter((v): v is UnifiedMedia => v !== null);
 
-		return { videos, hasMore: videoIds.length > 24, hasLinkedAccount };
+		return { videos, hasMore: videoIds.length > 24, hasLinkedAccount, invidiousSummary };
 	} catch {
-		return { videos: [], hasMore: false, hasLinkedAccount };
+		return { videos: [], hasMore: false, hasLinkedAccount, invidiousSummary };
 	}
 };
