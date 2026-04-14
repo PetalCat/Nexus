@@ -1,5 +1,6 @@
 import type { ServiceAdapter } from './base';
 import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession } from './types';
+import { AdapterAuthError } from './errors';
 import { withCache } from '../server/cache';
 import { getCredsForService } from '../server/analytics';
 
@@ -766,14 +767,33 @@ export const rommAdapter: ServiceAdapter = {
 
 	async authenticateUser(config, username, password) {
 		// RomM supports HTTP Basic — verify credentials by hitting /users/me
-		const res = await fetch(`${config.url}/api/users/me`, {
-			headers: {
-				'Authorization': 'Basic ' + btoa(`${username}:${password}`)
-			},
-			signal: AbortSignal.timeout(8000)
-		});
+		let res: Response;
+		try {
+			res = await fetch(`${config.url}/api/users/me`, {
+				headers: {
+					'Authorization': 'Basic ' + btoa(`${username}:${password}`)
+				},
+				signal: AbortSignal.timeout(8000)
+			});
+		} catch (err) {
+			throw new AdapterAuthError(
+				`Cannot reach RomM at ${config.url}`,
+				'unreachable'
+			);
+		}
 
-		if (!res.ok) throw new Error(`RomM auth failed: ${res.status}`);
+		if (res.status === 401 || res.status === 403) {
+			throw new AdapterAuthError('Invalid RomM credentials', 'invalid');
+		}
+		if (res.status === 429) {
+			throw new AdapterAuthError('RomM is rate-limiting requests', 'rate-limited');
+		}
+		if (!res.ok) {
+			throw new AdapterAuthError(
+				`RomM auth failed (${res.status})`,
+				res.status >= 500 ? 'unreachable' : 'invalid'
+			);
+		}
 		const me = await res.json();
 
 		return {

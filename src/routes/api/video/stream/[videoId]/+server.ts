@@ -1,5 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
+import { invidiousCookieHeaders } from '$lib/adapters/invidious/client';
 import type { RequestHandler } from './$types';
 
 /**
@@ -116,8 +117,7 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 
 	const userCred = getUserCredentialForService(locals.user.id, invConfig.id) ?? undefined;
 
-	const apiHeaders: Record<string, string> = {};
-	if (userCred?.accessToken) apiHeaders['Cookie'] = `SID=${userCred.accessToken}`;
+	const apiHeaders: Record<string, string> = { ...invidiousCookieHeaders(userCred) };
 
 	// Resolve itag — ?muxed=1 forces muxed formats (video+audio, for trailers)
 	let itag = url.searchParams.get('itag');

@@ -1,5 +1,6 @@
 import type { ServiceAdapter } from './base';
 import type { ExternalUser, NexusSession, ServiceConfig, ServiceHealth, SyncItem, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
+import { AdapterAuthError } from './errors';
 import { heightToResolution, channelsToLabel } from '../server/analytics';
 
 // ---------------------------------------------------------------------------
@@ -914,16 +915,38 @@ export const jellyfinAdapter: ServiceAdapter = {
 	/** Authenticate a Jellyfin user — returns access token + userId */
 	async authenticateUser(config, username, password) {
 		const url = `${config.url}/Users/AuthenticateByName`;
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: {
-				...authHeaders(config),
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({ Username: username, Pw: password }),
-			signal: AbortSignal.timeout(8000)
-		});
-		if (!res.ok) throw new Error(`Jellyfin auth failed: ${res.status}`);
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				method: 'POST',
+				headers: {
+					...authHeaders(config),
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ Username: username, Pw: password }),
+				signal: AbortSignal.timeout(8000)
+			});
+		} catch (err) {
+			throw new AdapterAuthError(
+				`Cannot reach Jellyfin at ${config.url}`,
+				'unreachable'
+			);
+		}
+		if (res.status === 401 || res.status === 400) {
+			throw new AdapterAuthError('Invalid Jellyfin credentials', 'invalid');
+		}
+		if (res.status === 403) {
+			throw new AdapterAuthError('Jellyfin permission denied', 'permission-denied');
+		}
+		if (res.status === 429) {
+			throw new AdapterAuthError('Jellyfin is rate-limiting requests', 'rate-limited');
+		}
+		if (!res.ok) {
+			throw new AdapterAuthError(
+				`Jellyfin auth failed (${res.status})`,
+				res.status >= 500 ? 'unreachable' : 'invalid'
+			);
+		}
 		const data = await res.json();
 		return {
 			accessToken: data.AccessToken as string,
