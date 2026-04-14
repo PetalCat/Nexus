@@ -316,16 +316,26 @@ Current state: `/setup` wizard handles this. Runs when `getUserCount() === 0`. C
 
 Current state: **doesn't exist.** New users log in and land on the home page with no guidance. They may not even realize they should link anything.
 
-**Target:** a first-run flow that runs once (flagged on the user row) showing:
-1. *"Welcome to Nexus. Let's connect your accounts."*
-2. For each user-level service registered on this Nexus install, show a card with:
-   - Service name, description, what linking unlocks
-   - Options: **Sign in** (opens link modal) / **Auto-link from [parent]** (if applicable) / **Create managed account** (if supported) / **Skip**
-3. Present services in dependency order (parents before children) so auto-link offers are meaningful.
-4. End with a summary: *"You linked 3 services. 2 skipped. You can change these anytime under Settings → Accounts."*
-5. Mark flow complete; don't run again unless the user resets it.
+**Target:** a first-run flow that runs once (flagged on the user row) living at `/welcome`. Two-phase structure (inspired by Wizarr's wizard architecture):
 
-The first-run flow is a NEW route, probably `/welcome` or `/onboarding`, not shoehorned into `/setup` (which is admin-only). Detailed in the settings UX sub-spec.
+**Phase 1 — pre-connection steps** (optional educational/disclosure content before any linking):
+1. *"Welcome to Nexus. Let's connect your accounts."*
+2. Brief explanation of what Nexus is and what each category of service does
+3. Any consent disclosures (privacy, what Nexus stores on the user's behalf)
+
+**Phase 2 — connection steps** (the actual linking):
+4. For each user-level service registered on this Nexus install, show a card with:
+   - Service name, description, what connecting unlocks
+   - Primary action: **Connect [service] account** (opens link modal)
+   - Optional secondary actions: **Auto-link from [parent]** (if applicable) / **Create new account** (if `supportsAccountCreation`) / **Skip**
+5. Present services in dependency order (parents before children) so auto-link offers are meaningful.
+
+**Phase 3 — post-connection steps** (orientation and next-steps):
+6. Summary: *"You connected 3 accounts. 2 skipped. You can change these anytime under Settings → Linked accounts."*
+7. Quick tour of where each service's content lives in the Nexus UI
+8. Mark flow complete; don't run again unless the user resets it via the *"Run onboarding again"* button in settings.
+
+The `/welcome` route is new and distinct from `/setup` (admin-only). Detailed in the settings UX sub-spec.
 
 ### Returning user
 
@@ -337,9 +347,36 @@ Current state: straight to home page.
 
 **Parker decision 2026-04-14:** existing users do NOT see the first-run flow retroactively. They get the new inline sign-in affordances and stale banners when they visit relevant pages, and they can re-trigger the full welcome flow manually via a *"Run onboarding again"* button in `/settings/accounts`. No forced interruption. The welcome flow runs automatically only for users created after the rollout date.
 
+## User-facing terminology
+
+Locked in from Codex industry research (task `task-mnypfhz6-g17lwj`) — matches GitHub, Linear, Notion, Vercel conventions:
+
+| Context | Term |
+|---|---|
+| Primary action button (link a user credential) | **Connect [service] account** |
+| Success state (credential is healthy) | **Connected** |
+| Stale state (credential needs refresh) | **Reconnect** |
+| Settings section header | **Linked accounts** |
+| OAuth/OIDC permission grant copy | **Authorize** |
+| Admin-level toggle to turn on a service integration | **Enable integration** |
+| Hero label for unlinked-but-available services | *"Connect your [service] account to unlock [X, Y, Z]"* |
+| Account-creation flow button (inline toggle) | **Create new account** |
+
+**Avoid:** `Integrate` as a button label, `Sign in to X` as the primary action (too narrow for OAuth flows), `Authenticate` (engineer-speak), `Link` as a verb on buttons (use "Connect" instead).
+
+**Important migration note:** the Invidious auth+UX spec (`2026-04-14-invidious-auth-ux-design.md`) uses "Sign in to Invidious" throughout. That spec will be revised to adopt the industry terminology ("Connect your Invidious account") before implementation begins. This is a mechanical find-and-replace, not a re-design.
+
 ## Managed account ownership and lifecycle
 
 Resolved via brainstorm 2026-04-14. This section is normative.
+
+**Note on industry divergence (post-Codex research):** Codex's Wizarr + industry research surfaced that mature tools take a lighter approach — Wizarr doesn't store downstream passwords at all, and the dominant pattern is *"association-only unlink by default, destructive delete as an explicit opt-in."* Parker reviewed these findings and explicitly chose to keep the Nexus-owns-it model anyway (2026-04-14), because:
+
+- Automatic reconnect from stored password is a headline feature Nexus wants to ship, and it requires stored passwords.
+- The "Nexus is running the whole homelab automation stack" framing fits a more opinionated model than Wizarr's invite-and-forget approach.
+- The managed→owned migration path (below) lets users opt out of the opinionated model when they want to.
+
+Downstream specs will adopt Wizarr's proven patterns where they don't conflict with this model (see *Wizarr patterns to adopt* at the end of this section).
 
 ### Ownership model: "Nexus owns it, user leases it"
 
@@ -424,6 +461,24 @@ At creation time (the "Create Managed Account" flow on the link modal), the user
 
 Clear upfront framing of the Nexus-owns-it contract, with an explicit mention of the migration path.
 
+### Wizarr patterns to adopt (within the Nexus-owns-it model)
+
+Codex research on Wizarr surfaced five design patterns that translate cleanly into Nexus's managed-account system without conflicting with the ownership model. The managed-account sub-spec will implement these:
+
+1. **Session-backed invite codes with expiry + single-use validation *before* account creation.** Wizarr validates the invite code first and only creates the downstream account if the invite is valid, unused, and unexpired. Nexus's managed-account flow can use the same pattern for admin-initiated invites (where an admin creates a managed-account slot on behalf of a specific user via an invite link instead of linking themselves). Reference: Wizarr's `app/services/invite_code_manager.py`.
+2. **Two-phase onboarding.** Wizarr splits the onboarding wizard into pre-invite-step-list → join/create-account → post-invite-step-list. The pre-steps can include disclaimers, library selection, and consent; post-steps can include bookmark-the-server guidance and "here's where your stuff lives" orientation. Nexus's `/welcome` flow uses the same two-phase structure. Reference: Wizarr's `WIZARD_ARCHITECTURE.md`.
+3. **Per-invite many-to-many library assignment.** Wizarr's `Invitation` has a many-to-many relationship to `Library` rows. When an admin creates an invite, they pick which libraries the resulting user gets. Enforcement is delegated to the downstream media server (Plex/Jellyfin); Wizarr caches the assignment locally only for UI display. Nexus adopts this: managed accounts can be created with per-library permissions that get passed through to the downstream service at creation time. Reference: Wizarr's `app/models.py`.
+4. **Cache-for-UI, delegate-for-enforcement.** Permission state is authoritative on the downstream service, not in Nexus. Nexus's UI shows what it last observed, but any actual access decision is made by Jellyfin/Plex/etc. This means Nexus doesn't need to keep permission state perfectly in sync — it just needs to refresh occasionally.
+5. **Separate admin recovery tool.** Wizarr has a `recovery_tool.py` that works even when web auth is broken — it can reset admin passwords, remove passkeys, and create an emergency admin. Nexus should ship a similar CLI recovery tool (`pnpm nexus recovery` or equivalent) so admins can unstick credentials/sessions without touching the DB directly.
+
+### Where Nexus improves on Wizarr
+
+Per Codex's Wizarr critique, three areas where Wizarr has weaknesses that Nexus should explicitly address:
+
+1. **End-user password recovery.** Wizarr has no user self-serve recovery for Wizarr-created accounts (Wizarr issues #1019, #984). Nexus's auto-refresh + stored-password model inherently solves this for credentials that opted into storage; for credentials that didn't, the managed→owned migration path gives users a path back to their account.
+2. **Clearer expiry semantics.** Wizarr splits expiry between invite rows and user rows without a crisp reclaim/delete story. Nexus should have one clear state machine (the one in this umbrella's *Account linking lifecycle* section) covering both sides.
+3. **True multi-service transactional provisioning.** Wizarr's connection model is weak for "create accounts on Jellyfin AND Overseerr AND Tautulli as one unit." Nexus's contract + registry-level orchestration should handle this cleanly — the managed-account sub-spec defines the transaction semantics (all-or-nothing, partial success reporting, rollback on failure).
+
 ## Cross-references (the other 6 specs this umbrella ties together)
 
 Each of these is a planned follow-up. They do not need to be written before the umbrella is approved. The umbrella just sets up the expectations they'll fulfill.
@@ -475,7 +530,7 @@ Each of these is a planned follow-up. They do not need to be written before the 
 
 ## Parker decisions (2026-04-14)
 
-1. **First-run route name** — deferred pending Codex industry-standard research (task in flight). Will update once findings return. Leaning toward `/welcome` or `/onboarding` but not committing yet.
+1. **First-run route name** — **resolved: `/welcome`** (post-Codex research). `/setup` stays for admin bootstrap (matches Overseerr, Pocket-ID, Uptime Kuma convention). `/welcome` is the user-level first-run flow for non-admin users after admin has registered services. Industry research (task `task-mnypfhz6-g17lwj`) confirmed `/welcome` or `/getting-started` as the standard names for this; Parker picked `/welcome`.
 2. **Existing users at rollout** — no retroactive welcome flow. Inline affordances only, plus a *"Run onboarding again"* button in settings. Documented in the onboarding narratives section above.
 3. **Admin subtree** — `/admin/*` top-level, separate from `/settings/*`. Maximum visual distinction between user-level and admin-level concerns.
 4. **`linked_via` drop plan** — drop it. The target data-model section reflects the clean schema (no `linked_via`). Replaced by `parent_service_id`. Also noted: destructive migrations are fine in dev per Parker's 2026-04-14 feedback, so this rename is explicit, not a gradual transition.
