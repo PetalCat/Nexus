@@ -1,8 +1,9 @@
 # Nexus Adapter Contract — Design
 
 **Date:** 2026-04-14
-**Scope:** Formal contract for the `NexusAdapter` interface. Defines required vs optional methods by adapter tier, capability flags, auth-resilience hooks, error taxonomy, and schema additions that every adapter benefits from.
-**Status:** Proposed, pending Parker approval.
+**Scope:** Formal contract for the `NexusAdapter` interface. Defines required vs optional methods by adapter tier, capability flags, auth-resilience hooks, error taxonomy, and schema expectations that every adapter benefits from.
+**Status:** Revised 2026-04-14 to apply the `adminAuth`/`userAuth` split from the approved umbrella spec.
+**Depends on:** [`2026-04-14-service-account-umbrella-design.md`](./2026-04-14-service-account-umbrella-design.md) (umbrella, approved)
 **Tracking:** ProjectOS Nexus #2 — *Pluggable adapter architecture*.
 
 ## Problem
@@ -85,13 +86,25 @@ Every adapter **must** implement `ping` regardless of tier. Everything else is s
 
 ### Capability flags
 
+Per the umbrella spec (*Tier and the "admin-vs-user" question — resolved*), auth capabilities are **split into two orthogonal objects**: `adminAuth` (does this adapter need install-wide admin credentials?) and `userAuth` (does this adapter have per-user credentials?). An adapter can have either, both, or neither.
+
 ```ts
 export interface AdapterCapabilities {
   /** What kinds of content this adapter surfaces. Drives UI/search routing. */
   readonly media?: readonly MediaCapability[];
 
-  /** Auth surface — how users authenticate against this adapter. Required for user-level tiers. */
-  readonly auth?: AdapterAuthCapabilities;
+  /**
+   * Admin credential surface — install-wide material used for management
+   * operations (list users, create users, reset passwords) and for
+   * unauthenticated reads. Absent = adapter has no concept of admin creds.
+   */
+  readonly adminAuth?: AdapterAdminAuthCapabilities;
+
+  /**
+   * User credential surface — per-user material used for personal
+   * interactions with the service. Absent = adapter is server-level only.
+   */
+  readonly userAuth?: AdapterUserAuthCapabilities;
 
   /** Library browsing (getLibrary, getRecentlyAdded, getContinueWatching). */
   readonly library?: boolean;
@@ -119,7 +132,7 @@ export interface AdapterCapabilities {
   /** Enrichment-only adapter — no user-facing content. */
   readonly enrichmentOnly?: boolean;
 
-  /** Declared parent adapters for derived tier. */
+  /** Declared parent adapter types for derived tier. */
   readonly derivedFrom?: readonly string[];
   /** True if this derived adapter cannot function without a linked parent. */
   readonly parentRequired?: boolean;
@@ -130,56 +143,122 @@ export type MediaCapability = 'movie' | 'show' | 'book' | 'game' | 'music' | 'li
 
 Each capability flag **gates a group of methods**. An adapter declaring `capabilities.library: true` must implement `getLibrary`, `getRecentlyAdded`, and `getContinueWatching`. An adapter declaring `capabilities.search` must implement `search`. The type system enforces this via conditional types in the next section.
 
-### Auth capabilities — the core of this spec
+**Why split admin and user auth:** a single adapter can have both (Jellyfin: admin account for user management + per-user tokens for personal data), just admin (Radarr: API key only, no user concept), just user (Invidious: SID cookies only, no admin surface), or neither (a purely public adapter, hypothetical today). Folding these into one `auth` field forced awkward gymnastics to express "this adapter needs an admin API key AND per-user tokens with separate health tracking." The split reflects reality.
+
+### Admin auth capabilities
 
 ```ts
-export interface AdapterAuthCapabilities {
+export interface AdapterAdminAuthCapabilities {
   /**
-   * True if the adapter has a persistent per-user credential. Required for
-   * user-standalone and user-derived tiers. False for server-level adapters.
+   * True when the adapter requires install-wide admin credentials to
+   * function at all. If false (and userAuth is defined), the adapter
+   * can work with just user credentials — no admin setup needed.
+   */
+  readonly required: boolean;
+
+  /**
+   * Which fields on the services row the adapter consumes. The settings/admin
+   * page uses this to decide which inputs to render in the service config form.
+   */
+  readonly fields: ReadonlyArray<'url' | 'adminApiKey' | 'adminUsername' | 'adminPassword' | 'adminUrlOverride'>;
+
+  /**
+   * True if the adapter can cheaply verify its admin credential is still
+   * working. Enables server-level health tracking in /admin/services.
+   */
+  readonly supportsHealthProbe: boolean;
+}
+```
+
+### User auth capabilities
+
+```ts
+export interface AdapterUserAuthCapabilities {
+  /**
+   * Always true for adapters that declare userAuth. The field is present
+   * to make the type self-documenting and to catch misuses where userAuth
+   * is declared but empty.
    */
   readonly userLinkable: true;
 
-  /** Label for the username field in the sign-in modal. Default "Username". */
+  /** Label for the username field in the Connect Account modal. Default "Username". */
   readonly usernameLabel?: string;
 
   /**
-   * True if the adapter supports auto-registration via authenticateUser
-   * (Invidious-style — /login auto-creates unknown users) OR has a distinct
-   * createUser method. Drives the "Create new account" toggle in the modal.
+   * True if the adapter supports user registration from within Nexus.
+   * Drives the "Create new account" toggle in the Connect Account modal.
+   *
+   * Note: for Invidious-style services where /login handles both signin
+   * and register (auto-registers unknown users when registration is
+   * enabled), this is TRUE even though there's no distinct createUser
+   * method. supportsAccountCreation below distinguishes the two.
    */
   readonly supportsRegistration: boolean;
 
   /**
+   * True if the adapter has a distinct createUser method that creates an
+   * account from scratch (as opposed to inferring registration from a
+   * signin flow). Services: Jellyfin, RomM, Calibre-Web.
+   *
+   * False for Invidious (signin does double duty), Plex (no account creation
+   * via API), Kavita (no account creation surface).
+   *
+   * Required to expose the "Create managed account" flow per the umbrella's
+   * managed-account model.
+   */
+  readonly supportsAccountCreation: boolean;
+
+  /**
    * True if the adapter supports stored-password auto-refresh. Enables the
-   * "Save password for auto-reconnect" checkbox in the sign-in modal. Also
-   * required for the /api/user/credentials/reconnect route to work.
+   * "Save password for auto-reconnect" checkbox in the Connect Account modal
+   * and the POST /api/user/credentials/reconnect route.
    */
   readonly supportsPasswordStorage: boolean;
 
   /**
    * True if probeCredential can be called cheaply (single round-trip) to
    * check if the stored credential still works. Used by the accounts-page
-   * health probe.
+   * health probe. Typically always true for user-standalone adapters; may
+   * be true or false for user-derived adapters depending on whether a
+   * cheap probe exists.
    */
   readonly supportsHealthProbe: boolean;
 
   /**
-   * Can Nexus create accounts on this service? (Jellyfin/RomM/Calibre yes;
-   * Invidious no — /login handles both register and signin so this is false
-   * for Invidious even though supportsRegistration is true.)
+   * For derived-tier adapters only. Lists the *service types* this adapter
+   * can auto-link from. Matches the umbrella's auto-linking model where a
+   * user can pick which parent service provides their derived credential.
+   *
+   * Duplicates capabilities.derivedFrom for type-level discovery — kept
+   * both for ergonomics.
    */
-  readonly supportsAccountCreation: boolean;
+  readonly derivedFrom?: readonly string[];
 }
 ```
 
-### Auth methods — required for user-linkable adapters
+### Admin auth methods — required when `adminAuth.required === true`
 
 ```ts
-interface UserLinkableMethods {
+interface AdminAuthMethods {
   /**
-   * Exchange username + password for a credential. Called from the sign-in
-   * modal. May throw AdapterAuthError.
+   * Cheap authed probe against the admin credential. Verifies the admin
+   * API key / token / account is still valid. Returns 'ok' | 'expired' |
+   * 'invalid'. Required when capabilities.adminAuth.supportsHealthProbe is true.
+   *
+   * Called from /admin/services health checks and from the contract's
+   * shared health-probe machinery.
+   */
+  probeAdminCredential(config: ServiceConfig): Promise<'ok' | 'expired' | 'invalid'>;
+}
+```
+
+### User auth methods — required when `userAuth.userLinkable === true`
+
+```ts
+interface UserAuthMethods {
+  /**
+   * Exchange username + password for a credential. Called from the Connect
+   * Account modal. May throw AdapterAuthError.
    */
   authenticateUser(
     config: ServiceConfig,
@@ -222,13 +301,55 @@ interface UserLinkableMethods {
 interface AccountCreationMethods {
   /**
    * Create a new account on the service. Only required when
-   * supportsAccountCreation=true. Returns the new credential.
+   * userAuth.supportsAccountCreation=true. Returns the new credential.
+   *
+   * See the umbrella spec's managed-account section for the surrounding
+   * lifecycle semantics (Nexus-owned password, managed→owned migration,
+   * confirm-then-delete on unlink).
    */
   createUser(
     config: ServiceConfig,
     username: string,
     password: string
   ): Promise<UserCredentialResult>;
+}
+
+interface DerivedAuthMethods {
+  /**
+   * For user-derived adapters only. Given a just-linked parent credential,
+   * find a matching account on the derived service (or return null if no
+   * match). Called by the shared auto-link machinery when a user links a
+   * parent service that this adapter can derive from.
+   *
+   * The match function is adapter-specific: Overseerr matches by
+   * `jellyfinUserId === parent.externalUserId`; Streamystats copies the
+   * Jellyfin token directly; future adapters might match by email or OAuth
+   * `sub` claim.
+   *
+   * Required for all user-derived tier adapters. The auto-linking sub-spec
+   * defines the consent dialog that wraps this method; the contract only
+   * requires the match function itself.
+   */
+  findAutoLinkMatch(
+    config: ServiceConfig,
+    parent: LinkedParentContext
+  ): Promise<UserCredentialResult | null>;
+}
+
+/** Context passed to derived adapters during auto-linking. */
+export interface LinkedParentContext {
+  /** The parent service's type (e.g. 'jellyfin', 'plex'). */
+  readonly parentType: string;
+  /** The parent service's DB id (for parent_service_id resolution). */
+  readonly parentServiceId: string;
+  /** The parent credential's external user id — the primary match key. */
+  readonly parentExternalUserId: string;
+  /** The parent credential's external username (fallback match hint). */
+  readonly parentExternalUsername?: string;
+  /** The parent's access token, in case the derived adapter needs to call the parent API. */
+  readonly parentAccessToken?: string;
+  /** The parent's ServiceConfig (needed for pass-through API calls to the parent). */
+  readonly parentConfig: ServiceConfig;
 }
 ```
 
@@ -260,18 +381,19 @@ export class AdapterAuthError extends Error {
 
 **Read-method error model:** methods like `getLibrary`, `getContinueWatching`, `search` etc. **must NOT silently return `[]` on `AdapterAuthError`**. Instead, they throw up the stack. The consuming route catches and returns `{ items: [], error: { kind: 'auth_expired' | ... } }` to the client, which renders the stale-credential banner. (This is a behavior change from today's pattern and is covered in the Invidious spec.)
 
-### Schema additions — `user_service_credentials`
+### Schema — reference to umbrella
 
-```sql
--- New migration, additive only, no data migration
-ALTER TABLE user_service_credentials ADD COLUMN stored_password TEXT;
-ALTER TABLE user_service_credentials ADD COLUMN stale_since TEXT;
-```
+The full target schema for `services` and `user_service_credentials` is defined in the umbrella spec's *Target data model* section. The contract just references those columns — it does not redefine them. Key points for contract consumers:
 
-- `stored_password` — nullable. Encrypted at rest via the existing Nexus credential-encryption layer. Nullable because users can opt out of password storage at link time.
-- `stale_since` — nullable ISO timestamp. Null = credential is healthy. Set by the registry when auto-refresh fails or a health probe returns `'expired'` or `'invalid'`.
+- **`user_service_credentials.stored_password`** — nullable, encrypted. Populated at link time if the user opted in. Consumed by `refreshCredential`.
+- **`user_service_credentials.stale_since`** — nullable ISO timestamp. Set by the shared registry layer when auto-refresh fails or a health probe returns `'expired'`/`'invalid'`. Cleared on successful reconnect.
+- **`user_service_credentials.parent_service_id`** — nullable FK to `services.id`. Set by derived adapters during auto-linking.
+- **`user_service_credentials.auto_linked`** — boolean. True when the credential was created by the auto-link flow.
+- **`user_service_credentials.nexus_managed`** — boolean. True when the credential was created by `createUser` (Nexus owns the downstream account per the umbrella's managed-account model).
+- **`user_service_credentials.extra_auth`** — nullable JSON. Adapter-specific auth state (refresh tokens, device IDs, OAuth session).
+- **`services.admin_cred_stale_since`** / **`services.admin_cred_last_probed_at`** — admin-side health tracking, updated by `probeAdminCredential`.
 
-Drizzle schema change in `src/lib/db/schema.ts:46-60`. Migration generated via `pnpm db:generate`.
+**Destructive migrations are fine** per the umbrella (Parker, 2026-04-14). The migration in `drizzle/` reflects the target schema directly, not a minimum diff.
 
 ### Shared registry layer — `src/lib/adapters/registry/`
 
@@ -319,23 +441,41 @@ Props are **service-agnostic** — each component takes a `service: AccountServi
 
 ### How existing adapters map to the new contract
 
-| Adapter | Tier | userLinkable | supportsRegistration | supportsPasswordStorage | supportsHealthProbe | supportsAccountCreation |
-|---|---|---|---|---|---|---|
-| Radarr | server | no | — | — | — | — |
-| Sonarr | server | no | — | — | — | — |
-| Lidarr | server | no | — | — | — | — |
-| Prowlarr | server (enrichment) | no | — | — | — | — |
-| Bazarr | server (enrichment) | no | — | — | — | — |
-| Jellyfin | user-standalone | yes | yes | **yes** (already implemented ad-hoc) | yes | yes |
-| Calibre-Web | user-standalone | yes | no | yes | yes (`/opds` probe) | yes |
-| Invidious | user-standalone | yes | **yes** (via signin auto-register) | yes | yes | no (same as authenticate) |
-| Kavita | user-standalone | yes | no | yes | yes | no |
-| Plex | user-standalone | yes | no | no (OAuth token is permanent) | yes | no |
-| RomM | user-standalone | yes | no | yes | yes | yes |
-| Overseerr | user-derived | yes | no | no (uses parent cred) | yes | no |
-| Streamystats | user-derived | yes | no | no (uses parent cred) | yes | no |
+The split between admin and user auth creates two orthogonal columns. Each adapter is classified on both dimensions.
 
-For derived adapters (`user-derived` tier), the auth hooks mostly delegate to the parent. `refreshCredential` on Overseerr calls the Jellyfin adapter's `refreshCredential` internally. This isolation is the whole point — derived adapters don't duplicate Jellyfin's refresh logic.
+| Adapter | Tier | `adminAuth.required` | admin fields | `userAuth.userLinkable` | `supportsRegistration` | `supportsAccountCreation` | `supportsPasswordStorage` |
+|---|---|---|---|---|---|---|---|
+| Radarr | server | **yes** | `url`, `adminApiKey` | no | — | — | — |
+| Sonarr | server | **yes** | `url`, `adminApiKey` | no | — | — | — |
+| Lidarr | server | **yes** | `url`, `adminApiKey` | no | — | — | — |
+| Prowlarr | server (enrichment) | **yes** | `url`, `adminApiKey` | no | — | — | — |
+| Bazarr | server (enrichment) | **yes** | `url`, `adminApiKey` | no | — | — | — |
+| Jellyfin | user-standalone | optional (for mgmt) | `url`, `adminUsername`, `adminPassword` | **yes** | yes | **yes** | **yes** (already implemented ad-hoc) |
+| Calibre-Web | user-standalone | optional | `url`, `adminUsername`, `adminPassword` | **yes** | no | **yes** | yes |
+| Invidious | user-standalone | no | — | **yes** | **yes** (signin auto-registers) | no (same call) | yes |
+| Kavita | user-standalone | optional | `url`, `adminUsername`, `adminPassword` | **yes** | no | no | yes |
+| Plex | user-standalone | **yes** | `url`, `adminApiKey` (X-Plex-Token) | **yes** | no | no | no (OAuth token is permanent) |
+| RomM | user-standalone | **yes** | `url`, `adminApiKey` | **yes** | no | **yes** | yes |
+| Overseerr | user-derived | **yes** | `url`, `adminApiKey` | **yes** | no | no | no (derives from parent) |
+| Streamystats | user-derived | **yes** | `url`, `adminApiKey`, `adminUrlOverride` | **yes** | no | no | no (derives from parent) |
+
+**Reading the table:**
+- **Server-level adapters** (Radarr, Sonarr, Lidarr, Prowlarr, Bazarr) have only `adminAuth`. No per-user anything.
+- **Invidious** is unique: **no admin surface at all**. `adminAuth` is absent. Users each have their own SID cookie; the admin never sees it.
+- **Jellyfin / Calibre-Web / Kavita** have *optional* admin auth — the adapter works with just user credentials, but admin creds unlock management operations like `createUser` and `getUsers`.
+- **Plex / RomM** require admin credentials for content browsing; per-user tokens layer on top.
+- **Overseerr / Streamystats** are derived — they require admin credentials to run and get user creds from a parent service via `findAutoLinkMatch`.
+
+### Derived adapters and auto-linking
+
+Derived adapters (tier `user-derived`) implement `findAutoLinkMatch` as their primary user-auth path. The shared registry calls it when a user links a parent service, passing a `LinkedParentContext`. Match semantics are adapter-specific:
+
+- **Overseerr** — calls its own `getUsers(config)` with admin creds, filters for a row where `jellyfinUserId === parent.parentExternalUserId`. Returns the matched user's external id as the derived credential. If no match and the parent is Jellyfin, optionally triggers Overseerr's "import Jellyfin user" flow and retries.
+- **Streamystats** — directly copies the parent's access token (for Streamystats, the Jellyfin token IS the credential). No matching needed, just validation that the token works against the Streamystats endpoint.
+
+Derived adapters **still implement `probeCredential` and `refreshCredential`**, but their implementations typically delegate: Streamystats's `refreshCredential` re-fetches the parent's access token via the registry; Overseerr's `refreshCredential` re-runs the match function if the parent got re-authed.
+
+**The derived-adapter contract is thin on purpose.** The complex auto-linking orchestration (consent dialogs, per-service parent choice, conflict resolution) lives in the auto-linking sub-spec and the shared registry layer, NOT in each adapter. Each adapter just has to answer one question: *"given this parent credential, what's my corresponding user credential?"*
 
 ### Contract versioning
 
@@ -380,6 +520,9 @@ Covered in detail in deliverable #3 of ProjectOS Nexus #2. Summary:
 - **Hooks required for userLinkable** (Parker: *"I like #2"*)
 - **Adapter-contract spec first**, Invidious becomes the first real consumer
 - **Pluggable** = external plugin bundles long-term; this spec enables that by being strict enough to freeze as a v1 contract
+- **Destructive migrations are fine in dev** — the schema section references the umbrella's target shape directly, no additive-only posture
+- **Split adminAuth/userAuth** (via umbrella's resolution of the tier-vs-admin-auth tension)
+- **Terminology follows the umbrella**: `Connect account` as primary button, `Linked account` as record label, `Reconnect` for stale state — all adapters and UI follow these conventions
 
 ## Open questions
 
