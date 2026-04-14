@@ -1,6 +1,7 @@
 import type { ServiceAdapter } from './base';
 import type { CalendarItem, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { withCache } from '../server/cache';
+import { invidiousFetch } from './invidious/client';
 
 // ---------------------------------------------------------------------------
 // Invidious adapter
@@ -113,6 +114,10 @@ async function formAuth(
 // Authenticated fetch helper
 // ---------------------------------------------------------------------------
 
+// invFetch now delegates to the centralized invidiousFetch helper in
+// ./invidious/client.ts, which handles AdapterAuthError throwing so the
+// shared registry auth layer can catch + auto-refresh. Kept as a thin
+// wrapper here to avoid touching every internal call site at once.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invFetch<T = any>(
 	config: ServiceConfig,
@@ -120,31 +125,7 @@ async function invFetch<T = any>(
 	userCred?: UserCredential,
 	init?: RequestInit
 ): Promise<T> {
-	const url = `${config.url}${path}`;
-	const headers: Record<string, string> = {
-		...(init?.headers as Record<string, string> ?? {})
-	};
-
-	if (userCred?.accessToken) {
-		headers['Cookie'] = `SID=${userCred.accessToken}`;
-	}
-
-	const res = await fetch(url, {
-		...init,
-		headers,
-		signal: init?.signal ?? AbortSignal.timeout(8000)
-	});
-
-	if (!res.ok) {
-		throw new Error(`Invidious ${path} -> ${res.status}`);
-	}
-
-	// 204 No Content — nothing to parse
-	if (res.status === 204 || res.headers.get('content-length') === '0') {
-		return undefined as T;
-	}
-
-	return res.json() as Promise<T>;
+	return invidiousFetch<T>(config, path, userCred, { init });
 }
 
 // ---------------------------------------------------------------------------
