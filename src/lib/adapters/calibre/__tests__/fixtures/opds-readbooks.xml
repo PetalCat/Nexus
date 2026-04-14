@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:dcterms="http://purl.org/dc/terms/">
+  <icon>/static/favicon.ico</icon>
+  <id>urn:uuid:2853dacf-ed79-42f5-8e8a-a7bb3d1ae6a2</id>
+  <updated>2026-04-13T21:09:27+00:00</updated>
+  <link rel="self"
+        href="/opds/readbooks?"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+  <link rel="start"
+        href="/opds"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+  <link rel="up"
+        href="/opds"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+
+
+
+    <link rel="search"
+      href="/opds/osd"
+      type="application/opensearchdescription+xml"/>
+  <link type="application/atom+xml" rel="search" title="Search" href="/opds/search/{searchTerms}" />
+  <title>Calibre-Web</title>
+  <author>
+    <name>Calibre-Web</name>
+    <uri>https://github.com/janeczku/calibre-web</uri>
+  </author>
+
+  
+  
+  <entry>
+    <title>The Hobbit</title>
+    <id>urn:uuid:b57862dd-5e0d-4aa3-bf11-8ebbb74c179b</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>J.R.R. Tolkien</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Allen &amp; Unwin</name>
+      </publisher>
+    
+    <published>1937-09-21T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Classic"
+              label="Classic"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Fantasy"
+              label="Fantasy"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★★<br/>
+    
+    
+    TAGS: Classic, Fantasy<br/>
+    
+    
+    SERIES: Middle-earth [1]<br/>
+    
+
+    
+
+    
+        <p>A hobbit&#39;s unexpected journey.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/1/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  
+  
+  
+</feed>
