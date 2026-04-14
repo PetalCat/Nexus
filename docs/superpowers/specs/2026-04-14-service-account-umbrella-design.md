@@ -81,25 +81,85 @@ One row per (user, service) pair. `access_token` is the user's auth material. `e
 
 ## Target data model
 
-Additive changes only. No destructive migrations. Existing credentials continue working during rollout.
+**Destructive migrations allowed.** Parker explicitly called out (2026-04-14) that defensive additive-only posturing is wrong for dev — design the schema you actually want and drop legacy fields cleanly. This section describes the target shape, not the diff from today.
+
+### `services` table — target shape
 
 ```sql
--- services table: two new columns for admin-credential health
-ALTER TABLE services ADD COLUMN admin_cred_stale_since TEXT;  -- ISO timestamp or null
-ALTER TABLE services ADD COLUMN admin_cred_last_probed_at TEXT;  -- ISO timestamp or null
+CREATE TABLE services (
+  id                          TEXT PRIMARY KEY,
+  name                        TEXT NOT NULL,
+  type                        TEXT NOT NULL,          -- adapter type key
+  url                         TEXT NOT NULL,
+  enabled                     INTEGER NOT NULL DEFAULT 1,
 
--- user_service_credentials: the four columns identified so far
-ALTER TABLE user_service_credentials ADD COLUMN stored_password TEXT;  -- encrypted, nullable
-ALTER TABLE user_service_credentials ADD COLUMN stale_since TEXT;  -- ISO timestamp or null
-ALTER TABLE user_service_credentials ADD COLUMN parent_service_id TEXT;  -- FK → services.id, nullable
-ALTER TABLE user_service_credentials ADD COLUMN auto_linked INTEGER DEFAULT 0 NOT NULL;  -- boolean flag
+  -- Admin credential, adapter-specific fields
+  admin_url_override          TEXT,                   -- optional alt URL for admin calls
+  admin_api_key               TEXT,                   -- encrypted if present
+  admin_username              TEXT,
+  admin_password              TEXT,                   -- encrypted if present
+
+  -- Admin credential health
+  admin_cred_stale_since      TEXT,                   -- ISO timestamp or null
+  admin_cred_last_probed_at   TEXT,                   -- ISO timestamp or null
+
+  created_at                  INTEGER NOT NULL,
+  updated_at                  INTEGER NOT NULL
+);
 ```
 
-**Notes:**
-- `stored_password` uses the existing Nexus credential-encryption layer. Nullable because users can opt out at link time.
-- `stale_since` is set when auto-refresh fails OR health probe returns an error. Cleared on successful reconnect.
-- `parent_service_id` replaces the functional role of `linked_via` for disambiguation. `linked_via` stays for backward compatibility (no breaking rename) but new code reads `parent_service_id`. When derived from "just a parent type, service not yet resolved," it's null.
-- `auto_linked` is true when the credential was created by the auto-linking flow (as opposed to a manual sign-in). Lets the UI show different affordances ("Change parent" for auto-linked, "Reconnect" for manual).
+Changes from today:
+- `api_key` / `username` / `password` get renamed to `admin_api_key` / `admin_username` / `admin_password` to explicitly mark them as admin-scoped. No more overloading the bare field names.
+- New `admin_url_override` column for adapters that need a second URL (e.g. Streamystats's "Jellyfin URL I'm proxying" that currently hides in the `username` field). Gets rid of that abuse.
+- New health-tracking columns `admin_cred_stale_since` and `admin_cred_last_probed_at`.
+
+### `user_service_credentials` table — target shape
+
+```sql
+CREATE TABLE user_service_credentials (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  service_id           TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+
+  -- Identity on the remote service
+  external_user_id     TEXT,
+  external_username    TEXT,
+
+  -- Auth material
+  access_token         TEXT,                   -- encrypted; SID, JWT, or whatever the adapter uses
+  stored_password      TEXT,                   -- encrypted, nullable; enables auto-refresh
+  extra_auth           TEXT,                   -- adapter-specific JSON, nullable
+
+  -- Management metadata
+  nexus_managed        INTEGER NOT NULL DEFAULT 0,  -- renamed from `managed`; true = Nexus created the account
+  auto_linked          INTEGER NOT NULL DEFAULT 0,  -- true = created by auto-link flow, not manual sign-in
+  parent_service_id    TEXT REFERENCES services(id) ON DELETE SET NULL,
+
+  -- State tracking
+  linked_at            TEXT NOT NULL,
+  stale_since          TEXT,                        -- ISO timestamp or null
+  last_probed_at       TEXT,                        -- ISO timestamp or null
+
+  UNIQUE(user_id, service_id)
+);
+```
+
+Changes from today:
+- `managed` renamed to `nexus_managed` — clearer semantics, matches the Nexus-owns-it contract.
+- `linked_via` **dropped entirely**. Replaced by `parent_service_id` which points at the actual parent service row. If you need to know the parent's *type*, join to `services`.
+- New `stored_password` column — encrypted, nullable, enables auto-refresh.
+- New `stale_since` and `last_probed_at` — credential health tracking.
+- New `auto_linked` flag — distinguishes credentials created by the auto-link flow from credentials the user typed in manually.
+- New `extra_auth` JSON column for adapter-specific auth state that doesn't fit `access_token` (e.g. refresh tokens, device IDs, OAuth session state). Nullable; adapters that don't need it ignore it.
+
+### Migration approach
+
+1. Generate a new migration via `pnpm db:generate` that reflects the target schema directly (not a series of additive patches).
+2. Migration drops renamed/removed columns; Drizzle handles the DDL.
+3. Any existing data that matters gets copied in the migration's data-transform step (e.g. `managed` → `nexus_managed`).
+4. Dev DBs can be blown away entirely if the migration is messy — that's the whole point of dev.
+
+**Open migration question:** do we want the migration to be a single comprehensive change, or do we split it by concern (one for the service admin-cred rename, one for user_service_credentials extensions, one for drops)? Prefer comprehensive for dev but fine to split if the review is easier. Flag for the settings UX sub-spec to resolve when it touches this code.
 
 ## Credential types and the "tier" question — resolved
 
@@ -390,8 +450,9 @@ Each of these is a planned follow-up. They do not need to be written before the 
 
 ### Backward compatibility
 
-- **No data migration.** All new columns are nullable. Existing rows continue to work as-is, just without the new features.
-- **`linked_via` stays.** The new `parent_service_id` co-exists. Code reads both during the transition, writes only the new one. `linked_via` can be dropped in a later cleanup pass.
+- **Destructive migrations are fine in dev** (Parker, 2026-04-14). No preserve-legacy-columns-for-compat posturing.
+- **Schema migration** generated via `pnpm db:generate` directly produces the target shape. Drops `linked_via`, renames `managed` → `nexus_managed`, renames `api_key/username/password` → `admin_*`, adds all the new columns in one pass.
+- **Existing credentials** get migrated via Drizzle's data-transform step where possible (`managed` → `nexus_managed`, etc). If that's lossy or awkward, dev DBs can be wiped — reseed is cheap.
 - **Adapter contract change is breaking at the type level.** Adapters that don't implement the new required methods won't compile. That's intentional — every in-tree adapter gets migrated as part of this initiative, and external plugin authors get a version bump to react to.
 
 ## Risks and unknowns
@@ -417,7 +478,7 @@ Each of these is a planned follow-up. They do not need to be written before the 
 1. **First-run route name** — deferred pending Codex industry-standard research (task in flight). Will update once findings return. Leaning toward `/welcome` or `/onboarding` but not committing yet.
 2. **Existing users at rollout** — no retroactive welcome flow. Inline affordances only, plus a *"Run onboarding again"* button in settings. Documented in the onboarding narratives section above.
 3. **Admin subtree** — `/admin/*` top-level, separate from `/settings/*`. Maximum visual distinction between user-level and admin-level concerns.
-4. **`linked_via` drop plan** — Parker doesn't care. Keep the column indefinitely; code reads both `parent_service_id` (preferred) and `linked_via` (legacy) during the transition and beyond. Cleanup is best-effort future work, not a gating concern.
+4. **`linked_via` drop plan** — drop it. The target data-model section reflects the clean schema (no `linked_via`). Replaced by `parent_service_id`. Also noted: destructive migrations are fine in dev per Parker's 2026-04-14 feedback, so this rename is explicit, not a gradual transition.
 5. **Managed account ownership + unlink semantics** — resolved via brainstorm. See dedicated section below. Summary: Nexus owns managed accounts, user leases them; managed-vs-owned is a per-credential flag; unlinking a managed account confirms-then-deletes the downstream account by default; a managed→owned *migration path* is a future concern that the data model needs to support.
 
 ## Out of scope for this initiative
