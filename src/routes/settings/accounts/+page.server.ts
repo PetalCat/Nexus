@@ -1,6 +1,8 @@
 import { registry } from '$lib/adapters/registry';
 import { getUserCredentials, getUserCredentialForService } from '$lib/server/auth';
 import { getEnabledConfigs } from '$lib/server/services';
+import { buildAllAccountServiceSummaries } from '$lib/server/account-services';
+import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
 
 export interface AccountService {
@@ -25,7 +27,13 @@ export interface AccountService {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = locals.user;
-	if (!user) return { accountServices: [] as AccountService[], isAdmin: false };
+	if (!user) {
+		return {
+			accountServices: [] as AccountService[],
+			accountSummaries: [] as AccountServiceSummary[],
+			isAdmin: false
+		};
+	}
 
 	const configs = getEnabledConfigs();
 	const credentials = getUserCredentials(user.id);
@@ -94,8 +102,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 		});
 	}
 
+	// New normalized summary shape for the shared AccountLinkModal component.
+	// Runs in parallel with the legacy accountServices shape the existing
+	// page rendering still depends on — both are kept during the transition.
+	const accountSummaries = buildAllAccountServiceSummaries(user.id);
+
 	return {
 		accountServices,
+		accountSummaries,
 		isAdmin: user.isAdmin ?? false
 	};
 };
