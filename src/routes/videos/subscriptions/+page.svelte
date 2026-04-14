@@ -1,10 +1,12 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
-	import { goto } from '$app/navigation';
-	import { Rss, History, ListVideo, ArrowLeft, PlaySquare } from 'lucide-svelte';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { Rss, History, ListVideo, ArrowLeft } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
 	import { toVideoCardMedia } from '$lib/utils/video-format';
+	import SignInCard from '$lib/components/account-linking/SignInCard.svelte';
+	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -58,17 +60,19 @@
 		</a>
 	</nav>
 
-	{#if !data.hasLinkedAccount}
-		<div class="flex flex-col items-center justify-center py-20 text-center">
-			<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface text-muted">
-				<PlaySquare size={28} strokeWidth={1.5} />
-			</div>
-			<p class="font-medium text-cream">No Invidious account linked</p>
-			<p class="mt-1 text-sm text-muted">Link your account in settings to see subscriptions.</p>
-			<a href="/settings/accounts" class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80">
-				Go to Settings
-			</a>
-		</div>
+	{#if data.invidiousSummary?.staleSince}
+		<StaleCredentialBanner
+			service={data.invidiousSummary}
+			context="Your subscription feed requires Invidious"
+			onReconnected={() => invalidateAll()}
+		/>
+	{:else if !data.hasLinkedAccount && data.invidiousSummary}
+		<SignInCard
+			service={data.invidiousSummary}
+			features={['subscriptions', 'history', 'playlists']}
+			variant="hero"
+			onConnected={() => invalidateAll()}
+		/>
 	{:else if data.today.length === 0 && data.thisWeek.length === 0 && data.earlier.length === 0}
 		<div class="flex flex-col items-center justify-center py-20 text-center">
 			<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface text-muted">
