@@ -214,8 +214,8 @@ Also scaffolding for a future focused spec.
 The page-level plan. Specifics (layouts, components) live in the settings UX sub-spec; this section defines the route structure and what lives where.
 
 ```
-/settings/                     # NEW: landing page
-  +page.svelte                 # index listing each settings section
+/settings/                     # NEW: user-level settings landing page
+  +page.svelte                 # index listing each user-level settings section
 
 /settings/accounts             # EXISTING: reworked
   +page.svelte                 # the user's linked accounts, health, management
@@ -226,14 +226,14 @@ The page-level plan. Specifics (layouts, components) live in the settings UX sub
 
 /settings/profile              # EXISTING: unchanged in this pass
 
-/settings/admin/               # NEW: admin-only section
+/admin/                        # NEW: admin-only top-level section (Parker decision)
   services/                    # Manage service rows (add/edit/remove)
   users/                       # Manage Nexus users (promote/demote, invite links)
 ```
 
-The **admin/** subpath is new. Today's "services admin page" lives somewhere else and is reachable inconsistently; this consolidates it.
+The **`/admin/*` top-level subtree** is new and deliberately separate from `/settings/*` — Parker's call (2026-04-14) for maximum visual distinction between "things that affect only me" and "things that affect everyone on this Nexus install." Today's "services admin page" lives somewhere else and is reachable inconsistently; this consolidates it under `/admin/services/`.
 
-Non-admins can reach `/settings/` and the four user-level sections. `/settings/admin/*` returns 403 for non-admins.
+Non-admins can reach `/settings/` and its children. `/admin/*` returns 403 for non-admins.
 
 **Clear visual distinction** between user-level and admin-level settings pages via page chrome (different header style, explicit "Admin" label, red accent). No more ambiguity about which credential a given page is managing.
 
@@ -272,6 +272,97 @@ The first-run flow is a NEW route, probably `/welcome` or `/onboarding`, not sho
 Current state: straight to home page.
 
 **Target:** unchanged, except that the home page now shows **inline sign-in affordances** (from the Invidious spec but generalized) when a user-level service is registered but unlinked, and shows **stale-credential banners** when a credential has gone bad. Users don't need to think about account management unless something's broken.
+
+### Existing users at rollout (transition policy)
+
+**Parker decision 2026-04-14:** existing users do NOT see the first-run flow retroactively. They get the new inline sign-in affordances and stale banners when they visit relevant pages, and they can re-trigger the full welcome flow manually via a *"Run onboarding again"* button in `/settings/accounts`. No forced interruption. The welcome flow runs automatically only for users created after the rollout date.
+
+## Managed account ownership and lifecycle
+
+Resolved via brainstorm 2026-04-14. This section is normative.
+
+### Ownership model: "Nexus owns it, user leases it"
+
+When Nexus creates an account on a downstream service on behalf of a user (via `adapter.createUser`), that account is a **managed account**. The ownership contract:
+
+- **Nexus owns the password.** At creation time, Nexus generates a random strong password, stores it encrypted in `user_service_credentials.stored_password`, and **never shows it to the user**. The user can't log in to the downstream service directly with that password because they don't know it.
+- **The user leases the account for as long as they're linked.** All interactions with the downstream service flow through Nexus. Nexus rotates the password on its own schedule if needed.
+- **Nexus is responsible for cleanup.** When the user unlinks, Nexus deletes the downstream account by default (see unlink semantics below).
+- **The `external_user_id` and `external_username` belong to the user.** Their identity on the downstream service is theirs — the account is discoverable by that identity even though the password isn't shared.
+
+This is cleaner than "the password is the user's random string, go change it if you want" because it avoids the split-brain problem where a user changes their Jellyfin password externally and then Nexus can't re-auth.
+
+### Per-credential granularity
+
+The `managed: boolean` flag on `user_service_credentials` stays. Each credential row independently decides whether it's managed or user-owned. This means:
+
+- Parker can have a managed Jellyfin account (Nexus created it) while another Nexus user has a user-owned Jellyfin account (they had one before Nexus existed and linked it manually). Same underlying Jellyfin service.
+- The UI shows a distinct badge for managed credentials: *"Managed by Nexus"* vs *"Linked"*.
+- Users can't flip the flag arbitrarily — transitioning from managed to owned requires the migration path (below).
+
+### Unlink semantics — confirm then delete by default
+
+Default behavior: unlinking a managed account shows a confirmation modal with destructive framing:
+
+> **Unlink managed account**
+>
+> This will also **delete the account on Jellyfin** (`jellyfin.parker.dev`). This action cannot be undone.
+>
+> External username: `parker`
+> Linked since: Apr 14, 2026
+>
+> [ ] Keep the downstream account *(only if migration path was previously taken)*
+>
+> [**Delete account and unlink**] [Cancel]
+
+The *"Keep the downstream account"* checkbox is **only visible and checkable if the credential has been migrated to owned** (see below). Without migration, the default action is delete-because-Nexus-owns-it.
+
+For non-managed (user-owned) credentials, the unlink flow is simpler:
+
+> **Unlink**
+>
+> This will remove your Jellyfin credential from Nexus. Your Jellyfin account stays intact.
+>
+> [Unlink] [Cancel]
+
+### Managed → owned migration path
+
+Parker's ask: *"I also feel like there should optionally be a migration path for managed."* This is a real-world escape hatch for users who want to leave Nexus but keep the accounts it created for them.
+
+The migration concept: convert a managed account to a user-owned account, handing the user the password they need to authenticate directly.
+
+**Proposed flow** (subject to the managed-account sub-spec):
+
+1. User navigates to the managed credential in `/settings/accounts` and clicks **"Convert to my account"** (or similar).
+2. A confirmation modal explains: *"You'll take ownership of this account. Nexus will give you the current password, and you should change it on [service] immediately. After conversion, unlinking won't delete the account."*
+3. Modal shows a one-time password reveal: the encrypted `stored_password` is decrypted in-session and shown to the user once (copy-to-clipboard, with a scary "dismiss and lose this forever" affordance).
+4. User confirms. The credential row's `managed` flag flips to 0. `stored_password` is cleared (since Nexus no longer has control of it and the user should change it on the downstream service anyway). The credential becomes an ordinary user-owned link.
+5. From that point forward, unlinking doesn't delete the downstream account (the "Keep the downstream account" checkbox in the unlink flow becomes selectable).
+
+**Open questions deferred to the managed-account sub-spec:**
+- Should the downstream password be *rotated to a new random value* at conversion time (and that new value shown to the user), or should Nexus hand over whatever password it currently has stored? Rotating is safer (the old password was never meant to be shown) but requires an API call to the downstream service and may not be possible for all adapters.
+- Is the conversion reversible (owned → managed)? Probably not — once Nexus relinquishes control it can't reliably re-take it.
+- Does the migration require a fresh probe/health check before proceeding? Probably yes.
+
+**Data-model implication for this umbrella:** no new columns needed. The existing `managed` boolean + `stored_password` columns already support both states (`managed=1 && stored_password!=null` is managed; `managed=0 && stored_password!=null` is user-owned-with-stored-password; `managed=0 && stored_password=null` is user-owned-without-auto-refresh).
+
+### Creation flow disclosure
+
+At creation time (the "Create Managed Account" flow on the link modal), the user sees:
+
+> **Create a new Jellyfin account**
+>
+> Nexus will create an account on `jellyfin.parker.dev` for you. It'll manage the password automatically so your sessions refresh without you thinking about it.
+>
+> - You won't need to sign in to Jellyfin directly
+> - If you unlink, the account gets deleted
+> - You can take ownership of this account later if you want to keep it independently
+>
+> Username: [parker________]
+>
+> [**Create account**] [Cancel]
+
+Clear upfront framing of the Nexus-owns-it contract, with an explicit mention of the migration path.
 
 ## Cross-references (the other 6 specs this umbrella ties together)
 
@@ -321,13 +412,13 @@ Each of these is a planned follow-up. They do not need to be written before the 
 - **First-run onboarding for regular users is new work** (Partial admin-only wizard exists)
 - **Migrate everything** (all 13 adapters, not just userLinkable ones)
 
-## Open questions (items that need Parker input before sub-specs can proceed)
+## Parker decisions (2026-04-14)
 
-1. **First-run `/welcome` route name.** `/welcome` vs `/onboarding` vs `/first-run` vs something else. Minor but shapes the URL.
-2. **Existing-user behavior at rollout.** Should they see the `/welcome` flow retroactively (opt-in), or just start getting inline sign-in affordances when they visit pages that need a credential? Prefer inline for existing users — less disruptive. Want confirmation.
-3. **Admin subtree.** Is `/settings/admin/*` the right path, or should admin settings live at `/admin/*` (top-level) to reinforce the distinction? Argument for top-level: even more visual separation. Argument for nested: keeps all settings under one section so users only have to remember one location.
-4. **Parent-service-id vs linked-via.** Is it okay to keep `linked_via` as a stringly-typed legacy field indefinitely, or should we plan a later drop-it cleanup? Preference is "drop it after the next major version bump."
-5. **Managed account delete-on-unlink.** Today, unlinking a managed account optionally deletes the upstream account. Does this stay as an opt-in at unlink time, or become a per-service user preference (*"Auto-delete my Jellyfin account if I unlink"*)?
+1. **First-run route name** — deferred pending Codex industry-standard research (task in flight). Will update once findings return. Leaning toward `/welcome` or `/onboarding` but not committing yet.
+2. **Existing users at rollout** — no retroactive welcome flow. Inline affordances only, plus a *"Run onboarding again"* button in settings. Documented in the onboarding narratives section above.
+3. **Admin subtree** — `/admin/*` top-level, separate from `/settings/*`. Maximum visual distinction between user-level and admin-level concerns.
+4. **`linked_via` drop plan** — Parker doesn't care. Keep the column indefinitely; code reads both `parent_service_id` (preferred) and `linked_via` (legacy) during the transition and beyond. Cleanup is best-effort future work, not a gating concern.
+5. **Managed account ownership + unlink semantics** — resolved via brainstorm. See dedicated section below. Summary: Nexus owns managed accounts, user leases them; managed-vs-owned is a per-credential flag; unlinking a managed account confirms-then-deletes the downstream account by default; a managed→owned *migration path* is a future concern that the data model needs to support.
 
 ## Out of scope for this initiative
 
