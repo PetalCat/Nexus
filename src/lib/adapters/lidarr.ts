@@ -165,6 +165,35 @@ export const lidarrAdapter: ServiceAdapter = {
 	defaultPort: 8686,
 	color: '#1db954',
 	abbreviation: 'LI',
+
+	contractVersion: 1,
+	tier: 'server',
+	capabilities: {
+		media: ['music'],
+		adminAuth: {
+			required: true,
+			fields: ['url', 'adminApiKey'],
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 2 },
+		calendar: true,
+		requests: true
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const res = await fetch(`${config.url}/api/v1/system/status?apikey=${encodeURIComponent(config.apiKey ?? '')}`, {
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401 || res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
 	isSearchable: true,
 	searchPriority: 2,
 	icon: 'lidarr',

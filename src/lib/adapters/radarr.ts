@@ -58,6 +58,36 @@ export const radarrAdapter: ServiceAdapter = {
 	defaultPort: 7878,
 	color: '#fbbf24',
 	abbreviation: 'RD',
+
+	// New adapter contract fields
+	contractVersion: 1,
+	tier: 'server',
+	capabilities: {
+		media: ['movie'],
+		adminAuth: {
+			required: true,
+			fields: ['url', 'adminApiKey'],
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 1 },
+		calendar: true,
+		requests: true
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const res = await fetch(`${config.url}/api/v3/system/status?apikey=${encodeURIComponent(config.apiKey ?? '')}`, {
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401 || res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
 	isSearchable: true,
 	searchPriority: 3,
 	icon: 'radarr',

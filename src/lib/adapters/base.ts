@@ -11,6 +11,25 @@
  */
 
 import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem, CalendarItem } from './types';
+import type {
+	AdapterCapabilities,
+	AdapterContractVersion,
+	AdapterTier,
+	CredentialProbeResult,
+	LinkedParentContext,
+	UserCredentialResult
+} from './contract';
+
+// Re-export contract types so downstream imports can grab them from base.ts
+// without separately importing contract.ts.
+export type {
+	AdapterCapabilities,
+	AdapterContractVersion,
+	AdapterTier,
+	CredentialProbeResult,
+	LinkedParentContext,
+	UserCredentialResult
+};
 
 export type OnboardingCategory =
 	| 'media-server'
@@ -87,8 +106,38 @@ export interface ServiceAdapter {
 	/** Poll interval in ms for pollSessions. Defaults to 10000 (10s). */
 	readonly pollIntervalMs?: number;
 
+	// ─── New contract fields (2026-04-14) ──────────────────────────────────
+	// These are optional during the migration; adapters populate them
+	// gradually. Once every adapter has them, they become required. See
+	// docs/superpowers/specs/2026-04-14-adapter-contract-design.md.
+
+	/** Contract version this adapter was written against. */
+	readonly contractVersion?: AdapterContractVersion;
+
+	/** Adapter tier — describes how user credentials are obtained. */
+	readonly tier?: AdapterTier;
+
+	/** Formal capability declaration. Supersedes the loose per-field flags above. */
+	readonly capabilities?: AdapterCapabilities;
+
 	/** Check if the service is reachable */
 	ping(config: ServiceConfig): Promise<ServiceHealth>;
+
+	// ─── New auth-resilience hooks (2026-04-14) ────────────────────────────
+	// Optional during migration. Required for tier='user-standalone' and
+	// 'user-derived' once migration is complete.
+
+	/** Cheap probe of the admin credential — required when capabilities.adminAuth.supportsHealthProbe. */
+	probeAdminCredential?(config: ServiceConfig): Promise<CredentialProbeResult>;
+
+	/** Cheap probe of a user credential — required when capabilities.userAuth.supportsHealthProbe. */
+	probeCredential?(config: ServiceConfig, userCred: UserCredential): Promise<CredentialProbeResult>;
+
+	/** Refresh an expired user credential using a stored password — required when capabilities.userAuth.supportsPasswordStorage. */
+	refreshCredential?(config: ServiceConfig, userCred: UserCredential, storedPassword: string): Promise<UserCredentialResult>;
+
+	/** Derived-tier only — given a parent credential, find the corresponding user credential on this adapter. */
+	findAutoLinkMatch?(config: ServiceConfig, parent: LinkedParentContext): Promise<UserCredentialResult | null>;
 
 	/** Items the user is currently in progress on */
 	getContinueWatching?(config: ServiceConfig, userCred?: UserCredential): Promise<UnifiedMedia[]>;
