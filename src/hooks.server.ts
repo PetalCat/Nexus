@@ -99,6 +99,26 @@ export const handle: Handle = async ({ event, resolve }) => {
 				throw redirect(303, '/pending-approval');
 			}
 		}
+
+		// First-run welcome flow for non-admin users.
+		// Admins go through /setup; regular users get /welcome. The flag is
+		// set to an ISO timestamp when the user finishes the wizard via
+		// actions.complete — null means they've never seen it.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const welcomeCompletedAt = (user as any).welcomeCompletedAt as string | null | undefined;
+		if (
+			!user.isAdmin &&
+			!welcomeCompletedAt &&
+			!path.startsWith('/welcome') &&
+			!path.startsWith('/login') &&
+			!path.startsWith('/logout') &&
+			!path.startsWith('/api/auth/logout') &&
+			!path.startsWith('/reset-password') &&
+			!path.startsWith('/_app') &&
+			path !== '/favicon.ico'
+		) {
+			throw redirect(303, '/welcome');
+		}
 	}
 
 	// API routes: let each endpoint decide how to handle missing auth

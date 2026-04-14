@@ -172,6 +172,11 @@ export const users = sqliteTable('users', {
 	avatar: text('avatar'), // URL or path to profile picture
 	forcePasswordReset: integer('force_password_reset', { mode: 'boolean' }).notNull().default(false),
 	status: text('status').notNull().default('active'), // 'active' | 'pending'
+	// Per-user onboarding flag for the /welcome flow. Null means "never seen
+	// the welcome flow yet"; set to an ISO timestamp when the user completes
+	// or skips the /welcome wizard. Non-admin users with null welcomeCompletedAt
+	// are redirected to /welcome on first login.
+	welcomeCompletedAt: text('welcome_completed_at'),
 	createdAt: text('created_at')
 		.notNull()
 		.default(sql`(datetime('now'))`)
