@@ -590,6 +590,79 @@ export const rommAdapter: ServiceAdapter = {
 		supportsAutoAuth: true,
 	},
 
+	contractVersion: 1,
+	tier: 'user-standalone',
+	capabilities: {
+		media: ['game'],
+		adminAuth: {
+			required: true,
+			fields: ['url', 'adminUsername', 'adminPassword'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Username',
+			supportsRegistration: false,
+			supportsAccountCreation: true,
+			supportsPasswordStorage: true,
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 0 },
+		sessions: { pollIntervalMs: 60_000 }
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const res = await fetch(`${config.url}/api/heartbeat`, {
+				signal: AbortSignal.timeout(5000)
+			});
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const token = userCred.accessToken;
+			if (!token) return 'invalid';
+			const res = await fetch(`${config.url}/api/users/me`, {
+				headers: {
+					Authorization: `Bearer ${token}`,
+					Accept: 'application/json'
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'expired';
+			if (res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async refreshCredential(config, userCred, storedPassword) {
+		const username = userCred.externalUsername;
+		if (!username) throw new Error('RomM refresh: missing username');
+		const form = new URLSearchParams({ username, password: storedPassword });
+		const res = await fetch(`${config.url}/api/token`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: form.toString(),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!res.ok) throw new Error(`RomM refresh failed: ${res.status}`);
+		const data = await res.json();
+		return {
+			accessToken: data.access_token,
+			externalUserId: String(data.user_id ?? ''),
+			externalUsername: username
+		};
+	},
+
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {
