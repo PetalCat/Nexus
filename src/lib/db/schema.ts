@@ -1,15 +1,28 @@
 import { sql } from 'drizzle-orm';
 import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
-// Service configurations stored locally
+// Service configurations stored locally. The `apiKey`/`username`/`password`
+// columns are admin-scoped credentials (whatever the adapter uses for
+// install-level management); kept with the short legacy names to avoid
+// cascading renames across ~29 runtime callers. Per-user credentials live
+// in user_service_credentials.
+//
+// New columns added 2026-04-14 as part of the adapter contract rework:
+// - adminUrlOverride: optional second URL some adapters need (e.g. Streamystats
+//   needs a Jellyfin URL to proxy through, separate from its own URL). Replaces
+//   the previous username-field abuse.
+// - adminCredStaleSince / adminCredLastProbedAt: admin credential health tracking.
 export const services = sqliteTable('services', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
-	type: text('type').notNull(), // 'jellyfin' | 'calibre' | 'romm' | 'overseerr' | 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr' | 'streamystats'
+	type: text('type').notNull(),
 	url: text('url').notNull(),
 	apiKey: text('api_key'),
 	username: text('username'),
 	password: text('password'),
+	adminUrlOverride: text('admin_url_override'),
+	adminCredStaleSince: text('admin_cred_stale_since'),
+	adminCredLastProbedAt: text('admin_cred_last_probed_at'),
 	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
 	createdAt: integer('created_at')
 		.notNull()
@@ -43,21 +56,65 @@ export const mediaItems = sqliteTable('media_items', {
 });
 
 // Per-user credentials for user-level services (Jellyfin, Overseerr, Calibre, etc.)
+// See docs/superpowers/specs/2026-04-14-service-account-umbrella-design.md for
+// the full data-model rationale and lifecycle rules.
+//
+// Note on column naming: `managed` and `linkedVia` are legacy fields preserved
+// to avoid cascading renames across ~13 runtime callers in one commit. New code
+// reads/writes the preferred field names below (nexusManaged is a getter alias
+// for managed at the service layer; parentServiceId is the new link target).
 export const userServiceCredentials = sqliteTable('user_service_credentials', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	userId: text('user_id').notNull(), // FK → users.id (defined later, ref added there)
-	serviceId: text('service_id').notNull().references(() => services.id), // FK → services.id
-	accessToken: text('access_token'), // e.g. Jellyfin user auth token
-	externalUserId: text('external_user_id'), // e.g. Jellyfin userId
+	userId: text('user_id').notNull(),
+	serviceId: text('service_id').notNull().references(() => services.id, { onDelete: 'cascade' }),
+
+	// Identity on the remote service.
+	externalUserId: text('external_user_id'),
 	externalUsername: text('external_username'),
+
+	// Auth material.
+	accessToken: text('access_token'),        // SID, token, JWT, whatever the adapter uses
+	storedPassword: text('stored_password'),  // encrypted; enables auto-refresh when set
+	extraAuth: text('extra_auth'),            // adapter-specific JSON (refresh tokens, device ids, etc.)
+
+	// Management metadata.
+	managed: integer('managed', { mode: 'boolean' }).notNull().default(false),  // legacy: maps to nexusManaged
+	autoLinked: integer('auto_linked', { mode: 'boolean' }).notNull().default(false),
+	linkedVia: text('linked_via'),  // legacy: parent service TYPE, e.g. 'jellyfin'
+	parentServiceId: text('parent_service_id').references(() => services.id, { onDelete: 'set null' }),
+
+	// State tracking.
 	linkedAt: text('linked_at')
 		.notNull()
 		.default(sql`(datetime('now'))`),
-	managed: integer('managed', { mode: 'boolean' }).notNull().default(false),
-	linkedVia: text('linked_via')
+	staleSince: text('stale_since'),
+	lastProbedAt: text('last_probed_at')
 }, (table) => [
 	uniqueIndex('idx_user_service_creds_unique').on(table.userId, table.serviceId),
 ]);
+
+// Per-user preferences for auto-linking derived services. One row per
+// (user, service) pair the user has expressed an opinion about.
+export const userAutoLinkPrefs = sqliteTable('user_auto_link_prefs', {
+	userId: text('user_id').notNull(),
+	serviceId: text('service_id').notNull().references(() => services.id, { onDelete: 'cascade' }),
+	autoLinkEnabled: integer('auto_link_enabled', { mode: 'boolean' }).notNull().default(true),
+	preferredParentServiceId: text('preferred_parent_service_id').references(() => services.id, { onDelete: 'set null' }),
+	updatedAt: text('updated_at')
+		.notNull()
+		.default(sql`(datetime('now'))`)
+}, (table) => [
+	uniqueIndex('idx_user_auto_link_prefs_unique').on(table.userId, table.serviceId),
+]);
+
+// Plugins the admin has explicitly disabled. Checked by the plugin loader at boot.
+export const disabledPlugins = sqliteTable('disabled_plugins', {
+	packageName: text('package_name').primaryKey(),
+	disabledAt: text('disabled_at')
+		.notNull()
+		.default(sql`(datetime('now'))`),
+	reason: text('reason')
+});
 
 // Invite links for user registration
 export const inviteLinks = sqliteTable('invite_links', {
