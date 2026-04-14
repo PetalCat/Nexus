@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:dcterms="http://purl.org/dc/terms/">
+  <icon>/static/favicon.ico</icon>
+  <id>urn:uuid:2853dacf-ed79-42f5-8e8a-a7bb3d1ae6a2</id>
+  <updated>2026-04-13T21:07:22+00:00</updated>
+  <link rel="self"
+        href="/opds/books/letter/00?"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+  <link rel="start"
+        href="/opds"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+  <link rel="up"
+        href="/opds"
+        type="application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"/>
+
+
+
+    <link rel="search"
+      href="/opds/osd"
+      type="application/opensearchdescription+xml"/>
+  <link type="application/atom+xml" rel="search" title="Search" href="/opds/search/{searchTerms}" />
+  <title>Calibre-Web</title>
+  <author>
+    <name>Calibre-Web</name>
+    <uri>https://github.com/janeczku/calibre-web</uri>
+  </author>
+
+  
+  
+  <entry>
+    <title>Dune</title>
+    <id>urn:uuid:02a148e6-9d58-4000-9818-d6b8f71c7abf</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>Frank Herbert</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Chilton</name>
+      </publisher>
+    
+    <published>1965-08-01T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Classic"
+              label="Classic"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="SciFi"
+              label="SciFi"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★<br/>
+    
+    
+    TAGS: Classic, SciFi<br/>
+    
+    
+    SERIES: Dune [1]<br/>
+    
+
+    
+
+    
+        <p>Desert planet of Arrakis.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/3/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  <entry>
+    <title>The Fellowship of the Ring</title>
+    <id>urn:uuid:50f0e269-5d3f-4c40-8688-ae4a5827a962</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>J.R.R. Tolkien</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Allen &amp; Unwin</name>
+      </publisher>
+    
+    <published>1954-07-29T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Epic"
+              label="Epic"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Fantasy"
+              label="Fantasy"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★★<br/>
+    
+    
+    TAGS: Epic, Fantasy<br/>
+    
+    
+    SERIES: Middle-earth [2]<br/>
+    
+
+    
+
+    
+        <p>Frodo inherits the One Ring.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/2/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  <entry>
+    <title>The Hobbit</title>
+    <id>urn:uuid:b57862dd-5e0d-4aa3-bf11-8ebbb74c179b</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>J.R.R. Tolkien</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Allen &amp; Unwin</name>
+      </publisher>
+    
+    <published>1937-09-21T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Classic"
+              label="Classic"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Fantasy"
+              label="Fantasy"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★★<br/>
+    
+    
+    TAGS: Classic, Fantasy<br/>
+    
+    
+    SERIES: Middle-earth [1]<br/>
+    
+
+    
+
+    
+        <p>A hobbit&#39;s unexpected journey.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/1/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  <entry>
+    <title>Neuromancer</title>
+    <id>urn:uuid:9d8f7157-c055-4afc-a737-969c0105e7b7</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>William Gibson</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Ace</name>
+      </publisher>
+    
+    <published>1984-07-01T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Cyberpunk"
+              label="Cyberpunk"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="SciFi"
+              label="SciFi"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★<br/>
+    
+    
+    TAGS: Cyberpunk, SciFi<br/>
+    
+    
+
+    
+
+    
+        <p>Case is a washed-up console cowboy.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/4/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  <entry>
+    <title>Project Hail Mary</title>
+    <id>urn:uuid:597dde46-29d6-4be1-bda7-b88211b8aefb</id>
+    <updated>2026-04-14T03:38:04+00:00</updated>
+    
+      <author>
+        <name>Andy Weir</name>
+      </author>
+    
+    
+      <publisher>
+        <name>Ballantine</name>
+      </publisher>
+    
+    <published>2021-05-04T00:00:00+00:00</published>
+    
+      <dcterms:language>eng</dcterms:language>
+    
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="Recent"
+              label="Recent"/>
+    
+    <category scheme="http://www.bisg.org/standards/bisac_subject/index.html"
+              term="SciFi"
+              label="SciFi"/>
+    
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+    
+      RATING: ★★★★<br/>
+    
+    
+    TAGS: Recent, SciFi<br/>
+    
+    
+
+    
+
+    
+        <p>A lone astronaut must save humanity.</p>
+    
+    </div></content>
+    
+    
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/5/epub/"
+          length="30" title="EPUB" mtime="2026-04-14T03:38:04+00:00" type="application/epub+zip"/>
+    
+  </entry>
+  
+  
+  
+  
+</feed>
