@@ -157,6 +157,62 @@ export const streamystatsAdapter: ServiceAdapter = {
 		requiredFields: ['url'],
 	},
 
+	contractVersion: 1,
+	tier: 'user-derived',
+	capabilities: {
+		media: ['movie', 'show'],
+		adminAuth: {
+			required: false,
+			// Streamystats reuses its own URL — the "Jellyfin URL to proxy through"
+			// is stored in the `username` field today, migrating to adminUrlOverride
+			// in a follow-up. Keeping this minimal for now.
+			fields: ['url', 'adminUrlOverride'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			supportsRegistration: false,
+			supportsAccountCreation: false,
+			supportsPasswordStorage: false,
+			supportsHealthProbe: false,
+			derivedFrom: ['jellyfin']
+		},
+		derivedFrom: ['jellyfin'],
+		parentRequired: true,
+		sync: true
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const base = config.url.replace(/\/+$/, '');
+			const res = await fetch(`${base}/api/health`, {
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 404) {
+				// Older Streamystats versions don't have /api/health — fall back to root
+				const rootRes = await fetch(base, { signal: AbortSignal.timeout(5000) });
+				if (!rootRes.ok && rootRes.status !== 401 && rootRes.status !== 403) return 'expired';
+				return 'ok';
+			}
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async findAutoLinkMatch(_config, parent) {
+		// Streamystats: the user's Jellyfin access token IS the credential. No
+		// server-side matching — we just copy the parent's token directly.
+		if (parent.parentType !== 'jellyfin') return null;
+		if (!parent.parentAccessToken) return null;
+		return {
+			accessToken: parent.parentAccessToken,
+			externalUserId: parent.parentExternalUserId,
+			externalUsername: parent.parentExternalUsername ?? parent.parentExternalUserId
+		};
+	},
+
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {

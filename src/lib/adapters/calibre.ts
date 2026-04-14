@@ -65,6 +65,79 @@ export const calibreAdapter: ServiceAdapter = {
 		supportsAutoAuth: true
 	},
 
+	contractVersion: 1,
+	tier: 'user-standalone',
+	capabilities: {
+		media: ['book'],
+		// Calibre-Web's admin account is just a regular user credential used by
+		// Nexus for reads when no per-user cred is available. Optional.
+		adminAuth: {
+			required: false,
+			fields: ['url', 'adminUsername', 'adminPassword'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Username',
+			supportsRegistration: false,
+			supportsAccountCreation: true,
+			supportsPasswordStorage: true,
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 0 }
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			// Anonymous GET /opds returns 401 when Basic is needed — always is for Calibre-Web
+			const res = await fetch(`${config.url}/opds`, {
+				headers: {
+					Authorization: `Basic ${Buffer.from(`${config.username ?? ''}:${config.password ?? ''}`, 'utf-8').toString('base64')}`
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const user = userCred.externalUsername ?? '';
+			const pass = userCred.accessToken ?? '';
+			if (!user || !pass) return 'invalid';
+			const res = await fetch(`${config.url}/opds`, {
+				headers: {
+					Authorization: `Basic ${Buffer.from(`${user}:${pass}`, 'utf-8').toString('base64')}`
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async refreshCredential(config, userCred, storedPassword) {
+		// Calibre-Web Basic auth — the "refresh" is just re-authenticating with
+		// the same (username, stored password) pair against /opds.
+		const username = userCred.externalUsername;
+		if (!username) throw new Error('Calibre-Web refresh: missing username');
+		const testConfig: ServiceConfig = { ...config, username, password: storedPassword };
+		await opdsPing(testConfig);
+		return {
+			accessToken: storedPassword,
+			externalUserId: username,
+			externalUsername: username
+		};
+	},
+
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {

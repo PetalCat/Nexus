@@ -285,6 +285,96 @@ export const overseerrAdapter: ServiceAdapter = {
 		requiredFields: ['url', 'apiKey'],
 	},
 
+	contractVersion: 1,
+	tier: 'user-derived',
+	capabilities: {
+		media: ['movie', 'show'],
+		adminAuth: {
+			required: true,
+			fields: ['url', 'adminApiKey'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Email',
+			supportsRegistration: false,
+			supportsAccountCreation: false,
+			supportsPasswordStorage: false,
+			supportsHealthProbe: true,
+			derivedFrom: ['jellyfin', 'plex']
+		},
+		derivedFrom: ['jellyfin', 'plex'],
+		parentRequired: false,
+		search: { priority: 1 },
+		requests: true
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const res = await fetch(`${config.url}/api/v1/status`, {
+				headers: { 'X-Api-Key': config.apiKey ?? '' },
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401 || res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const externalId = userCred.externalUserId;
+			if (!externalId) return 'invalid';
+			// Use admin API key to look up the user — if the user still exists,
+			// the credential is 'ok'. Overseerr per-user auth is indirect.
+			const res = await fetch(`${config.url}/api/v1/user/${encodeURIComponent(externalId)}`, {
+				headers: { 'X-Api-Key': config.apiKey ?? '' },
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 404) return 'invalid';
+			if (res.status === 401 || res.status === 403) return 'expired';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async findAutoLinkMatch(config, parent) {
+		try {
+			// Fetch Overseerr users via admin API and look for a match by the
+			// parent's external user ID. Overseerr stores jellyfinUserId / plexId
+			// on its user rows when the respective auth is configured.
+			const res = await fetch(`${config.url}/api/v1/user?take=500`, {
+				headers: { 'X-Api-Key': config.apiKey ?? '' },
+				signal: AbortSignal.timeout(8000)
+			});
+			if (!res.ok) return null;
+			const data = await res.json();
+			const results = data?.results ?? [];
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const match = results.find((u: any) => {
+				if (parent.parentType === 'jellyfin') {
+					return u.jellyfinUserId === parent.parentExternalUserId;
+				}
+				if (parent.parentType === 'plex') {
+					return String(u.plexId ?? '') === parent.parentExternalUserId;
+				}
+				return false;
+			});
+			if (!match) return null;
+			return {
+				accessToken: '', // Overseerr uses admin API key for all calls
+				externalUserId: String(match.id),
+				externalUsername: match.email ?? match.username ?? parent.parentExternalUsername ?? ''
+			};
+		} catch {
+			return null;
+		}
+	},
+
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {

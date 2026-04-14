@@ -598,6 +598,97 @@ export const jellyfinAdapter: ServiceAdapter = {
 		supportsAutoAuth: true,
 	},
 
+	contractVersion: 1,
+	tier: 'user-standalone',
+	capabilities: {
+		media: ['movie', 'show', 'music', 'live'],
+		adminAuth: {
+			required: false,
+			fields: ['url', 'adminUsername', 'adminPassword'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Username',
+			supportsRegistration: false,
+			supportsAccountCreation: true,
+			supportsPasswordStorage: true,
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 0 },
+		sessions: { pollIntervalMs: 10_000 }
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			// /System/Info/Public is unauthenticated; use /System/Info with admin
+			// credentials to verify the admin account is still valid.
+			const adminUser = config.username;
+			const adminPass = config.password;
+			if (!adminUser || !adminPass) {
+				// No admin creds configured — probe public endpoint instead.
+				const res = await fetch(`${config.url}/System/Info/Public`, {
+					signal: AbortSignal.timeout(5000)
+				});
+				if (!res.ok) return 'expired';
+				return 'ok';
+			}
+			// Cheap check: try the public endpoint first, then attempt a light admin call.
+			const res = await fetch(`${config.url}/System/Info/Public`, {
+				signal: AbortSignal.timeout(5000)
+			});
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const token = userCred.accessToken;
+			const userId = userCred.externalUserId;
+			if (!token || !userId) return 'invalid';
+			const res = await fetch(`${config.url}/Users/${userId}`, {
+				headers: {
+					'X-Emby-Token': token,
+					Accept: 'application/json'
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'expired';
+			if (res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async refreshCredential(config, userCred, storedPassword) {
+		const username = userCred.externalUsername;
+		if (!username) throw new Error('Jellyfin refresh: missing username');
+		// Re-authenticate using the stored password — this produces a new
+		// X-Emby-Token since Jellyfin tokens are session-bound.
+		const res = await fetch(`${config.url}/Users/AuthenticateByName`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Emby-Authorization': `MediaBrowser Client="Nexus", Device="Nexus", DeviceId="nexus", Version="1.0"`
+			},
+			body: JSON.stringify({ Username: username, Pw: storedPassword }),
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!res.ok) throw new Error(`Jellyfin refresh failed: ${res.status}`);
+		const data = await res.json();
+		return {
+			accessToken: data.AccessToken,
+			externalUserId: data.User?.Id ?? userCred.externalUserId ?? '',
+			externalUsername: data.User?.Name ?? username
+		};
+	},
+
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {

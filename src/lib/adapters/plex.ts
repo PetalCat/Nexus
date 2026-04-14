@@ -176,6 +176,65 @@ export const plexAdapter: ServiceAdapter = {
 		supportsAutoAuth: true,
 	},
 
+	contractVersion: 1,
+	tier: 'user-standalone',
+	capabilities: {
+		media: ['movie', 'show', 'music'],
+		adminAuth: {
+			required: true,
+			fields: ['url', 'adminApiKey'],
+			supportsHealthProbe: true
+		},
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Email (optional)',
+			supportsRegistration: false,
+			supportsAccountCreation: false,
+			// X-Plex-Token is effectively permanent — no need for stored-password refresh
+			supportsPasswordStorage: false,
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 0 },
+		sessions: { pollIntervalMs: 10_000 }
+	},
+
+	async probeAdminCredential(config) {
+		try {
+			const res = await fetch(`${config.url}/identity`, {
+				headers: {
+					'X-Plex-Token': config.apiKey ?? '',
+					Accept: 'application/json'
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const token = userCred.accessToken;
+			if (!token) return 'invalid';
+			const res = await fetch(`${config.url}/`, {
+				headers: {
+					'X-Plex-Token': token,
+					Accept: 'application/json'
+				},
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
 	async ping(config): Promise<ServiceHealth> {
 		const start = Date.now();
 		try {

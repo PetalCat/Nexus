@@ -235,12 +235,66 @@ export const invidiousAdapter: ServiceAdapter = {
 	searchPriority: 0,
 	mediaTypes: ['video'],
 	userLinkable: true,
-	authUsernameLabel: 'Username',
+	authUsernameLabel: 'Username or email',
 	onboarding: {
 		category: 'video',
 		description: 'Privacy-friendly video streaming with ad-blocking',
 		priority: 1,
 		requiredFields: ['url'],
+	},
+
+	contractVersion: 1,
+	tier: 'user-standalone',
+	capabilities: {
+		media: ['video'],
+		// Invidious has no admin surface — /api/v1/stats is public, trending/popular
+		// work unauthenticated, and there's no admin API. capabilities.adminAuth
+		// is deliberately absent.
+		userAuth: {
+			userLinkable: true,
+			usernameLabel: 'Username or email',
+			// /login auto-registers unknown users when the instance's
+			// registration_enabled is true. Same HTTP call handles both.
+			supportsRegistration: true,
+			// But no distinct createUser method — authenticateUser does double duty.
+			supportsAccountCreation: false,
+			supportsPasswordStorage: true,
+			supportsHealthProbe: true
+		},
+		library: true,
+		search: { priority: 0 },
+		calendar: true
+	},
+
+	async probeCredential(config, userCred) {
+		try {
+			const token = userCred.accessToken;
+			if (!token) return 'invalid';
+			const res = await fetch(`${config.url}/api/v1/auth/preferences`, {
+				headers: { Cookie: `SID=${token}` },
+				signal: AbortSignal.timeout(5000)
+			});
+			if (res.status === 401) return 'expired';
+			if (res.status === 403) return 'invalid';
+			if (!res.ok) return 'expired';
+			return 'ok';
+		} catch {
+			return 'expired';
+		}
+	},
+
+	async refreshCredential(config, userCred, storedPassword) {
+		const username = userCred.externalUsername;
+		if (!username) throw new Error('Invidious refresh: missing username');
+		// Just re-run the existing formAuth with stored credentials — same as
+		// a manual signin flow. If the stored password is no longer valid, this
+		// throws, which the shared registry catches as 'invalid' and marks stale.
+		const newSid = await formAuth(config, username, storedPassword);
+		return {
+			accessToken: newSid,
+			externalUserId: username,
+			externalUsername: username
+		};
 	},
 
 	async ping(config: ServiceConfig): Promise<ServiceHealth> {
