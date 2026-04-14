@@ -560,7 +560,12 @@ export const recommendationCache = sqliteTable('recommendation_cache', {
 	mediaType: text('media_type').notNull(),
 	results: text('results').notNull(), // JSON
 	computedAt: integer('computed_at').notNull()
-});
+}, (table) => [
+	// Matches the ON CONFLICT target in recommendations/aggregator.ts.
+	// Without this, upserts throw 'ON CONFLICT clause does not match any
+	// PRIMARY KEY or UNIQUE constraint' at runtime.
+	uniqueIndex('idx_rec_cache_unique').on(table.userId, table.profileId, table.provider, table.mediaType),
+]);
 
 // ── Books ────────────────────────────────────────────────────────────
 

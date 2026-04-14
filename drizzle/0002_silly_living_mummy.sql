@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `idx_rec_cache_unique` ON `recommendation_cache` (`user_id`,`profile_id`,`provider`,`media_type`);
