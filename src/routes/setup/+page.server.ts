@@ -1,10 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { COOKIE_NAME, createSession, createUser, getUserCount, getSetting, setSetting } from '$lib/server/auth';
+import { COOKIE_NAME, createSession, createUser, getUserCount, getSetting, setSetting, getUserByUsername } from '$lib/server/auth';
 import { upsertService, getEnabledConfigs } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
+import { buildAccountServiceSummariesForType } from '$lib/server/account-services';
+import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ cookies }) => {
+export const load: PageServerLoad = async ({ cookies, locals }) => {
 	// Allow the page if: no users yet, OR user has an active session (mid-wizard).
 	const hasSession = !!cookies.get(COOKIE_NAME);
 	if (getUserCount() > 0 && !hasSession) {
@@ -33,7 +35,25 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	// If account exists, start at least at step 2
 	const step = getUserCount() > 0 ? Math.max(savedStep, 2) : savedStep;
 
-	return { adapters, step, connectedServiceIds };
+	// Build AccountServiceSummary objects for every registered user-linkable
+	// service. Used by the new "Link your personal accounts" step to render
+	// AccountLinkModal for each one. Safe to pass to the client — never
+	// contains access tokens or stored passwords.
+	const userId = locals.user?.id ?? null;
+	const linkableSummaries: AccountServiceSummary[] = [];
+	for (const config of connectedConfigs) {
+		const adapter = registry.get(config.type);
+		if (!adapter) continue;
+		if (!adapter.capabilities?.userAuth?.userLinkable) continue;
+		const summaries = buildAccountServiceSummariesForType(userId, config.type);
+		for (const s of summaries) {
+			if (s.id === config.id) {
+				linkableSummaries.push(s);
+			}
+		}
+	}
+
+	return { adapters, step, connectedServiceIds, linkableSummaries };
 };
 
 export const actions: Actions = {
