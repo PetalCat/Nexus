@@ -1,5 +1,6 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
+import { invidiousCookieHeaders } from '$lib/adapters/invidious/client';
 import type { RequestHandler } from './$types';
 
 /**
@@ -23,8 +24,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	if (!invConfig) return new Response('No Invidious service', { status: 404 });
 
 	const userCred = getUserCredentialForService(locals.user.id, invConfig.id) ?? undefined;
-	const headers: Record<string, string> = {};
-	if (userCred?.accessToken) headers['Cookie'] = `SID=${userCred.accessToken}`;
+	const headers: Record<string, string> = { ...invidiousCookieHeaders(userCred) };
 
 	let captionUrl: string;
 

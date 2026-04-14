@@ -1,6 +1,7 @@
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { normalizeVideo } from '$lib/adapters/invidious';
+import { invidiousCookieHeaders } from '$lib/adapters/invidious/client';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -13,10 +14,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	try {
 		const url = `${config.url}/api/v1/playlists/${encodeURIComponent(params.id)}`;
-		const headers: Record<string, string> = {};
-		if (cred?.accessToken) {
-			headers['Cookie'] = `SID=${cred.accessToken}`;
-		}
+		const headers: Record<string, string> = { ...invidiousCookieHeaders(cred) };
 
 		const res = await fetch(url, {
 			headers,

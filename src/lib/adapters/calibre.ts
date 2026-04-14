@@ -1,6 +1,7 @@
 import type { ServiceAdapter } from './base';
 import type { ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { withCache } from '../server/cache';
+import { AdapterAuthError } from './errors';
 import { opdsFetch, opdsFetchAllPages, opdsPing } from './calibre/opds-client';
 import { opdsEntryToUnifiedMedia, acquisitionsToFormats } from './calibre/normalize';
 import { sessionPost, sessionGet, getSessionCookie } from './calibre/session-client';
@@ -241,7 +242,21 @@ export const calibreAdapter: ServiceAdapter = {
 	async authenticateUser(config, username, password) {
 		// OPDS root with Basic auth is the cheapest way to verify credentials.
 		const testConfig: ServiceConfig = { ...config, username, password };
-		await opdsPing(testConfig);
+		try {
+			await opdsPing(testConfig);
+		} catch (err) {
+			// opdsPing throws plain Error with messages like "authentication failed"
+			// or "unreachable". Map to structured AdapterAuthError so the shared UI
+			// copy renders the right message.
+			const msg = err instanceof Error ? err.message : String(err);
+			if (/401|authentic|password/i.test(msg)) {
+				throw new AdapterAuthError('Invalid Calibre-Web credentials', 'invalid');
+			}
+			if (/unreach|ENOTFOUND|ECONNREFUSED|timeout|abort/i.test(msg)) {
+				throw new AdapterAuthError(`Cannot reach Calibre-Web at ${config.url}`, 'unreachable');
+			}
+			throw new AdapterAuthError(msg, 'invalid');
+		}
 		return {
 			accessToken: password,
 			externalUserId: username,

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
+import { invidiousCookieHeaders } from '$lib/adapters/invidious/client';
 import type { RequestHandler } from './$types';
 
 /**
@@ -19,8 +20,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!invConfig) return json({ error: 'No Invidious service' }, { status: 404 });
 
 	const userCred = getUserCredentialForService(locals.user.id, invConfig.id) ?? undefined;
-	const headers: Record<string, string> = {};
-	if (userCred?.accessToken) headers['Cookie'] = `SID=${userCred.accessToken}`;
+	const headers: Record<string, string> = { ...invidiousCookieHeaders(userCred) };
 
 	const res = await fetch(
 		`${invConfig.url}/api/v1/videos/${encodeURIComponent(videoId)}`,

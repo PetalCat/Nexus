@@ -1,4 +1,5 @@
 import type { ServiceAdapter } from './base';
+import { AdapterAuthError } from './errors';
 import type {
 	ExternalUser,
 	NexusSession,
@@ -381,9 +382,22 @@ export const plexAdapter: ServiceAdapter = {
 		};
 
 		// Verify the token works against the server
-		const serverData = await plexFetch(config, '/', undefined, tempCred);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let serverData: any;
+		try {
+			serverData = await plexFetch(config, '/', undefined, tempCred);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (/401|403|unauthorized|forbidden/i.test(msg)) {
+				throw new AdapterAuthError('Invalid Plex token', 'invalid');
+			}
+			if (/unreach|ENOTFOUND|ECONNREFUSED|timeout|abort/i.test(msg)) {
+				throw new AdapterAuthError(`Cannot reach Plex at ${config.url}`, 'unreachable');
+			}
+			throw new AdapterAuthError(msg, 'invalid');
+		}
 		if (!serverData?.MediaContainer) {
-			throw new Error('Plex: token rejected by server');
+			throw new AdapterAuthError('Plex: token rejected by server', 'invalid');
 		}
 
 		// Fetch user info from plex.tv

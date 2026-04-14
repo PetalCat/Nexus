@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { normalizeVideo } from '$lib/adapters/invidious';
+import { invidiousCookieHeaders } from '$lib/adapters/invidious/client';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 
@@ -44,10 +45,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	try {
 		const result = await withCache(`video:search:${query.toLowerCase()}`, 60_000, async () => {
 			const params = new URLSearchParams({ q: query });
-			const headers: Record<string, string> = {};
-			if (userCred?.accessToken) {
-				headers['Cookie'] = `SID=${userCred.accessToken}`;
-			}
+			const headers: Record<string, string> = { ...invidiousCookieHeaders(userCred) };
 
 			const res = await fetch(`${config.url}/api/v1/search?${params}`, {
 				headers,

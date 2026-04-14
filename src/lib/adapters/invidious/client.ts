@@ -16,6 +16,20 @@
 import type { ServiceConfig, UserCredential } from '../types';
 import { AdapterAuthError } from '../errors';
 
+/**
+ * Build the `Cookie: SID=<token>` header dict for authenticated Invidious
+ * requests. Returns an empty object when no credential is provided so
+ * callers can spread it unconditionally.
+ *
+ * Used by route handlers that need to forward raw responses (stream proxy,
+ * DASH manifest, captions, thumbnail-stripping search) where the full
+ * invidiousFetch JSON-returning path doesn't fit.
+ */
+export function invidiousCookieHeaders(userCred?: UserCredential): Record<string, string> {
+	if (!userCred?.accessToken) return {};
+	return { Cookie: `SID=${userCred.accessToken}` };
+}
+
 export interface InvidiousFetchOptions {
 	/** Timeout in ms. Defaults to 8000. */
 	timeoutMs?: number;
