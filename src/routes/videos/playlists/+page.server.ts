@@ -2,6 +2,8 @@ import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { buildAccountServiceSummary } from '$lib/server/account-services';
+import { runWithAutoRefresh } from '$lib/adapters/registry-auth';
+import { AdapterAuthError } from '$lib/adapters/errors';
 import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
 
@@ -21,16 +23,22 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const hasLinkedAccount = !!cred?.accessToken;
 	const invidiousSummary = buildAccountServiceSummary(userId ?? null, config.id);
 
-	if (!hasLinkedAccount || !cred) {
+	if (!hasLinkedAccount || !cred || !userId) {
 		return { playlists: [], hasLinkedAccount, invidiousSummary };
 	}
 
 	try {
 		const adapter = registry.get(config.type);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const playlists = await adapter?.getServiceData?.(config, 'playlists', {}, cred) as any[] ?? [];
+		const playlists = await runWithAutoRefresh(config, userId, cred, async (refreshedCred) => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			return (await adapter?.getServiceData?.(config, 'playlists', {}, refreshedCred!) as any[]) ?? [];
+		});
 		return { playlists, hasLinkedAccount, invidiousSummary };
-	} catch {
-		return { playlists: [], hasLinkedAccount, invidiousSummary };
+	} catch (err) {
+		if (!AdapterAuthError.is(err)) {
+			console.error('[videos/playlists] feed error:', err);
+		}
+		const refreshedSummary = buildAccountServiceSummary(userId, config.id);
+		return { playlists: [], hasLinkedAccount, invidiousSummary: refreshedSummary };
 	}
 };

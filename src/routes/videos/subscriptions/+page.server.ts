@@ -3,6 +3,8 @@ import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { withCache } from '$lib/server/cache';
 import { buildAccountServiceSummary } from '$lib/server/account-services';
+import { runWithAutoRefresh } from '$lib/adapters/registry-auth';
+import { AdapterAuthError } from '$lib/adapters/errors';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { PageServerLoad } from './$types';
@@ -25,17 +27,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const hasLinkedAccount = !!cred?.accessToken;
 	const invidiousSummary = buildAccountServiceSummary(userId ?? null, config.id);
 
-	if (!hasLinkedAccount || !cred) {
+	if (!hasLinkedAccount || !cred || !userId) {
 		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount, invidiousSummary };
 	}
 
 	try {
 		const adapter = registry.get(config.type);
-		const allVideos = await withCache(`videos:subfeed:full:${userId}`, 60_000, async () => {
-			const feed = await adapter?.getServiceData?.(config, 'subscription-feed', {}, cred) as { notifications: UnifiedMedia[]; videos: UnifiedMedia[] } | null;
-			if (!feed) return [] as UnifiedMedia[];
-			return [...feed.notifications, ...feed.videos] as UnifiedMedia[];
-		});
+		const allVideos = await withCache(`videos:subfeed:full:${userId}`, 60_000, async () =>
+			runWithAutoRefresh(config, userId, cred, async (refreshedCred) => {
+				const feed = await adapter?.getServiceData?.(config, 'subscription-feed', {}, refreshedCred!) as { notifications: UnifiedMedia[]; videos: UnifiedMedia[] } | null;
+				if (!feed) return [] as UnifiedMedia[];
+				return [...feed.notifications, ...feed.videos] as UnifiedMedia[];
+			})
+		);
 
 		const now = new Date();
 		const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -56,7 +60,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 
 		return { today, thisWeek, earlier, hasLinkedAccount, invidiousSummary };
-	} catch {
-		return { today: [], thisWeek: [], earlier: [], hasLinkedAccount, invidiousSummary };
+	} catch (err) {
+		if (!AdapterAuthError.is(err)) {
+			console.error('[videos/subscriptions] feed error:', err);
+		}
+		// Re-read summary — registry-auth may have just marked it stale, so the
+		// page needs the fresh state for the banner.
+		const refreshedSummary = buildAccountServiceSummary(userId, config.id);
+		return {
+			today: [],
+			thisWeek: [],
+			earlier: [],
+			hasLinkedAccount,
+			invidiousSummary: refreshedSummary
+		};
 	}
 };

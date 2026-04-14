@@ -2,6 +2,9 @@
 	import type { PageData } from './$types';
 	import { invalidateAll } from '$app/navigation';
 	import { toast } from '$lib/stores/toast.svelte';
+	import AccountLinkModal from '$lib/components/account-linking/AccountLinkModal.svelte';
+	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
+	import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 
 	let { data }: { data: PageData } = $props();
 
@@ -18,6 +21,9 @@
 
 	// ── Derived ──────────────────────────────────
 	const services = $derived((data as any).accountServices ?? []);
+	const summaries = $derived<AccountServiceSummary[]>(
+		((data as unknown as { accountSummaries?: AccountServiceSummary[] }).accountSummaries) ?? []
+	);
 
 	const linkedServices = $derived(services.filter((s: any) => s.isLinked));
 	const unlinkedServices = $derived(services.filter((s: any) => !s.isLinked));
@@ -25,6 +31,16 @@
 	const linkModalService = $derived(
 		services.find((s: any) => s.id === linkModalServiceId) ?? null
 	);
+
+	const linkModalSummary = $derived<AccountServiceSummary | null>(
+		linkModalServiceId
+			? summaries.find((s) => s.id === linkModalServiceId) ?? null
+			: null
+	);
+
+	// Stale credential summaries surface at the top of the page so users
+	// see broken sessions before scrolling.
+	const staleSummaries = $derived(summaries.filter((s) => s.isLinked && s.staleSince));
 
 	// Services that would be cascade-unlinked if a parent is unlinked
 	function getCascadeServices(serviceId: string) {
@@ -154,6 +170,18 @@
 	<p class="text-sm text-[var(--color-muted)] mb-6">
 		Connect your accounts to enable personalized content, watch history, and recommendations.
 	</p>
+
+	<!-- Stale-credential banners for any linked service whose session expired -->
+	{#if staleSummaries.length > 0}
+		<div class="mb-6 flex flex-col gap-2">
+			{#each staleSummaries as summary (summary.id)}
+				<StaleCredentialBanner
+					service={summary}
+					onReconnected={() => invalidateAll()}
+				/>
+			{/each}
+		</div>
+	{/if}
 
 	{#if services.length === 0}
 		<div class="card py-12 text-center">
@@ -356,93 +384,17 @@
 	{/if}
 </section>
 
-<!-- Link Modal -->
-{#if linkModalService}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-		onkeydown={(e) => e.key === 'Escape' && closeLinkModal()}
-		onclick={(e) => { if (e.target === e.currentTarget) closeLinkModal(); }}
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="link-modal-title"
-	>
-		<div
-			class="rounded-2xl w-full max-w-md mx-4 p-6"
-			style="background: var(--color-surface); border: 1px solid rgba(255,255,255,0.08)"
-		>
-			<h3 id="link-modal-title" class="text-base font-semibold mb-1">
-				Sign in to {linkModalService.name}
-			</h3>
-			<p class="text-xs text-[var(--color-muted)] mb-5">
-				Enter your {linkModalService.name} credentials to link your account.
-			</p>
-
-			<div class="flex flex-col gap-3">
-				<div>
-					<label
-						for="link-username"
-						class="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
-					>{linkModalService.authUsernameLabel}</label>
-					<input
-						id="link-username"
-						bind:value={linkUsername}
-						class="input text-sm w-full"
-						placeholder="Your {linkModalService.authUsernameLabel.toLowerCase()}"
-						autocomplete="username"
-						onkeydown={(e) => {
-							if (e.key === 'Enter') {
-								const pwInput = document.getElementById('link-password');
-								pwInput?.focus();
-							}
-						}}
-					/>
-				</div>
-				<div>
-					<label
-						for="link-password"
-						class="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
-					>Password</label>
-					<input
-						id="link-password"
-						bind:value={linkPassword}
-						class="input text-sm w-full"
-						type="password"
-						placeholder="Your password"
-						autocomplete="current-password"
-						onkeydown={(e) => {
-							if (e.key === 'Enter' && linkUsername && linkPassword) {
-								linkAccount(linkModalService!.id, linkUsername, linkPassword);
-							}
-						}}
-					/>
-				</div>
-			</div>
-
-			{#if linkError}
-				<div
-					class="mt-3 rounded-lg px-3 py-2 text-xs"
-					style="background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.15); color: #f87171"
-				>
-					{linkError}
-				</div>
-			{/if}
-
-			<div class="flex items-center justify-end gap-2 mt-5">
-				<button
-					class="btn btn-ghost text-sm"
-					onclick={closeLinkModal}
-				>Cancel</button>
-				<button
-					class="btn btn-primary text-sm"
-					onclick={() => linkAccount(linkModalService!.id, linkUsername, linkPassword)}
-					disabled={linking || !linkUsername || !linkPassword}
-				>
-					{linking ? 'Connecting...' : 'Sign In'}
-				</button>
-			</div>
-		</div>
-	</div>
+<!-- Link Modal — shared AccountLinkModal component -->
+{#if linkModalSummary}
+	<AccountLinkModal
+		service={linkModalSummary}
+		onSuccess={async (result) => {
+			closeLinkModal();
+			toast.success(`Connected as ${result.externalUsername}`);
+			await invalidateAll();
+		}}
+		onCancel={closeLinkModal}
+	/>
 {/if}
 
 <!-- Unlink Confirmation Dialog -->
