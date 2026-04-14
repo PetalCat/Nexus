@@ -488,3 +488,89 @@ Each of these is a planned follow-up. They do not need to be written before the 
 - **Sandboxing third-party plugins.** Plugin loader spec will note it as a v2 concern.
 - **Non-linear state machines** (e.g. "temporarily paused but not stale"). Credentials are binary healthy/stale for this pass.
 - **Bulk operations on credentials** (mass unlink, mass reconnect). Single-credential actions only.
+
+## Future work enabled by this architecture
+
+Not part of this initiative — but worth calling out because the contract + plugin architecture are what make these tractable downstream. Each of the items below would have been harder or impossible without the formal adapter contract this initiative establishes.
+
+### 1. Nexus as a Wizarr replacement
+
+[Wizarr](https://github.com/Wizarrrr/wizarr) is an existing self-hosted tool that does exactly what Nexus's managed-account system will do: invite-based account creation across Plex, Jellyfin, Emby, AudiobookShelf, Komga, Kavita, and RomM. It's the closest existing reference implementation for the problem space.
+
+**Parker's position (2026-04-14):** Nexus should solve the problem Wizarr solves — natively. Don't write a Wizarr adapter that delegates (that makes Nexus dependent on Wizarr being installed for a core flow); instead, draw inspiration from Wizarr's proven patterns and implement them as part of Nexus's managed-account system.
+
+**Specific things to study from Wizarr** (pending the Codex research currently in flight):
+- Invitation-link flow with time-limited tokens (replaces the "user just types their credentials" path)
+- Library/profile assignment at invite creation time
+- Reclaim / recovery flow for users who lose access
+- How Wizarr handles "the downstream account's password was changed externally" edge cases
+
+The managed-account sub-spec will incorporate the findings before committing to any UX details that overlap with Wizarr's surface area.
+
+### 2. MCP server exposing Nexus adapters to AI tools
+
+The adapter contract's surface maps nearly 1:1 to an MCP (Model Context Protocol) tool schema. Once the contract is stable, a thin MCP server can expose every registered adapter as tool calls:
+
+- `nexus.search(query)` → `adapter.search` across all `capabilities.search` adapters, merged and ranked
+- `nexus.library.list(type, filter)` → routes to the right `adapter.getLibrary`
+- `nexus.media.set_watched(id)` → routes to `adapter.setItemStatus`
+- `nexus.calendar.upcoming()` → `adapter.getCalendar` union
+
+Effect: Claude, Cursor, ChatGPT-with-tools, or any MCP-speaking agent can drive the user's entire self-hosted media stack via a single well-known endpoint. Users ask *"what new episodes dropped on my subscriptions this week"* and the assistant resolves it through Nexus.
+
+**Cost:** small. The MCP server is ~200 lines of boilerplate wrapping the registry. **Dependency:** contract has to be stable first — otherwise the MCP tool schema breaks with every revision.
+
+### 3. Federated Nexus
+
+With a stable plugin contract, **Nexus itself becomes an adapter** — one Nexus install can expose itself as a service that another Nexus install can consume. The user-auth model is `authCapabilities.userAuth: true`, the media is the union of whatever the remote Nexus aggregates, the admin cred is an API key the remote Nexus issues.
+
+Effect: share your library with friends by registering their Nexus instance as a service in your own. Privacy, scoping, and permission boundaries are handled by the remote Nexus's normal user-cred model — they don't get direct access to your Jellyfin, Plex, or whatever else. Federation is end-to-end an adapter.
+
+Precondition: contract stability + cross-instance auth story (probably OAuth-style device flow). The data model doesn't need to change for this — it just falls out of the architecture.
+
+### 4. Cross-adapter features unlocked by uniform shapes
+
+Several Nexus backlog issues are cross-adapter features that currently can't ship because every adapter has its own shape. The contract fixes this by guaranteeing uniform shapes for common concepts (rating, age tag, play position, download state, notification event).
+
+- **#49 Unified parental controls** — every adapter exposes an age rating / content rating via a standardized field. One Nexus-level control surface instead of per-service settings that don't talk to each other.
+- **#47 Subtitle intelligence** — coordinate Bazarr + Jellyfin + Whisper/AI for auto-gen / auto-translate / auto-sync. Requires uniform subtitle state across adapters.
+- **#45 Social watch parties (SyncPlay)** — requires cross-adapter session coordination. Jellyfin has SyncPlay natively; Plex doesn't. With the contract, Nexus can broker sessions across both.
+- **#44 AI personal DJ / curator** — unified music library view (Lidarr + Plex + Jellyfin + Spotify-like) through the contract's `media: 'music'` capability.
+- **#42 Unified calendar** — partially exists today, contract makes it trivial.
+- **#48 Nexus Wrapped** — year-in-review across services requires every adapter to expose play history in a standard shape. The contract defines that shape.
+
+**Effect:** ship 6 existing backlog items much faster once the contract lands. None of these are part of THIS initiative, but the contract is the unblocker.
+
+### 5. Pending adapter backlog as first external plugins
+
+The Nexus issue tracker has 13 unimplemented adapters (#27 Seerr, #28 Kapowarr, #29 Tdarr, #31 Kometa, #32 Maintainerr, #33 Recyclarr, #34 Notifiarr, #35 Unpackerr, #36 Autobrr, #37 Wizarr, #38 Trailarr, #39 Posterizarr, #53 Jackett). The plugin architecture lets these ship as external npm packages (`@nexus-adapter/*`) instead of living in the core repo.
+
+**Priority picks for first real external plugins** (Parker, 2026-04-14):
+- **#27 Seerr** — Overseerr/Jellyseerr successor. Validates the "adapter gets upgraded, contract stays the same" story since Nexus already has an Overseerr adapter.
+- **#34 Notifiarr** — notification fanout. Exercises the event/webhook emission side of the contract, forcing us to define a standard event story.
+
+These two become acceptance tests for the plugin architecture, like Invidious is the acceptance test for the auth-resilience layer.
+
+### 6. Health dashboard across the whole stack
+
+`probeCredential` + admin-credential probes across all adapters provide everything needed for a stack-wide health page:
+
+- Each service: admin-cred healthy / stale, user-cred healthy / stale / broken, last probe timestamp, last success timestamp, rate-limit state
+- Per-user: count of stale credentials, reconnect all button
+- Admin: service uptime over time, auth failure trends
+
+Effectively a Grafana-lite for the homelab, with zero external dependencies, powered entirely by the contract.
+
+### 7. Per-user adapter instances (multi-tenant-ish)
+
+Today, services are global — one `services` row, shared across all Nexus users. A natural extension of the user-credential model is **user-scoped services**: "my personal Jellyfin" on the same Nexus install as "the family Jellyfin". Each user can register their own service instances alongside the global ones. The contract already supports this — just needs a `services.owner_user_id` nullable column and UI affordances.
+
+Enables: shared Nexus installs where each user connects their own downstream accounts without polluting the global service list.
+
+### 8. Adapter marketplace
+
+Once plugins are external packages, an in-Nexus UI to browse, install, enable, and update adapters from a community registry (either npm search or a dedicated Nexus-adapter index). VS Code extension model. Low-priority feature but huge for ecosystem growth.
+
+---
+
+Nothing in this section is a deliverable. It's scaffolding for *"here's why the contract work is worth doing right."*
