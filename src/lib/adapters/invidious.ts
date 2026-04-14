@@ -2,6 +2,7 @@ import type { ServiceAdapter } from './base';
 import type { CalendarItem, ServiceConfig, ServiceHealth, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { withCache } from '../server/cache';
 import { invidiousFetch } from './invidious/client';
+import { AdapterAuthError } from './errors';
 
 // ---------------------------------------------------------------------------
 // Invidious adapter
@@ -70,12 +71,19 @@ interface InvidiousVideo {
 /**
  * Perform form-based authentication against the Invidious login page.
  * Invidious uses a single "signin" action that auto-registers unknown users
- * when registration is enabled. Returns the SID cookie value on success.
+ * when registration is enabled. Same HTTP call handles both register and
+ * signin — the `mode` parameter only affects error interpretation (in
+ * register mode, a registration-disabled flash maps to a distinct error
+ * kind; in signin mode it's indistinguishable from wrong-password).
+ *
+ * Throws structured AdapterAuthError so the shared registry + UI layer
+ * can map errors to human copy.
  */
 async function formAuth(
 	config: ServiceConfig,
 	username: string,
-	password: string
+	password: string,
+	mode: 'signin' | 'register' = 'signin'
 ): Promise<string> {
 	const url = `${config.url}/login?type=invidious&referer=%2F`;
 
@@ -85,26 +93,69 @@ async function formAuth(
 		action: 'signin'
 	});
 
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: body.toString(),
-		redirect: 'manual',
-		signal: AbortSignal.timeout(8000)
-	});
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
+			redirect: 'manual',
+			signal: AbortSignal.timeout(8000)
+		});
+	} catch (err) {
+		throw new AdapterAuthError(
+			`Cannot reach Invidious at ${config.url}`,
+			'unreachable'
+		);
+	}
 
 	// Success = 302 redirect with Set-Cookie containing SID
-	if (res.status !== 302) {
-		throw new Error(`Invidious auth failed (status ${res.status}) — check credentials`);
+	if (res.status === 302) {
+		const setCookie = res.headers.get('set-cookie') ?? '';
+		const match = setCookie.match(/SID=([^;]+)/);
+		if (!match) {
+			throw new AdapterAuthError(
+				'Invidious login succeeded but returned no SID cookie',
+				'invalid'
+			);
+		}
+		return match[1];
 	}
 
-	const setCookie = res.headers.get('set-cookie') ?? '';
-	const match = setCookie.match(/SID=([^;]+)/);
-	if (!match) {
-		throw new Error('Invidious auth: no SID cookie in response');
+	// Non-302 = failure. Invidious returns 200 with HTML containing a flash
+	// message. Map known flash text to AdapterAuthError kinds so the UI can
+	// render actionable copy.
+	if (res.status === 200) {
+		const html = await res.text().catch(() => '');
+		if (/captcha/i.test(html)) {
+			throw new AdapterAuthError(
+				'Invidious requires CAPTCHA — sign in on the instance directly first',
+				'rate-limited'
+			);
+		}
+		if (/registration.*disabled/i.test(html) || /registrations? (?:are )?closed/i.test(html)) {
+			if (mode === 'register') {
+				throw new AdapterAuthError(
+					'This Invidious instance does not allow new accounts',
+					'registration-disabled'
+				);
+			}
+			throw new AdapterAuthError('Invalid Invidious credentials', 'invalid');
+		}
+		throw new AdapterAuthError('Invalid Invidious credentials', 'invalid');
 	}
 
-	return match[1];
+	if (res.status >= 500) {
+		throw new AdapterAuthError(
+			`Invidious server error (${res.status})`,
+			'unreachable'
+		);
+	}
+
+	throw new AdapterAuthError(
+		`Unexpected Invidious response (${res.status})`,
+		'invalid'
+	);
 }
 
 // No separate token generation needed — we store the SID cookie directly
@@ -303,9 +354,10 @@ export const invidiousAdapter: ServiceAdapter = {
 	async authenticateUser(
 		config: ServiceConfig,
 		username: string,
-		password: string
+		password: string,
+		mode: 'signin' | 'register' = 'signin'
 	): Promise<{ accessToken: string; externalUserId: string; externalUsername: string }> {
-		const sid = await formAuth(config, username, password);
+		const sid = await formAuth(config, username, password, mode);
 		return {
 			accessToken: sid,
 			externalUserId: username,
