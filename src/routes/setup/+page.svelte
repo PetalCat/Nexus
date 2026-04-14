@@ -1,8 +1,11 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 	import { enhance, deserialize } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import ServiceCard from '$lib/components/onboarding/ServiceCard.svelte';
 	import ServiceIcon from '$lib/components/onboarding/ServiceIcon.svelte';
+	import AccountLinkModal from '$lib/components/account-linking/AccountLinkModal.svelte';
+	import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -10,6 +13,39 @@
 	let loading = $state(false);
 	let connectedServices = $state<string[]>(data.connectedServiceIds ?? []);
 	let direction = $state(1);
+
+	// Personal-account-linking state for the "Link your accounts" step below.
+	// Tracks which services the admin has linked their personal credentials
+	// for during the wizard. The modal opens one service at a time.
+	let linkedPersonalServiceIds = $state<string[]>([]);
+	let personalLinkModalServiceId = $state<string | null>(null);
+
+	const linkableSummaries = $derived<AccountServiceSummary[]>(
+		((data as unknown as { linkableSummaries?: AccountServiceSummary[] }).linkableSummaries) ?? []
+	);
+	const pendingPersonalLinks = $derived(
+		linkableSummaries.filter((s) => !linkedPersonalServiceIds.includes(s.id) && !s.isLinked)
+	);
+	const alreadyLinkedPersonal = $derived(
+		linkableSummaries.filter((s) => s.isLinked || linkedPersonalServiceIds.includes(s.id))
+	);
+	const personalLinkModalSummary = $derived<AccountServiceSummary | null>(
+		personalLinkModalServiceId
+			? linkableSummaries.find((s) => s.id === personalLinkModalServiceId) ?? null
+			: null
+	);
+
+	function openPersonalLinkModal(serviceId: string) {
+		personalLinkModalServiceId = serviceId;
+	}
+	function closePersonalLinkModal() {
+		personalLinkModalServiceId = null;
+	}
+	async function handlePersonalLinkSuccess(serviceId: string) {
+		linkedPersonalServiceIds = [...linkedPersonalServiceIds, serviceId];
+		personalLinkModalServiceId = null;
+		await invalidateAll();
+	}
 
 	const mediaServers = $derived(
 		data.adapters.filter((a) => a.onboarding.category === 'media-server')
@@ -58,7 +94,7 @@
 		fetch('/api/onboarding/checklist', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ action: next >= 4 ? 'complete' : 'setStep', step: next }),
+			body: JSON.stringify({ action: next >= 5 ? 'complete' : 'setStep', step: next }),
 		}).catch(() => {});
 	}
 
@@ -111,9 +147,9 @@
 <div class="flex min-h-screen flex-col" style="background: var(--color-void)">
 
 	<!-- Subtle step dots -- only shown during active setup -->
-	{#if step >= 1 && step <= 3}
+	{#if step >= 1 && step <= 4}
 		<div class="fixed top-6 left-1/2 -translate-x-1/2 z-10 flex gap-2">
-			{#each [1, 2, 3] as i (i)}
+			{#each [1, 2, 3, 4] as i (i)}
 				<div
 					class="h-1.5 rounded-full transition-all duration-500"
 					style="width: {i === step ? '24px' : '6px'}; background: {i === step ? 'var(--color-cream)' : i < step ? 'var(--color-accent)' : 'rgba(255,255,255,0.15)'}"
@@ -283,8 +319,82 @@
 					</div>
 				</div>
 
-			<!-- Step 4: Done -->
+			<!-- Step 4: Link personal accounts (new) -->
 			{:else if step === 4}
+				<div class="flex flex-col items-center gap-8 text-center max-w-2xl w-full">
+					<div>
+						<h2 class="text-display text-3xl font-bold">Connect your personal accounts</h2>
+						<p class="mt-3 text-[var(--color-muted)]">
+							{#if linkableSummaries.length === 0}
+								No user-level services to connect — you're all set.
+							{:else}
+								You registered {linkableSummaries.length} service{linkableSummaries.length === 1 ? '' : 's'} that
+								support personal accounts. Link yours now to see your own library, history,
+								and subscriptions. You can also do this later from Settings → Accounts.
+							{/if}
+						</p>
+					</div>
+
+					{#if linkableSummaries.length > 0}
+						<div class="w-full flex flex-col gap-3 text-left">
+							{#each linkableSummaries as summary (summary.id)}
+								{@const isDone = alreadyLinkedPersonal.some((s) => s.id === summary.id)}
+								<div
+									class="flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-all"
+									style="background: {isDone ? summary.color + '10' : 'var(--color-surface)'}; border: 1px solid {isDone ? summary.color + '40' : 'rgba(255,255,255,0.06)'}"
+								>
+									<div class="flex items-center gap-3 min-w-0">
+										<div
+											class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+											style="background: {summary.color}22; color: {summary.color}"
+										>
+											{summary.abbreviation}
+										</div>
+										<div class="min-w-0">
+											<div class="font-semibold text-sm">{summary.name}</div>
+											<div class="truncate text-xs text-[var(--color-muted)]">
+												{#if isDone}
+													✓ Connected{#if summary.externalUsername} as {summary.externalUsername}{/if}
+												{:else}
+													{summary.url}
+												{/if}
+											</div>
+										</div>
+									</div>
+									{#if isDone}
+										<span class="text-xs font-semibold" style="color: {summary.color}">Done</span>
+									{:else}
+										<button
+											class="btn btn-primary text-xs flex-shrink-0"
+											onclick={() => openPersonalLinkModal(summary.id)}
+										>
+											Connect
+										</button>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<div class="flex w-full items-center justify-between">
+						<button
+							class="text-sm text-[var(--color-muted)] hover:text-[var(--color-cream)] transition-colors"
+							onclick={() => goTo(5)}
+						>
+							{#if pendingPersonalLinks.length > 0}
+								Skip for now
+							{:else}
+								&nbsp;
+							{/if}
+						</button>
+						<button class="btn btn-primary px-10 py-3" onclick={() => goTo(5)}>
+							{pendingPersonalLinks.length === 0 ? 'Finish Setup' : 'Continue'}
+						</button>
+					</div>
+				</div>
+
+			<!-- Step 5: Done -->
+			{:else if step === 5}
 				<div class="flex flex-col items-center gap-10 text-center max-w-lg">
 					<div class="relative">
 						<div class="absolute -inset-8 rounded-full blur-[60px] animate-pulse-slow" style="background: #22c55e; opacity: 0.1"></div>
@@ -327,6 +437,15 @@
 			{/if}
 		</div>
 </div>
+
+<!-- Personal-account-linking modal for Step 4 -->
+{#if personalLinkModalSummary}
+	<AccountLinkModal
+		service={personalLinkModalSummary}
+		onSuccess={() => handlePersonalLinkSuccess(personalLinkModalSummary!.id)}
+		onCancel={closePersonalLinkModal}
+	/>
+{/if}
 
 <style>
 	@keyframes slideIn {
