@@ -126,14 +126,14 @@ export function clearStale(userId: string, serviceId: string): void;
 ```sql
 ALTER TABLE user_service_credentials ADD COLUMN stored_password TEXT;
 ALTER TABLE user_service_credentials ADD COLUMN stale_since TEXT; -- ISO timestamp
-ALTER TABLE user_service_credentials ADD COLUMN extra_cookies TEXT; -- JSON or serialized cookie header
 ```
 
 - `stored_password` is nullable. Encrypted at rest via the existing Nexus credential-encryption layer. Users can opt out at link time or via "Forget my password" on the accounts page.
 - `stale_since` is null when the credential is healthy; set to an ISO timestamp when auto-refresh fails or a health probe rejects.
-- `extra_cookies` carries non-SID cookies from the login response. Opaque to the UI, consumed only by `client.ts`.
 
-The Drizzle schema in `src/lib/db/schema.ts:46-60` gets three new nullable columns. Migration generated via `pnpm db:generate`.
+The Drizzle schema in `src/lib/db/schema.ts:46-60` gets two new nullable columns. Migration generated via `pnpm db:generate`.
+
+*(Dropped `extra_cookies` per 2026-04-14 Parker decision — YAGNI. The adapter captures only `SID`. If a specific instance later proves to need additional cookies, add the column then.)*
 
 ### Prong A — backend fix summary (5 items)
 
@@ -156,7 +156,12 @@ The Drizzle schema in `src/lib/db/schema.ts:46-60` gets three new nullable colum
      - `registration-disabled` → *"This instance doesn't allow new accounts. Ask the admin, or choose another instance."*
      - `rate-limited` → *"Too many attempts. Try again in 5 minutes."*
      - `unreachable` → *"Can't reach the Invidious instance. Is the URL correct?"*
-9. **Accounts-page link from main nav** — add a single entry to the user menu dropdown (the one in the top-right avatar menu). Text: *"Accounts"*. Links to `/settings/accounts`. This is the only nav change in this pass; a larger nav reorganization is out of scope.
+9. **Accounts-page discoverability — three entry points** (Parker: *"All of the above"*):
+   - **User-menu dropdown** (top-right avatar): add an *"Accounts"* entry → `/settings/accounts`.
+   - **Sidebar**: add a permanent *"Accounts"* link in the sidebar settings section (next to existing settings entries).
+   - **Settings landing page**: create `/settings/+page.svelte` (if not already present) as an index listing Accounts, Playback, etc. as distinct sections. This is the long-term home; the other two entries are additional affordances that jump directly to the accounts subsection.
+
+   All three routes land at the same `/settings/accounts` page. No separate routes — just multiple entry points.
 10. **Password-storage indicator + forget button on accounts page** — each linked service row with a stored password shows a small lock icon with tooltip *"Password stored for auto-reconnect"*. A "Forget password" menu item clears `stored_password` while keeping the credential linked (session-only mode).
 
 ### Data flow — user-visible narrative
@@ -228,8 +233,8 @@ The Drizzle schema in `src/lib/db/schema.ts:46-60` gets three new nullable colum
 - **Jellyfin parity** — Jellyfin already has stored-credential refresh. Not changing it.
 - **Bringing back `createUser` as an adapter method** — not needed. Option 1 (inline register toggle in the modal) means the existing `authenticateUser` handles both paths since Invidious's `/login` does.
 
-## Open questions for Parker
+## Parker decisions (2026-04-14)
 
-1. **Password storage disclosure copy.** Current draft: *"Nexus encrypts and stores this password locally so your session can refresh automatically when Invidious expires it. Uncheck to require manual reconnect each time."* — clear enough? Too technical? Want different wording?
-2. **The `extra_cookies` column** — I'm adding this because empirically some Invidious instances set multiple cookies on login. But I haven't verified against parker's real instance. Acceptable to add the column now as a forward-compatibility hedge, or should I drop it unless/until we confirm it's needed?
-3. **Accounts-link in user-menu dropdown** — is that the right nav placement, or do you want it somewhere else (sidebar, settings submenu, etc)?
+1. **Password-storage disclosure copy** — locked in as: *"Nexus encrypts and stores this password locally so your session can refresh automatically when Invidious expires it. Uncheck to require manual reconnect each time."*
+2. **`extra_cookies` column** — dropped. YAGNI until a specific instance needs it.
+3. **Nav placement** — all three entry points: user-menu dropdown + sidebar + `/settings/` landing page. All route to the same `/settings/accounts`.
