@@ -5,7 +5,12 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter()
+		adapter: adapter(),
+		// Self-hosted on arbitrary host:port — users reach Nexus via LAN IP,
+		// reverse proxies, Tailscale, etc. SvelteKit's strict Origin check
+		// would 403 every form POST unless ORIGIN env var matches exactly.
+		// Matches Jellyfin/Sonarr/Radarr behavior.
+		csrf: { checkOrigin: false }
 	}
 };
 
