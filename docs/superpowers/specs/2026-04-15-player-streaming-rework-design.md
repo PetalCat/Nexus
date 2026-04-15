@@ -181,7 +181,8 @@ async negotiatePlayback(item, plan, caps) {
 - **The browser's honest codec list** flows in via `BrowserCaps` at session start and gets converted to a `DeviceProfile`. If the browser can't decode AC3/EAC3/DTS, the profile says so, and Jellyfin transcodes to AAC instead of direct-streaming silence.
 - **Four modes, not three.** `PlaybackMode` distinguishes `remux` (container change only) from `direct-stream` (audio transcode only) from `transcode` (video transcode). The player pill reflects this.
 - **Quality changes re-negotiate.** `changeQuality()` calls `negotiatePlayback()` again with a tighter plan. Jellyfin always decides — Nexus never guesses. Cost: one ~200ms round-trip per quality change, invisible next to the buffer flush that already happens.
-- **`close()` reports playback-stopped** via `POST /Sessions/Playing/Stopped` so Jellyfin tears down the transcode session promptly instead of waiting for its timeout.
+- **`close()` reports playback-stopped** via `POST /Sessions/Playing/Stopped` so Jellyfin tears down the transcode session promptly. Confirmed load-bearing: `PlaystateController.ReportPlaybackStopped` calls `_transcodeManager.KillTranscodingJobs(...)` on the `PlaySessionId`.
+- **Session keepalive** via `POST /Sessions/Playing/Ping` during long pauses or slow scrubbing. Jellyfin's `PlaystateController.Ping` calls `_transcodeManager.PingTranscodingJob(...)` on the `PlaySessionId`. Without periodic pings, Jellyfin may reap the transcode session after its inactivity timeout. Cadence: every 15s when playback is paused and every 30s during active playback, handled by a shared `telemetryLoop` in the contract implementation, not per-adapter.
 
 ### How Invidious implements it
 
@@ -220,7 +221,8 @@ Grow the existing `stream-proxy/` crate (633 LOC, Invidious-only today, not wire
   - `POST /session` — body is a `ProxySession { upstream_url, auth_headers, rewrite_rules }`. Returns `{ session_id, stream_url }`. HMAC-signed session IDs with a short TTL.
   - `GET /stream/{id}` — opens upstream, pipes bytes via `reqwest::Response::bytes_stream()` into the hyper response. `Range:` passthrough. Zero application-level buffering.
   - `GET /stats` — existing stats endpoint, kept.
-- **HLS manifest rewriting** via the `m3u8-rs` crate — a proper HLS-spec parser, not regex. Rewrites variant playlist URIs to point at the proxy origin, fixes Jellyfin's bogus `BANDWIDTH=` values, preserves `EXT-X-STREAM-INF` attributes correctly.
+- **Credential stripping.** Jellyfin's `TranscodingUrl` contains `?...&ApiKey=<token>&...` (lowercase `api_key` in older versions). The proxy MUST strip both casings from any URL it emits to the browser (session creation URL, rewritten manifest URIs) and inject the token into upstream requests via the `auth_headers` on the session. The browser never sees a Jellyfin admin token. This is the whole point of having a proxy-as-auth-boundary.
+- **HLS manifest rewriting** via the `m3u8-rs` crate — a proper HLS-spec parser, not regex. Rewrites variant playlist URIs to point at the proxy origin, strips `ApiKey`/`api_key` query params from segment URIs, fixes Jellyfin's bogus `BANDWIDTH=` values, preserves `EXT-X-STREAM-INF` attributes correctly. Handles `#EXT-X-BYTERANGE`, `#EXT-X-MEDIA:TYPE=AUDIO|SUBTITLES` alternate renditions, and `#EXT-X-KEY` encryption URIs — all verified supported by `m3u8-rs`.
 - **Invidious-specific code** (CDN resolver, companion redirect chasing, per-video stats tracking) stays as a module inside the same binary. The existing 633-line `main.rs` is refactored into `src/handlers/invidious.rs`, `src/handlers/hls.rs`, `src/handlers/generic.rs`, `src/proxy.rs`, `src/session.rs`, `src/main.rs`. Same code, new layout.
 - **Auth model:** Node SvelteKit still gates all playback. When a user starts playback, SvelteKit calls `POST /session` on the local Rust proxy with the upstream URL and required auth headers, gets back a signed session ID, and hands the user a `GET /stream/{id}` URL. Rust validates the HMAC and that's it. Rust never touches SvelteKit session cookies.
 - **Build profile:** `lto = true`, `codegen-units = 1`, `strip = true`. Existing `Cargo.toml` already has `lto = true`; the other two are new.
@@ -308,9 +310,11 @@ Target: ~2,299 LOC → ~900 LOC across ~8 files, each ≤300.
 
 Two tiers, stacked.
 
-**Tier 1 — manifest-level ABR (inside hls.js / dash.js).** Free, existing. The one change: pass `EnableAdaptiveBitrateStreaming=true` in the Jellyfin `DeviceProfile` (default is `false` in 10.11 per the API docs), so Jellyfin emits a real multi-variant master playlist with a bitrate ladder instead of a single rendition. With a real ladder, hls.js's built-in ABR actually has something to switch between, and the "start at highest" hack from today becomes unnecessary — `abrEwmaDefaultEstimate: 50_000_000` as an initial bandwidth hint handles cold-start.
+**Tier 1 — manifest-level ABR (inside hls.js / dash.js).** Free, existing — but **almost never fires for Jellyfin**. Jellyfin's `DynamicHlsHelper.cs` suppresses ABR variant emission when the client is on the local network, when output uses copy codecs (remux/direct-stream), or when no video bitrate is requested. Even when all conditions pass, the "ladder" is three rungs: base, base − variation, base − 2×variation, where variation is a coarse step (2 Mbps at ≥10 Mbps total, 1.5 Mbps at ≥5 Mbps, 1 Mbps at ≥3 Mbps). So for parker's default case — local LAN, direct-stream — Jellyfin emits a single-variant playlist regardless of `EnableAdaptiveBitrateStreaming=true`. Tier 1 is effectively dead for the most common Nexus deployment.
 
-**Tier 2 — cross-session renegotiation (new).** When the engine reports sustained stalls (≥2 buffers >3s in a 30s window, or hls.js `FRAG_LOAD_EMERGENCY_ABORTED`), `networkMonitor` fires. Player calls `session.changeQuality({ targetHeight: nextLower, maxBitrate: measured * 0.8 })`, the adapter re-negotiates with Jellyfin, and the engine reloads from saved `currentTime`. The pill may change from `DIRECT` to `TRANSCODE` — user sees it.
+**Tier 2 — cross-session renegotiation (primary adaptation mechanism).** When the engine reports sustained stalls (≥2 buffers >3s in a 30s window, or hls.js `FRAG_LOAD_EMERGENCY_ABORTED`), `networkMonitor` fires. Player calls `session.changeQuality({ targetHeight: nextLower, maxBitrate: measured * 0.8 })`, the adapter re-negotiates with Jellyfin via `POST /Items/{id}/PlaybackInfo`, and the engine reloads from saved `currentTime`. The pill may change from `DIRECT` to `TRANSCODE` — user sees it.
+
+Because Jellyfin won't emit a ladder in the common case, Tier 2 is doing the work ABR would normally do on other media servers. This is intentional: Jellyfin's own position is that client-side ABR on a local network "will likely do more harm than good," and cross-session renegotiation gives us cleaner state (one engine, one URL, one variant at a time) at the cost of a ~200ms round-trip per adaptation event.
 
 **Ramp-back-up:** after 60s of stable playback with measured bandwidth comfortably above the required rate of the next tier up, the player offers a `Try 1080p?` toast. Never auto-forces a re-up.
 
@@ -368,17 +372,25 @@ Switching back to a text sub or Off returns to direct-stream.
 
 **CI lint:** grep the built `_app/immutable/` bundle for `googleapis|gstatic|ytimg|youtube\\.com|googlevideo` — fail the build if found. Prevents silent regressions.
 
-**CSP header** (set in `hooks.server.ts`):
+**CSP via SvelteKit's `kit.csp` config** (static policy). Don't also set the header manually in `hooks.server.ts` — the two can produce conflicting policy enforcement. `hooks.server.ts` is only appropriate if we need per-request dynamic CSP values, which we don't.
 
-```
-default-src 'self';
-script-src 'self';
-style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:;
-font-src 'self';
-media-src 'self' blob:;
-connect-src 'self' ws:;
-frame-ancestors 'none';
+```js
+// svelte.config.js
+kit: {
+  csp: {
+    mode: 'auto',
+    directives: {
+      'default-src': ['self'],
+      'script-src': ['self'],
+      'style-src': ['self', 'unsafe-inline'],
+      'img-src': ['self', 'data:', 'blob:'],
+      'font-src': ['self'],
+      'media-src': ['self', 'blob:'],
+      'connect-src': ['self', 'ws:'],
+      'frame-ancestors': ['none']
+    }
+  }
+}
 ```
 
 ## Phasing
@@ -416,6 +428,32 @@ frame-ancestors 'none';
 
 Phases ship independently. 1/2 are invisible to users, 3 is the big user-facing change, 4 is orthogonal and can land in any order.
 
+## Deployment topology
+
+Nexus ships to a range of setups. The architecture is topology-agnostic by construction — the same contract, proxy, and player work everywhere. What *does* vary is which adaptation mechanism carries the load and how much speed win the Rust proxy delivers. The design must behave gracefully across all four common shapes:
+
+| Topology | Upstream RTT | Jellyfin ABR emits ladder? | Tier 1 ABR | Tier 2 renegotiation | Rust proxy win |
+|---|---|---|---|---|---|
+| **Same-host loopback** | ~0 ms | No (local network suppression) | Dead | Primary | Per-segment CPU overhead, not latency |
+| **Same-LAN separate hosts** | <5 ms | No (same local subnet → local) | Dead | Primary | Connection pooling + backpressure, modest |
+| **Remote Jellyfin over VPN/Tailscale** | 50-300 ms | Yes (3-rung ladder per `DynamicHlsHelper.cs`) | Active | Backup | Significant — avoids Node fetch stall on high-latency upstream |
+| **Reverse-proxied public Jellyfin** | 30-150 ms | Yes (non-local) | Active | Backup | Significant |
+
+**Why this matters for the design:**
+
+- **No topology-specific code paths.** The adapter submits the same `DeviceProfile` with `EnableAdaptiveBitrateStreaming=true` regardless. Jellyfin decides per-request whether to emit a ladder based on its own local-network detection. The client handles both cases identically.
+- **Tier 2 renegotiation is always wired in and always correct.** It's the primary adaptation mechanism for local topologies (where Tier 1 is dead by Jellyfin's design) and the fall-back for remote topologies (where Tier 1 handles fine-grain adaptation within the 3-rung ladder and Tier 2 handles larger drops). Tier 2 is never "disabled" — it just fires rarely on topologies where Tier 1 is doing its job.
+- **The Rust proxy is a net positive on every topology**, but the magnitude varies. Per-segment CPU overhead reduction (same-host), connection pooling (same-LAN), avoiding Node fetch stalls (remote), and backpressure correctness (all of them) add up differently per deployment. Never a regression.
+- **The mode pill, the burn-in submenu, the self-hosted fonts, and the CSP lockdown are topology-agnostic.** Privacy doesn't depend on where your Jellyfin runs.
+
+**Validation during Phase 1** — benchmark the Rust proxy against the Node proxy on the *same* upstream for an apples-to-apples comparison:
+
+1. `curl` 20 MB of HLS segment through the existing Node proxy path, record MB/s.
+2. Same URL, same upstream, through the Rust proxy path, record MB/s.
+3. Repeat on at least two topologies you have access to (dev and a same-LAN target if available) so we see the win shape, not just a single data point.
+
+Never compare "dev stack with Tailscale" against "prod stack with loopback" and conclude anything about the proxy — those numbers differ for reasons that have nothing to do with Nexus.
+
 ## Open questions
 
 None. All design decisions resolved interactively:
@@ -425,6 +463,76 @@ None. All design decisions resolved interactively:
 - Hyper end-to-end for the Rust proxy, not axum.
 - Optional burn-in subs allowed behind explicit labeling; never default.
 - Self-hosted fonts via `@fontsource`; CSP tightened; CI lint gate.
+
+## Appendix: concrete `DeviceProfile` for MSE browsers
+
+Distilled from Jellyfin Web's `scripts/browserDeviceProfile.js` pattern plus research findings. Minimal and load-bearing only.
+
+```json
+{
+  "Name": "Nexus MSE Browser",
+  "MaxStreamingBitrate": 120000000,
+  "MaxStaticBitrate": 100000000,
+
+  "DirectPlayProfiles": [
+    {
+      "Container": "mp4,m4v",
+      "Type": "Video",
+      "VideoCodec": "h264,hevc,av1",
+      "AudioCodec": "aac,mp3,ac3,eac3,opus"
+    },
+    {
+      "Container": "webm",
+      "Type": "Video",
+      "VideoCodec": "vp8,vp9,av1",
+      "AudioCodec": "vorbis,opus"
+    },
+    {
+      "Container": "hls",
+      "Type": "Video",
+      "VideoCodec": "h264,hevc,av1",
+      "AudioCodec": "aac,mp3"
+    }
+  ],
+
+  "TranscodingProfiles": [
+    {
+      "Container": "mp4",
+      "Type": "Video",
+      "Context": "Streaming",
+      "Protocol": "hls",
+      "VideoCodec": "h264,hevc,av1",
+      "AudioCodec": "aac,mp3",
+      "MaxAudioChannels": "2",
+      "MinSegments": 1,
+      "BreakOnNonKeyFrames": true
+    },
+    {
+      "Container": "ts",
+      "Type": "Video",
+      "Context": "Streaming",
+      "Protocol": "hls",
+      "VideoCodec": "h264",
+      "AudioCodec": "aac,mp3",
+      "MaxAudioChannels": "2",
+      "MinSegments": 1,
+      "BreakOnNonKeyFrames": true
+    }
+  ],
+
+  "ContainerProfiles": [],
+  "CodecProfiles": [],
+  "SubtitleProfiles": []
+}
+```
+
+**Intentional omissions:**
+- **MKV direct-play.** Known footgun: Jellyfin Web advertised MKV and users hit `DirectPlayError` when the browser couldn't actually handle the source file. Leaving it off forces Jellyfin into HLS remux/transcode for MKV sources, which always works.
+- **Opus in the HLS transcoding profile.** Safari can't decode Opus-in-fMP4 (it can decode standalone Opus but not inside an MP4 HLS segment). Keeping Opus only in the WebM direct-play profile where it's native.
+- **`ResponseProfiles`.** Removed from the modern `DeviceProfile` model in 10.11; no longer load-bearing.
+- **`ContainerProfiles` / `CodecProfiles` / `SubtitleProfiles`.** Empty for the minimal profile. Can add constraints (e.g., `Max height`, `RefFrames`) later if Nexus hits specific compatibility walls. Starting minimal is safer than starting with wrong constraints.
+
+**The `"Container": "hls"` direct-play entry is intentional and follows Jellyfin Web's own pattern.** The Jellyfin API has no way to express "HLS protocol with MP4 vs TS sub-container" in the standard profile schema, so Jellyfin Web uses this hack with comment `hack of an entry to indicate that we support HLS`. Nexus mirrors it for compatibility.
 
 ## Appendix: decisions this design explicitly kills
 
