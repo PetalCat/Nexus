@@ -74,9 +74,31 @@ async fn hls_session_rewrite_and_proxy_round_trip() {
     assert!(String::from_utf8_lossy(&body).contains("BANDWIDTH=1280000"));
 
     // Rewrite pipeline
-    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "testsess").unwrap();
+    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "testsess", "testsig").unwrap();
     let s = String::from_utf8_lossy(&rewritten);
     assert!(!s.contains("secret"), "ApiKey must be stripped");
     assert!(s.contains("/stream/testsess/"), "must rewrite URI to proxy path");
     assert!(s.contains("BANDWIDTH=1280000"), "must preserve STREAM-INF");
+}
+
+#[test]
+fn hls_rewrite_embeds_sig_query_param() {
+    // The reason C1 slipped past the unit tests: they passed a single
+    // session_id to rewrite_manifest but the router discriminator in main.rs
+    // requires sig= on every hit. This test asserts the rewritten URIs
+    // include the sig query so segment requests route back to the session
+    // handler instead of falling through to the invidious handler.
+    let input = b"#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:6
+#EXTINF:6.0,
+/Videos/abc/hls1/main/0.ts?ApiKey=leaky
+#EXT-X-ENDLIST
+";
+    let out = nexus_stream_proxy::handlers::hls::rewrite_manifest(input, "s1", "mysig123")
+        .expect("parses and rewrites");
+    let s = std::str::from_utf8(&out).unwrap();
+    assert!(s.contains("/stream/s1/"), "rewrites URI to proxy path");
+    assert!(s.contains("?sig=mysig123"), "embeds sig= for router discrimination");
+    assert!(!s.contains("leaky"), "strips ApiKey");
 }

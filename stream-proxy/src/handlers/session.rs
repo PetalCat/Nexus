@@ -1,5 +1,5 @@
 use crate::handlers::hls::rewrite_manifest;
-use crate::proxy::{full_body, proxy_stream, BoxError, HTTP_CLIENT};
+use crate::proxy::{full_body, proxy_stream, stream_upstream_response, BoxError, HTTP_CLIENT};
 use crate::session::{self as session_store, Session};
 use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::{Bytes, Incoming};
@@ -107,24 +107,50 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
 
-    // Non-HLS or non-root: straight byte pipe.
-    if !session.is_hls || suffix.is_some() {
+    // For HLS sessions we need to inspect every upstream response to decide
+    // whether to run the manifest rewriter. Non-HLS sessions always stream
+    // bytes straight through.
+    if !session.is_hls {
         return proxy_stream(&upstream_url, &session.auth_headers, req.headers()).await;
     }
 
-    // HLS root hit: fetch + rewrite + serve.
+    // HLS session: fetch the upstream with auth headers + client range
+    // headers, then decide whether to rewrite or stream based on content.
     let mut req_builder = HTTP_CLIENT.get(&upstream_url);
     for (k, v) in &session.auth_headers {
         req_builder = req_builder.header(k, v);
     }
+    // Forward range headers for seekable segment requests
+    if let Some(range) = req.headers().get("range") {
+        if let Ok(v) = range.to_str() {
+            req_builder = req_builder.header("range", v);
+        }
+    }
     let upstream = match req_builder.send().await {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[stream-proxy] manifest fetch error: {e}");
+            eprintln!("[stream-proxy] HLS upstream fetch error: {e}");
             return json_error(StatusCode::BAD_GATEWAY, "upstream error");
         }
     };
-    let status = upstream.status().as_u16();
+    let status = upstream.status();
+    let content_type = upstream
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let is_manifest = content_type.starts_with("application/vnd.apple.mpegurl")
+        || content_type.starts_with("application/x-mpegurl")
+        || content_type.starts_with("audio/mpegurl")
+        || upstream_url.ends_with(".m3u8");
+
+    if !is_manifest {
+        // Segment, init fragment, key, or other binary content — stream bytes.
+        return stream_upstream_response(upstream).await;
+    }
+
+    // Manifest: buffer it fully, rewrite, serve.
     let body = match upstream.bytes().await {
         Ok(b) => b,
         Err(e) => {
@@ -132,7 +158,8 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
             return json_error(StatusCode::BAD_GATEWAY, "upstream body");
         }
     };
-    let rewritten = match rewrite_manifest(&body, &session_id) {
+    let sig = session_store::sign(&session_id);
+    let rewritten = match rewrite_manifest(&body, &session_id, &sig) {
         Ok(out) => out,
         Err(e) => {
             eprintln!("[stream-proxy] manifest rewrite error: {e}");
@@ -140,7 +167,7 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
     Response::builder()
-        .status(status)
+        .status(status.as_u16())
         .header("content-type", "application/vnd.apple.mpegurl")
         .header("cache-control", "no-store")
         .body(full_body(rewritten))
