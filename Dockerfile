@@ -1,4 +1,21 @@
 # Dockerfile
+
+# Rust sidecar: builds the nexus-stream-proxy binary used as the byte pipe
+# for video playback. Needs musl-dev + openssl for the static linking that
+# lets the binary run in the alpine-based runtime stage.
+#
+# Plain single-stage build (no dep-cache warmup trick): cargo's fingerprint
+# tracking doesn't always detect source changes when a cached dummy build is
+# replaced with real source, producing a binary from the dummy. Accepting a
+# longer first-build time in exchange for a correct build every time.
+FROM rust:1.85-alpine AS rust-build
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
+WORKDIR /stream-proxy
+COPY stream-proxy/Cargo.toml stream-proxy/Cargo.lock ./
+COPY stream-proxy/src ./src
+COPY stream-proxy/tests ./tests
+RUN cargo build --release
+
 FROM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -28,6 +45,9 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json ./
+# Rust stream proxy: handles the byte pipe for video playback.
+# Placed in the path the Node supervisor (src/lib/server/stream-proxy.ts) expects.
+COPY --from=rust-build /stream-proxy/target/release/nexus-stream-proxy /app/stream-proxy/target/release/nexus-stream-proxy
 # Drizzle migrations must ship in the runtime image — bootstrapSchema() runs
 # them on first boot. Without this folder, fresh installs skip bootstrap and
 # crash on the first query against any newly added column.
