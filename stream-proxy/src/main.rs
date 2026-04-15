@@ -311,6 +311,19 @@ async fn handle(
 
     let query = req.uri().query().unwrap_or("");
 
+    // POST /session — create a new proxy session
+    if req.method() == hyper::Method::POST && path == "/session" {
+        return Ok(nexus_stream_proxy::handlers::session::create(req).await);
+    }
+
+    // GET /stream/{id}[/{suffix}] — stream bytes for a session (sig= present)
+    if req.method() == hyper::Method::GET
+        && path.starts_with("/stream/")
+        && query.split('&').any(|p| p.starts_with("sig="))
+    {
+        return Ok(nexus_stream_proxy::handlers::session::stream(req).await);
+    }
+
     // ── Direct CDN proxy: /proxy?url=<encoded-cdn-url> ──────────────────────
     // Used by DASH manifests — passes exact CDN URL, preserves byte ranges
     if path == "/proxy" {
