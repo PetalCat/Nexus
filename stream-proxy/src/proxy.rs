@@ -71,10 +71,12 @@ pub async fn proxy_stream(
     let upstream = match req.send().await {
         Ok(r) => r,
         Err(e) => {
+            // Log full error (including URL) to stderr, return a generic
+            // body so ApiKey-bearing URLs don't leak to the client.
             eprintln!("[stream-proxy] upstream fetch error: {e}");
             return Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
-                .body(full_body(format!("upstream error: {e}")))
+                .body(full_body("upstream error"))
                 .unwrap();
         }
     };
@@ -93,6 +95,28 @@ pub async fn proxy_stream(
         .map_ok(Frame::data)
         .map_err(|e| -> BoxError { Box::new(e) });
 
+    let body = StreamBody::new(stream).boxed();
+    builder.body(body).unwrap()
+}
+
+/// Pipe an already-fetched `reqwest::Response` through as a hyper `Response`
+/// without buffering. Used by the session handler when it has to inspect
+/// the upstream content-type before deciding whether to rewrite or stream.
+pub async fn stream_upstream_response(
+    upstream: reqwest::Response,
+) -> Response<BoxBody<Bytes, BoxError>> {
+    let status = upstream.status();
+    let mut builder = Response::builder().status(status.as_u16());
+    let headers_out = builder.headers_mut().unwrap();
+    for &name in FORWARDED_RESPONSE_HEADERS {
+        if let Some(value) = upstream.headers().get(name) {
+            headers_out.insert(name, value.clone());
+        }
+    }
+    let stream = upstream
+        .bytes_stream()
+        .map_ok(Frame::data)
+        .map_err(|e| -> BoxError { Box::new(e) });
     let body = StreamBody::new(stream).boxed();
     builder.body(body).unwrap()
 }
