@@ -126,7 +126,10 @@ export async function createStreamSession(params: {
 			return null;
 		}
 		const body = (await res.json()) as { stream_url: string };
-		return { streamUrl: `http://127.0.0.1:${PORT}${body.stream_url}` };
+		// Rewrite the Rust-side path (/stream/...) to the Node reverse-proxy path
+		// (/api/stream-proxy/...) so the browser can reach it through the Nexus origin.
+		const proxyPath = body.stream_url.replace(/^\/stream\//, '/api/stream-proxy/');
+		return { streamUrl: proxyPath };
 	} catch (e) {
 		console.warn('[stream-proxy] /session fetch error:', e);
 		return null;
