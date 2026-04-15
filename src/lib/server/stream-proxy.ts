@@ -117,7 +117,8 @@ export async function createStreamSession(params: {
 			body: JSON.stringify({
 				upstream_url: params.upstreamUrl,
 				auth_headers: params.authHeaders ?? {},
-				is_hls: params.isHls ?? false
+				is_hls: params.isHls ?? false,
+				url_prefix: '/api/stream-proxy/'
 			}),
 			signal: AbortSignal.timeout(5000)
 		});

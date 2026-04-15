@@ -14,6 +14,12 @@ pub struct CreateSessionBody {
     pub auth_headers: HashMap<String, String>,
     #[serde(default)]
     pub is_hls: bool,
+    #[serde(default = "default_url_prefix_body")]
+    pub url_prefix: String,
+}
+
+fn default_url_prefix_body() -> String {
+    "/stream/".to_string()
 }
 
 /// Handle `POST /session`. Reads JSON body, stores the session, returns signed ID.
@@ -37,6 +43,7 @@ pub async fn create(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         upstream_url: parsed.upstream_url,
         auth_headers: parsed.auth_headers,
         is_hls: parsed.is_hls,
+        url_prefix: parsed.url_prefix,
         created_at: std::time::Instant::now(),
     };
     let id = session_store::create(session);
@@ -159,7 +166,7 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
     let sig = session_store::sign(&session_id);
-    let rewritten = match rewrite_manifest(&body, &session_id, &sig) {
+    let rewritten = match rewrite_manifest(&body, &session_id, &sig, &session.url_prefix) {
         Ok(out) => out,
         Err(e) => {
             eprintln!("[stream-proxy] manifest rewrite error: {e}");
