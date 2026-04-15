@@ -29,8 +29,8 @@ pub struct Session {
     /// If true, HLS manifests are parsed and rewritten as they pass through.
     #[serde(default)]
     pub is_hls: bool,
-    /// Serialized `Instant` can't round-trip over JSON, so we use elapsed-ms
-    /// from a monotonic start at the server level instead.
+    /// Monotonic creation timestamp. Not serialized — set to `Instant::now()` when
+    /// the struct is deserialized from the POST body. Used only for TTL enforcement.
     #[serde(skip, default = "Instant::now")]
     pub created_at: Instant,
 }
