@@ -14,7 +14,7 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"format": "prettier --write .",
-		"postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs static/pdf.worker.min.mjs",
+		"postinstall": "mkdir -p static && cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs static/pdf.worker.min.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
