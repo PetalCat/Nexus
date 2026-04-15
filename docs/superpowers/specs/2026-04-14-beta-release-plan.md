@@ -6,13 +6,13 @@
 
 ## TL;DR — what's actually needed
 
-Three categories of work separate where we are now from pushing Beta:
+**Update 2026-04-14 late afternoon: all code gaps are closed.** Only ops work remains:
 
-1. **One remaining commit** — wire the just-built account-linking UI into the `/setup` wizard so admins get the new experience. (2-4 hours)
-2. **One tag push** — `git tag v0.1.0-beta.1 && git push --tags` triggers CI → GHCR image builds → #55 fixed for every future Beta user. (5 minutes)
-3. **Release notes + known-limitations doc** — honest statement of what works and what doesn't. (30 minutes)
+1. **One tag push** — `git tag v0.1.0-beta.1 && git push --tags` triggers CI → GHCR image builds → #55 fixed for every future Beta user. (5 minutes)
+2. **Release notes + known-limitations doc** — honest statement of what works and what doesn't. (30 minutes)
+3. **Milestone cleanup** — move #27 and #47 off Beta, label #56 post-beta. (2 minutes)
 
-Everything else is either already done or deliberately deferred to post-Beta.
+Every code gap from the original release plan has been addressed — see *Gaps closed* section below.
 
 ## What's already done (this session's work)
 
@@ -52,6 +52,60 @@ CI does the rest — linux/amd64 + linux/arm64 images pushed to `ghcr.io/PetalCa
 ### Blocker 3: Release notes documenting known limitations
 
 Beta users need to know what's NOT working so they don't file dup issues. Draft in the Release Notes section below — 10 minutes of writing plus a first pass by Parker.
+
+## Gaps closed (update 2026-04-14 late afternoon)
+
+Original release plan listed four gaps. All closed:
+
+### Gap 1: `/setup` wizard wiring (#57) — CLOSED
+
+Commit `ae6446a`. New Step 4 "Connect your personal accounts" added to
+the admin first-run wizard between add-on services and done. For every
+registered user-linkable service, the admin sees a row with a Connect
+button that opens `AccountLinkModal` inline. Admin now leaves the wizard
+with their personal credentials already linked to Jellyfin / Invidious /
+Calibre / Plex / RomM / Overseerr. Verified via fresh-instance DB
+injection (CSRF blocks headless form POST, state verified via step 4
+markup rendering).
+
+### Gap 2: Adapters throwing plain Errors — CLOSED
+
+Commit `0dc9bb0`. Jellyfin, Calibre, Plex, RomM `authenticateUser`
+methods now throw structured `AdapterAuthError` with correct kinds
+(`invalid` / `unreachable` / `rate-limited` / `permission-denied`).
+UI renders specific error copy via `errorCopy.ts` instead of the
+generic "Something went wrong" fallback. Kavita removed from Beta
+scope entirely (Parker: *"I don't use it so I can't test it and I
+don't really care about it"*).
+
+### Gap 3: 6 Invidious route handlers hand-rolling `Cookie: SID=...` — CLOSED
+
+Commit `0dc9bb0`. New `invidiousCookieHeaders(userCred)` helper in
+`src/lib/adapters/invidious/client.ts` is the single source for the
+SID cookie pattern. All 7 former hand-rolled sites (stream proxy,
+formats, DASH, captions, search, playlist detail, plus the adapter's
+own invFetch) now use it. Zero `Cookie.*SID=` occurrences left in
+the codebase.
+
+### Gap 4: `/welcome` route for non-admin first-run — CLOSED
+
+Commit *(last commit this session)*. New `/welcome` route with
+three-phase Wizarr-inspired wizard (Welcome → Connect → Summary),
+new `users.welcome_completed_at` nullable column, migration
+`0003_magical_captain_cross.sql`, hook redirect in `hooks.server.ts`
+that sends non-admin users with `welcome_completed_at = NULL` to
+`/welcome` from any route. Admins skip the flow (they have `/setup`
+instead). Form action `?/complete` marks the column on finish.
+Query param `?force=1` allows re-running via Settings → "Run
+onboarding again".
+
+Verified on fresh instance with seeded admin + non-admin users:
+- Non-admin `/`, `/videos` → 303 `/welcome`
+- Non-admin `/welcome` → 200, renders `Welcome, Parker` + service cards
+- Admin `/` → 200 (no redirect)
+- Admin `/welcome` → 303 `/` (admins bypass)
+- After completion: all routes 200, `/welcome` → 303 `/`
+- `/welcome?force=1` → 200 (re-run)
 
 ## Not blocking — explicitly deferred
 
