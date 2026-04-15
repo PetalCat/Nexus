@@ -10,16 +10,16 @@ use m3u8_rs::{parse_playlist_res, Playlist};
 /// 3. Preserve all `EXT-X-STREAM-INF` attributes (bandwidth, resolution, codecs).
 ///
 /// Returns the rewritten manifest bytes.
-pub fn rewrite_manifest(raw: &[u8], session_id: &str, sig: &str) -> Result<Vec<u8>, String> {
+pub fn rewrite_manifest(raw: &[u8], session_id: &str, sig: &str, url_prefix: &str) -> Result<Vec<u8>, String> {
     let parsed = parse_playlist_res(raw).map_err(|e| format!("parse: {e:?}"))?;
     match parsed {
         Playlist::MasterPlaylist(mut master) => {
             for variant in &mut master.variants {
-                variant.uri = rewrite_uri(&variant.uri, session_id, sig);
+                variant.uri = rewrite_uri(&variant.uri, session_id, sig, url_prefix);
             }
             for media in &mut master.alternatives {
                 if let Some(uri) = media.uri.take() {
-                    media.uri = Some(rewrite_uri(&uri, session_id, sig));
+                    media.uri = Some(rewrite_uri(&uri, session_id, sig, url_prefix));
                 }
             }
             let mut out = Vec::new();
@@ -30,13 +30,13 @@ pub fn rewrite_manifest(raw: &[u8], session_id: &str, sig: &str) -> Result<Vec<u
         }
         Playlist::MediaPlaylist(mut media) => {
             for segment in &mut media.segments {
-                segment.uri = rewrite_uri(&segment.uri, session_id, sig);
+                segment.uri = rewrite_uri(&segment.uri, session_id, sig, url_prefix);
                 if let Some(map) = &mut segment.map {
-                    map.uri = rewrite_uri(&map.uri, session_id, sig);
+                    map.uri = rewrite_uri(&map.uri, session_id, sig, url_prefix);
                 }
                 if let Some(key) = &mut segment.key {
                     if let Some(uri) = key.uri.take() {
-                        key.uri = Some(rewrite_uri(&uri, session_id, sig));
+                        key.uri = Some(rewrite_uri(&uri, session_id, sig, url_prefix));
                     }
                 }
             }
@@ -54,9 +54,10 @@ pub fn rewrite_manifest(raw: &[u8], session_id: &str, sig: &str) -> Result<Vec<u
 /// The "opaque" suffix is a hex encoding of the original URI's path+query minus
 /// the stripped auth. On the return trip, the session handler decodes it and
 /// forwards to the upstream with the session's real auth headers.
-fn rewrite_uri(uri: &str, session_id: &str, sig: &str) -> String {
+fn rewrite_uri(uri: &str, session_id: &str, sig: &str, url_prefix: &str) -> String {
     let stripped = strip_auth_query(uri);
-    format!("/stream/{session_id}/{}?sig={sig}", hex::encode(stripped.as_bytes()))
+    let clean_prefix = url_prefix.trim_end_matches('/');
+    format!("{clean_prefix}/{session_id}/{}?sig={sig}", hex::encode(stripped.as_bytes()))
 }
 
 fn strip_auth_query(uri: &str) -> String {
@@ -101,7 +102,7 @@ mod tests {
 
     #[test]
     fn rewrite_uri_produces_proxy_path() {
-        let out = rewrite_uri("/Videos/abc/hls1/main/0.ts?ApiKey=secret", "sess123", "testsig");
+        let out = rewrite_uri("/Videos/abc/hls1/main/0.ts?ApiKey=secret", "sess123", "testsig", "/stream/");
         assert!(out.starts_with("/stream/sess123/"));
         assert!(!out.contains("secret"), "api key must be absent");
         assert!(!out.contains("ApiKey"), "api key param name must be absent");
@@ -109,9 +110,20 @@ mod tests {
 
     #[test]
     fn rewrite_uri_includes_sig_query() {
-        let out = rewrite_uri("/Videos/abc/main.m3u8?ApiKey=x", "s1", "mysig");
+        let out = rewrite_uri("/Videos/abc/main.m3u8?ApiKey=x", "s1", "mysig", "/stream/");
         assert!(out.starts_with("/stream/s1/"));
         assert!(out.contains("?sig=mysig"), "sig must be embedded for router discrimination");
+        assert!(!out.contains("ApiKey"));
+    }
+
+    #[test]
+    fn rewrite_uri_honors_url_prefix() {
+        let out = rewrite_uri("/Videos/abc/main.m3u8?ApiKey=x", "s1", "sig1", "/api/stream-proxy/");
+        assert!(
+            out.starts_with("/api/stream-proxy/s1/"),
+            "expected url_prefix honored, got: {out}"
+        );
+        assert!(out.contains("?sig=sig1"));
         assert!(!out.contains("ApiKey"));
     }
 
@@ -122,7 +134,7 @@ mod tests {
 #EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360,CODECS=\"avc1.64001f,mp4a.40.2\"
 /Videos/abc/main.m3u8?ApiKey=leaky
 ";
-        let out = rewrite_manifest(input, "s1", "testsig").expect("parses and rewrites");
+        let out = rewrite_manifest(input, "s1", "testsig", "/stream/").expect("parses and rewrites");
         let out_str = std::str::from_utf8(&out).unwrap();
         assert!(out_str.contains("BANDWIDTH=1280000"), "preserves bandwidth");
         assert!(out_str.contains("RESOLUTION=640x360"), "preserves resolution");
@@ -142,7 +154,7 @@ mod tests {
 /Videos/abc/hls1/main/1.ts?ApiKey=leaky
 #EXT-X-ENDLIST
 ";
-        let out = rewrite_manifest(input, "s1", "testsig").expect("parses and rewrites");
+        let out = rewrite_manifest(input, "s1", "testsig", "/stream/").expect("parses and rewrites");
         let out_str = std::str::from_utf8(&out).unwrap();
         assert!(!out_str.contains("leaky"));
         assert!(out_str.contains("/stream/s1/"));

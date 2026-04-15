@@ -29,10 +29,19 @@ pub struct Session {
     /// If true, HLS manifests are parsed and rewritten as they pass through.
     #[serde(default)]
     pub is_hls: bool,
+    /// Path prefix the HLS rewriter uses when emitting proxy URLs.
+    /// Defaults to "/stream/" for direct Rust access; Node reverse-proxy
+    /// deployments pass "/api/stream-proxy/" when creating the session.
+    #[serde(default = "default_url_prefix")]
+    pub url_prefix: String,
     /// Monotonic creation timestamp. Not serialized — set to `Instant::now()` when
     /// the struct is deserialized from the POST body. Used only for TTL enforcement.
     #[serde(skip, default = "Instant::now")]
     pub created_at: Instant,
+}
+
+fn default_url_prefix() -> String {
+    "/stream/".to_string()
 }
 
 pub fn create(session: Session) -> String {
@@ -87,6 +96,7 @@ mod tests {
             upstream_url: "http://example.com/master.m3u8".to_string(),
             auth_headers: HashMap::from([("X-Api-Key".to_string(), "secret".to_string())]),
             is_hls: true,
+            url_prefix: "/stream/".to_string(),
             created_at: Instant::now(),
         }
     }
