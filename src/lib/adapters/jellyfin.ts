@@ -10,6 +10,19 @@ import { heightToResolution, channelsToLabel } from '../server/analytics';
 /** Per-service userId cache — resolved once from /Users/Me */
 const userIdCache = new Map<string, string>();
 
+/**
+ * Jellyfin treats (DeviceId, Client) as a single session slot — any new login
+ * on the same slot invalidates the prior token. Scoping DeviceId by username
+ * keeps user sessions isolated from the admin watchdog (and from each other).
+ */
+function userDeviceId(username: string): string {
+	return `nexus-user-${username.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+}
+
+function userAuthHeader(username: string): string {
+	return `MediaBrowser Client="Nexus User", Device="Nexus Browser", DeviceId="${userDeviceId(username)}", Version="1.0.0"`;
+}
+
 function authHeaders(config: ServiceConfig): Record<string, string> {
 	return {
 		// Modern header (preferred; X-Emby-Token deprecated in Jellyfin 12+)
@@ -114,11 +127,17 @@ async function getUserId(config: ServiceConfig, userCred?: UserCredential): Prom
 
 /**
  * Build auth headers, preferring a user credential's token over the server-level API key.
+ * Device IDs must be user-scoped when using a user token, otherwise Jellyfin
+ * treats it as the admin device and login collisions invalidate tokens.
  */
 function resolvedHeaders(config: ServiceConfig, userCred?: UserCredential): Record<string, string> {
 	const token = userCred?.accessToken ?? config.apiKey ?? '';
+	const deviceId = userCred?.externalUsername
+		? userDeviceId(userCred.externalUsername)
+		: `nexus-${config.id}`;
+	const client = userCred?.externalUsername ? 'Nexus User' : 'Nexus';
 	return {
-		Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${token}"`,
+		Authorization: `MediaBrowser Client="${client}", Device="Nexus Server", DeviceId="${deviceId}", Version="1.0.0", Token="${token}"`,
 		'X-Emby-Token': token
 	};
 }
@@ -670,13 +689,13 @@ export const jellyfinAdapter: ServiceAdapter = {
 	async refreshCredential(config, userCred, storedPassword) {
 		const username = userCred.externalUsername;
 		if (!username) throw new Error('Jellyfin refresh: missing username');
-		// Re-authenticate using the stored password — this produces a new
-		// X-Emby-Token since Jellyfin tokens are session-bound.
+		// Re-authenticate using the stored password — device ID must be
+		// user-scoped so this doesn't collide with the admin session.
 		const res = await fetch(`${config.url}/Users/AuthenticateByName`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'X-Emby-Authorization': `MediaBrowser Client="Nexus", Device="Nexus", DeviceId="nexus", Version="1.0"`
+				Authorization: userAuthHeader(username)
 			},
 			body: JSON.stringify({ Username: username, Pw: storedPassword }),
 			signal: AbortSignal.timeout(8000)
@@ -920,7 +939,7 @@ export const jellyfinAdapter: ServiceAdapter = {
 			res = await fetch(url, {
 				method: 'POST',
 				headers: {
-					...authHeaders(config),
+					Authorization: userAuthHeader(username),
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify({ Username: username, Pw: password }),
@@ -983,10 +1002,14 @@ export const jellyfinAdapter: ServiceAdapter = {
 		}
 		const created = await createRes.json();
 
-		// 2. Authenticate as the new user to get a token
+		// 2. Authenticate as the new user to get a token.
+		// Per-user device ID so this doesn't collide with the admin session.
 		const authRes = await fetch(`${config.url}/Users/AuthenticateByName`, {
 			method: 'POST',
-			headers: { ...authHeaders(config), 'Content-Type': 'application/json' },
+			headers: {
+				Authorization: userAuthHeader(username),
+				'Content-Type': 'application/json'
+			},
 			body: JSON.stringify({ Username: username, Pw: password }),
 			signal: AbortSignal.timeout(8000)
 		});

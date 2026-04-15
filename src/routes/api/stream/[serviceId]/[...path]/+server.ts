@@ -118,23 +118,34 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		upstream.searchParams.set('DeviceId', `nexus-${config.id}`);
 		upstream.searchParams.set('PlaySessionId', `nexus-${Date.now()}`);
 
-		// Codec negotiation — allow H.264 + H.265/HEVC for broad compatibility.
-		// Direct stream (remux into HLS) is preferred over transcoding.
+		// Codec negotiation — only list codecs the browser can actually decode.
+		// AC3/EAC3/DTS must be transcoded; listing them as "playable" causes
+		// Jellyfin to direct-stream them into HLS and the browser renders silence.
 		if (!url.searchParams.has('VideoCodec')) upstream.searchParams.set('VideoCodec', 'h264,h265,hevc,av1');
-		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus,flac,ac3,eac3');
+		if (!url.searchParams.has('AudioCodec')) upstream.searchParams.set('AudioCodec', 'aac,mp3,opus');
 		if (!url.searchParams.has('TranscodingMaxAudioChannels'))
-			upstream.searchParams.set('TranscodingMaxAudioChannels', '6');
+			upstream.searchParams.set('TranscodingMaxAudioChannels', '2');
+		const serverMaxBitrate = 120_000_000;
+		const clientMaxBitrate = parseInt(url.searchParams.get('MaxStreamingBitrate') ?? '');
+		const capped = Number.isFinite(clientMaxBitrate) && clientMaxBitrate > 0 && clientMaxBitrate < serverMaxBitrate;
 		if (!url.searchParams.has('MaxStreamingBitrate'))
-			upstream.searchParams.set('MaxStreamingBitrate', '120000000');
+			upstream.searchParams.set('MaxStreamingBitrate', String(serverMaxBitrate));
 		if (!url.searchParams.has('TranscodingProtocol'))
 			upstream.searchParams.set('TranscodingProtocol', 'hls');
 		if (!url.searchParams.has('TranscodingContainer'))
 			upstream.searchParams.set('TranscodingContainer', 'ts');
-		// Direct stream (remux) preferred — direct play also allowed for compatible containers
+		// Direct stream (remux) preferred at uncapped quality. When the client
+		// picks a specific bitrate cap, disable direct play/stream AND block
+		// stream-copy so Jellyfin actually re-encodes to the requested quality
+		// instead of passing the original bitstream through unchanged.
 		if (!url.searchParams.has('EnableDirectStream'))
-			upstream.searchParams.set('EnableDirectStream', 'true');
+			upstream.searchParams.set('EnableDirectStream', capped ? 'false' : 'true');
 		if (!url.searchParams.has('EnableDirectPlay'))
-			upstream.searchParams.set('EnableDirectPlay', 'true');
+			upstream.searchParams.set('EnableDirectPlay', capped ? 'false' : 'true');
+		if (capped) {
+			upstream.searchParams.set('AllowVideoStreamCopy', 'false');
+			upstream.searchParams.set('AllowAudioStreamCopy', 'false');
+		}
 		upstream.searchParams.set('BreakOnNonKeyFrames', 'true');
 		// Deliver subtitles as separate HLS WebVTT tracks so the player can toggle them
 		if (!url.searchParams.has('SubtitleMethod'))

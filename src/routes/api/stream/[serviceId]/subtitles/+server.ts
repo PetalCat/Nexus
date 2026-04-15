@@ -91,14 +91,19 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		const data = await res.json();
 		const streams: any[] = data.MediaStreams ?? [];
 
+		// Image-based subtitle codecs (PGS/DVB/VOBSUB) can't be served as WebVTT —
+		// Jellyfin returns 404 for Stream.vtt on these tracks. Filter them out.
+		const imageCodecs = new Set(['pgssub', 'pgs', 'dvbsub', 'dvdsub', 'vobsub', 'hdmv_pgs_subtitle']);
 		const subtitles = streams
 			.filter((s) => s.Type === 'Subtitle')
+			.filter((s) => !imageCodecs.has(String(s.Codec ?? '').toLowerCase()))
 			.map((s) => ({
 				id: s.Index as number,
 				name: s.DisplayTitle ?? s.DisplayLanguage ?? s.Language ?? `Subtitle ${s.Index}`,
 				lang: (s.Language ?? '') as string,
 				isExternal: (s.IsExternal ?? false) as boolean,
-				vttUrl: `/api/stream/${serviceId}/${itemId}/Subtitles/${s.Index}/0/Stream.vtt`
+				// Jellyfin subtitle endpoint requires {itemId}/{mediaSourceId}/Subtitles/...
+				vttUrl: `/api/stream/${serviceId}/${itemId}/${itemId}/Subtitles/${s.Index}/0/Stream.vtt`
 			}));
 
 		return new Response(JSON.stringify(subtitles), {

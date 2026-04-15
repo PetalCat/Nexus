@@ -50,7 +50,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!config) return json({ error: 'Service not found' }, { status: 404 });
 
 	const adapter = registry.get(config.type);
-	if (!adapter?.userLinkable) {
+	// Derived adapters (streamystats) authenticate via a parent service's token
+	// rather than their own login flow, so they don't set userLinkable but still
+	// accept user credentials through the autoLink path below.
+	const isDerivedUserService = config.type === 'streamystats';
+	if (!adapter?.userLinkable && !isDerivedUserService) {
 		return json({ error: 'This service does not support user-level accounts' }, { status: 400 });
 	}
 
@@ -146,17 +150,35 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// ── StreamyStats: copy Jellyfin token directly (no getUsers needed) ──
 		if (config.type === 'streamystats') {
 			try {
-				// Validate the Jellyfin token works against StreamyStats
-				const jfUrl = (config.username ?? '').replace(/\/+$/, '');
+				const jfSvc = allServices.find((s) => s.type === 'jellyfin' && s.enabled);
+				if (!jfSvc) {
+					return json({ error: 'No Jellyfin service configured.' }, { status: 400 });
+				}
+				const { resolveStreamystatsServerUrl } = await import('$lib/server/services');
+				const serverUrl = await resolveStreamystatsServerUrl(config, jfSvc);
+				if (!serverUrl) {
+					return json(
+						{
+							error:
+								'StreamyStats has no servers registered. Open StreamyStats and connect it to your Jellyfin first.'
+						},
+						{ status: 400 }
+					);
+				}
 				const testUrl = new URL(`${config.url.replace(/\/+$/, '')}/api/recommendations`);
-				testUrl.searchParams.set('serverUrl', jfUrl);
+				testUrl.searchParams.set('serverUrl', serverUrl);
 				testUrl.searchParams.set('limit', '1');
 				const res = await fetch(testUrl.toString(), {
 					headers: { Authorization: `MediaBrowser Token="${jellyfinCred.accessToken}"` },
 					signal: AbortSignal.timeout(8000)
 				});
 				if (!res.ok) {
-					return json({ error: `StreamyStats rejected Jellyfin token (${res.status}). Ensure StreamyStats is configured for this Jellyfin server.` }, { status: 400 });
+					return json(
+						{
+							error: `StreamyStats rejected Jellyfin token (${res.status}) for server ${serverUrl}. Make sure your Jellyfin user exists in StreamyStats.`
+						},
+						{ status: 400 }
+					);
 				}
 				upsertUserCredential(locals.user.id, serviceId, {
 					accessToken: jellyfinCred.accessToken,

@@ -104,6 +104,7 @@
 	/* ── HLS Tracks ── */
 	let qualityLevels: { index: number; height: number; bitrate: number }[] = $state([]);
 	let currentQuality = $state(-1);
+	let activeHlsHeight = $state<number | null>(null);
 	let audioTracks: { id: number; name: string; lang: string }[] = $state([]);
 	let currentAudioTrack = $state(0);
 	let selectedBitrate = $state(120_000_000);
@@ -292,7 +293,12 @@
 	const isVideo = $derived(!isAudio);
 	const isDirectMode = $derived(mode === 'direct');
 	const theaterActive = $derived(isVideo && hasStarted && !inline);
-	const hlsUrl = $derived(streamUrl + `/master.m3u8?MaxStreamingBitrate=${selectedBitrate}`);
+	const hlsUrl = $derived.by(() => {
+		const qp = new URLSearchParams({ MaxStreamingBitrate: String(selectedBitrate) });
+		const preset = currentQuality >= 0 ? QUALITY_PRESETS[currentQuality] : null;
+		if (preset && preset.height > 0) qp.set('MaxHeight', String(preset.height));
+		return `${streamUrl}/master.m3u8?${qp.toString()}`;
+	});
 	const directUrl = $derived(isDirectMode ? streamUrl : streamUrl + '/stream');
 	const audioUrl = $derived(streamUrl.replace(/\/([^/]+)$/, '/audio/$1') + '/universal');
 
@@ -352,7 +358,7 @@
 				? (directFormats.find((f) => String(f.itag) === currentDirectQuality)?.quality ?? 'Auto')
 				: 'Auto')
 			: currentQuality === -1
-				? 'Auto'
+				? (activeHlsHeight ? `Auto (${activeHlsHeight}p)` : 'Auto')
 				: (QUALITY_PRESETS[currentQuality]?.label ?? 'Auto')
 	);
 
@@ -640,7 +646,11 @@
 						debug: false,
 						renderTextTracksNatively: true
 					});
-					hls.loadSource(streamUrl + `/master.m3u8?MaxStreamingBitrate=${preset.bitrate}`);
+					const qp = new URLSearchParams({
+						MaxStreamingBitrate: String(preset.bitrate)
+					});
+					if (preset.height > 0) qp.set('MaxHeight', String(preset.height));
+					hls.loadSource(`${streamUrl}/master.m3u8?${qp.toString()}`);
 					hls.attachMedia(videoEl!);
 					hls.on(Hls.Events.MANIFEST_PARSED, () => {
 						videoEl!.currentTime = savedTime;
@@ -994,7 +1004,11 @@
 				hls = new Hls({
 					maxBufferLength: 60,
 					maxMaxBufferLength: 120,
+					// Start at the highest available level instead of ramping
+					// up from the lowest; Jellyfin/HLS variants are reliable
+					// enough that a conservative ABR ramp isn't worth the wait.
 					startLevel: -1,
+					abrEwmaDefaultEstimate: 50_000_000,
 					enableWorker: true,
 					lowLatencyMode: false,
 					debug: false,
@@ -1009,6 +1023,12 @@
 						height: l.height ?? 0,
 						bitrate: l.bitrate ?? 0
 					}));
+
+					// When we have multiple levels, explicitly start at the
+					// highest so Auto doesn't stick to the lowest cold-start.
+					if (qualityLevels.length > 1) {
+						hls!.nextLevel = qualityLevels.length - 1;
+					}
 
 					// Restore saved quality preset index
 					const savedIdx = localStorage.getItem('nexus:preferred-quality');
@@ -1050,6 +1070,7 @@
 
 				hls.on(Hls.Events.LEVEL_SWITCHED, (_: any, data: any) => {
 					currentQuality = hls.autoLevelEnabled ? -1 : data.level;
+					activeHlsHeight = hls.levels?.[data.level]?.height ?? null;
 				});
 
 				hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_: any, data: any) => {

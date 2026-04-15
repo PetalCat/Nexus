@@ -546,6 +546,49 @@ export function needsAutoLink(userId: string): boolean {
 }
 
 /**
+ * Resolve which serverUrl to send to Streamystats's `/api/recommendations`.
+ * Streamystats stores Jellyfin servers internally and only accepts URLs it
+ * already knows about (often a public/proxied URL that won't match Nexus's
+ * internal Jellyfin URL). We match by the Jellyfin server GUID instead.
+ */
+export async function resolveStreamystatsServerUrl(
+	streamystatsConfig: ServiceConfig,
+	jellyfinConfig: ServiceConfig
+): Promise<string | null> {
+	const ssBase = streamystatsConfig.url.replace(/\/+$/, '');
+	const jfBase = jellyfinConfig.url.replace(/\/+$/, '');
+
+	let jfServerId: string | null = null;
+	try {
+		const infoRes = await fetch(`${jfBase}/System/Info/Public`, {
+			signal: AbortSignal.timeout(5000)
+		});
+		if (infoRes.ok) {
+			const info = await infoRes.json();
+			jfServerId = info?.Id ?? null;
+		}
+	} catch {
+		/* fall through */
+	}
+
+	try {
+		const serversRes = await fetch(`${ssBase}/api/servers`, {
+			signal: AbortSignal.timeout(5000)
+		});
+		if (!serversRes.ok) return null;
+		const servers = await serversRes.json();
+		if (!Array.isArray(servers) || servers.length === 0) return null;
+		const match = jfServerId
+			? servers.find((s: { jellyfinId?: string }) => s.jellyfinId === jfServerId)
+			: null;
+		const url = (match?.url ?? servers[0]?.url ?? '').replace(/\/+$/, '');
+		return url || null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Silently link Overseerr (Jellyfin auth mode) using the user's Jellyfin credential.
  * Safe to call without await — all errors are swallowed.
  */
@@ -558,6 +601,34 @@ export async function autoLinkJellyfinServices(userId: string): Promise<void> {
 
 	const overseerrServices = services.filter(
 		(s) => isOverseerrType(s.type) && s.enabled && !!s.username
+	);
+
+	const streamystatsServices = services.filter(
+		(s) => s.type === 'streamystats' && s.enabled && !getUserCredentialForService(userId, s.id)?.externalUserId
+	);
+
+	await Promise.allSettled(
+		streamystatsServices.map(async (svc) => {
+			try {
+				const jfUrl = await resolveStreamystatsServerUrl(svc, jellyfinService);
+				if (!jfUrl) return;
+				const testUrl = new URL(`${svc.url.replace(/\/+$/, '')}/api/recommendations`);
+				testUrl.searchParams.set('serverUrl', jfUrl);
+				testUrl.searchParams.set('limit', '1');
+				const res = await fetch(testUrl.toString(), {
+					headers: { Authorization: `MediaBrowser Token="${jellyfinCred.accessToken ?? ''}"` },
+					signal: AbortSignal.timeout(8000)
+				});
+				if (!res.ok) return;
+				upsertUserCredential(userId, svc.id, {
+					accessToken: jellyfinCred.accessToken ?? '',
+					externalUserId: jellyfinCred.externalUserId!,
+					externalUsername: jellyfinCred.externalUsername ?? ''
+				});
+			} catch (e) {
+				console.warn('[Auto-link] Streamystats auto-link failed:', e instanceof Error ? e.message : e);
+			}
+		})
 	);
 
 	await Promise.allSettled(

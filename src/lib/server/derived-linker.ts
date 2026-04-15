@@ -75,8 +75,12 @@ async function linkViaAuthDelegation(
 	parentCred: UserCredential
 ): Promise<void> {
 	if (config.type === 'streamystats') {
-		// StreamyStats-specific validation: test the Jellyfin token against its recommendations API
-		const jfUrl = (config.username ?? '').replace(/\/+$/, '');
+		// Resolve the Streamystats-side serverUrl by matching Jellyfin server GUID.
+		const { getServiceConfigs, resolveStreamystatsServerUrl } = await import('./services');
+		const jfSvc = getServiceConfigs().find((s) => s.type === 'jellyfin' && s.enabled);
+		if (!jfSvc) return;
+		const jfUrl = await resolveStreamystatsServerUrl(config, jfSvc);
+		if (!jfUrl) return;
 		const testUrl = new URL(`${config.url.replace(/\/+$/, '')}/api/recommendations`);
 		testUrl.searchParams.set('serverUrl', jfUrl);
 		testUrl.searchParams.set('limit', '1');
