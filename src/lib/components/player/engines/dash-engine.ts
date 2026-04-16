@@ -24,9 +24,8 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 				},
 			});
 
-			player.on('qualityChangeRendered', (_e: unknown) => {
+			function refreshLevels() {
 				try {
-					// dash.js v5 API: try multiple method names for cross-version compat
 					const p = player as any;
 					const idx = (
 						p.getQualityFor?.('video') ??
@@ -39,15 +38,24 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 						p.getRepresentationsByType?.('video') ??
 						[]
 					) as { qualityIndex: number; height: number; bitrate: number }[];
-					levels = bitrateList.map((b, i: number) => ({
-						index: i, height: b.height ?? 0, bitrate: b.bitrate ?? 0,
-					}));
-					const lvl = levels[idx];
-					if (lvl) levelCallbacks.forEach((cb) => cb(lvl));
+					if (bitrateList.length > 0) {
+						levels = bitrateList.map((b, i: number) => ({
+							index: i, height: b.height ?? 0, bitrate: b.bitrate ?? 0,
+						}));
+						const lvl = levels[idx];
+						if (lvl) levelCallbacks.forEach((cb) => cb(lvl));
+					}
 				} catch (e) {
 					console.warn('[dash-engine] quality info error:', e);
 				}
-			});
+			}
+
+			// Populate levels on multiple events — qualityChangeRendered is
+			// unreliable as a first-load trigger in some dash.js versions.
+			player.on('qualityChangeRendered', refreshLevels);
+			player.on('playbackStarted', refreshLevels);
+			player.on('streamInitialized', refreshLevels);
+			player.on('playbackPlaying', refreshLevels);
 
 			player.on('error', () => errorCallbacks.forEach((cb) => cb()));
 			player.on('bufferStalled', () => {
