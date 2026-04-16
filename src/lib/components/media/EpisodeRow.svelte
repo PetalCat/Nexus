@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Episode, SubtitleStatus } from '$lib/types/media-ui';
 	import { Play, Check, Captions } from 'lucide-svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	let {
 		episode,
@@ -21,6 +22,9 @@
 	const watched = $derived(episode.progress === 1);
 	const inProgress = $derived(episode.progress != null && episode.progress > 0 && episode.progress < 1);
 	const progressPercent = $derived(Math.round((episode.progress ?? 0) * 100));
+
+	const lowResSrc = $derived(lowResImageUrl(episode.image));
+	let imgLoaded = $state(false);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -34,11 +38,23 @@
 	<!-- Thumbnail -->
 	<div class="relative aspect-video overflow-hidden rounded-lg {isCurrent ? 'ring-2 ring-steel/50' : ''}">
 		{#if episode.image}
+			{#if lowResSrc && !imgLoaded}
+				<img
+					src={lowResSrc}
+					alt=""
+					aria-hidden="true"
+					class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
 			<img
 				src={episode.image}
 				alt={episode.title}
-				class="h-full w-full object-cover transition-transform duration-500 group-hover/episode:scale-105"
+				class="relative h-full w-full object-cover transition-transform duration-500 group-hover/episode:scale-105"
 				loading="lazy"
+				decoding="async"
+				onload={() => (imgLoaded = true)}
 			/>
 		{:else}
 			<div class="h-full w-full bg-cream/[0.04]"></div>

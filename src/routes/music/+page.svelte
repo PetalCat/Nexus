@@ -2,8 +2,11 @@
 	import type { PageData } from './$types';
 	import AlbumCard from '$lib/components/music/AlbumCard.svelte';
 	import ArtistCard from '$lib/components/music/ArtistCard.svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	let { data }: { data: PageData } = $props();
+
+	let loadedChips = $state<Record<string, boolean>>({});
 
 	const greeting = $derived.by(() => {
 		const h = new Date().getHours();
@@ -43,14 +46,31 @@
 		{#if data.recentlyPlayed.length > 0}
 			<div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-8">
 				{#each data.recentlyPlayed.slice(0, 6) as item (item.mediaId ?? item.serviceId + item.timestamp)}
+					{@const chipArt = albumArt(item)}
+					{@const chipLowRes = lowResImageUrl(chipArt)}
+					{@const chipKey = item.mediaId ?? item.serviceId + item.timestamp}
 					<a href="/music/albums/{item.mediaId}?service={item.serviceId}" class="recent-chip">
-						{#if albumArt(item)}
-							<img
-								src={albumArt(item)}
-								alt=""
-								class="chip-art"
-								loading="lazy"
-							/>
+						{#if chipArt}
+							<div class="chip-art-wrap">
+								{#if chipLowRes && !loadedChips[chipKey]}
+									<img
+										src={chipLowRes}
+										alt=""
+										aria-hidden="true"
+										class="chip-lqip"
+										loading="lazy"
+										decoding="async"
+									/>
+								{/if}
+								<img
+									src={chipArt}
+									alt=""
+									class="chip-art"
+									loading="lazy"
+									decoding="async"
+									onload={() => (loadedChips = { ...loadedChips, [chipKey]: true })}
+								/>
+							</div>
 						{:else}
 							<div class="chip-art chip-art-placeholder">
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -140,12 +160,32 @@
 		background: var(--color-surface);
 	}
 
+	.chip-art-wrap {
+		position: relative;
+		width: 44px;
+		height: 44px;
+		border-radius: 4px;
+		overflow: hidden;
+		flex-shrink: 0;
+	}
+
 	.chip-art {
+		position: relative;
 		width: 44px;
 		height: 44px;
 		border-radius: 4px;
 		object-fit: cover;
 		flex-shrink: 0;
+	}
+
+	.chip-lqip {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		filter: blur(10px);
+		transform: scale(1.15);
 	}
 
 	.chip-art-placeholder {
