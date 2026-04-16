@@ -25,14 +25,28 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 			});
 
 			player.on('qualityChangeRendered', (_e: unknown) => {
-				const idx = (player as any).getQualityFor('video') as number;
-				activeLevelIndex = idx;
-				const bitrateList = ((player as any).getBitrateInfoListFor('video') ?? []) as { qualityIndex: number; height: number; bitrate: number }[];
-				levels = bitrateList.map((b, i: number) => ({
-					index: i, height: b.height ?? 0, bitrate: b.bitrate ?? 0,
-				}));
-				const lvl = levels[idx];
-				if (lvl) levelCallbacks.forEach((cb) => cb(lvl));
+				try {
+					// dash.js v5 API: try multiple method names for cross-version compat
+					const p = player as any;
+					const idx = (
+						p.getQualityFor?.('video') ??
+						p.getCurrentRepresentationForType?.('video')?.absoluteIndex ??
+						0
+					) as number;
+					activeLevelIndex = idx;
+					const bitrateList = (
+						p.getBitrateInfoListFor?.('video') ??
+						p.getRepresentationsByType?.('video') ??
+						[]
+					) as { qualityIndex: number; height: number; bitrate: number }[];
+					levels = bitrateList.map((b, i: number) => ({
+						index: i, height: b.height ?? 0, bitrate: b.bitrate ?? 0,
+					}));
+					const lvl = levels[idx];
+					if (lvl) levelCallbacks.forEach((cb) => cb(lvl));
+				} catch (e) {
+					console.warn('[dash-engine] quality info error:', e);
+				}
 			});
 
 			player.on('error', () => errorCallbacks.forEach((cb) => cb()));
@@ -56,7 +70,10 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 				player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
 			} else {
 				player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
-				(player as any).setQualityFor('video', index);
+				try {
+					const p = player as any;
+					(p.setQualityFor ?? p.setRepresentationForTypeByIndex)?.call(p, 'video', index);
+				} catch { /* best-effort */ }
 			}
 			activeLevelIndex = index;
 		},
