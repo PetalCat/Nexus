@@ -292,7 +292,7 @@
 			attachEngine(session);
 			return;
 		}
-		videoEl.paused ? videoEl.play() : videoEl.pause();
+		videoEl.paused ? videoEl.play().catch(() => {}) : videoEl.pause();
 	}
 
 	function skipBy(secs: number) {
