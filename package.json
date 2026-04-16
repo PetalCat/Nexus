@@ -41,6 +41,9 @@
 		"vitest": "^4.1.2"
 	},
 	"dependencies": {
+		"@fontsource-variable/dm-sans": "^5.2.8",
+		"@fontsource-variable/jetbrains-mono": "^5.2.8",
+		"@fontsource-variable/playfair-display": "^5.2.8",
 		"better-sqlite3": "^11.10.0",
 		"chart.js": "^4.5.1",
 		"dashjs": "^5.1.1",

@@ -10,7 +10,20 @@ const config = {
 		// reverse proxies, Tailscale, etc. SvelteKit's strict Origin check
 		// would 403 every form POST unless ORIGIN env var matches exactly.
 		// Matches Jellyfin/Sonarr/Radarr behavior.
-		csrf: { checkOrigin: false }
+		csrf: { checkOrigin: false },
+		csp: {
+			mode: 'auto',
+			directives: {
+				'default-src': ['self'],
+				'script-src': ['self'],
+				'style-src': ['self', 'unsafe-inline'],
+				'img-src': ['self', 'data:', 'blob:'],
+				'font-src': ['self'],
+				'media-src': ['self', 'blob:'],
+				'connect-src': ['self', 'ws:'],
+				'frame-ancestors': ['none']
+			}
+		}
 	}
 };
 

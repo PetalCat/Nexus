@@ -17,9 +17,9 @@
 	--color-steel-light: #56a99d;
 	--color-warm: #c45c5c;
 	--color-warm-light: #d87474;
-	--font-display: 'Playfair Display', Georgia, serif;
-	--font-body: 'DM Sans', system-ui, sans-serif;
-	--font-mono: 'JetBrains Mono', monospace;
+	--font-display: 'Playfair Display Variable', Georgia, serif;
+	--font-body: 'DM Sans Variable', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', monospace;
 	--radius-card: 12px;
 	--radius-pill: 100px;
 	--shadow-float: 0 8px 32px #00000060;
