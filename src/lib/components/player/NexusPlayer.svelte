@@ -21,6 +21,7 @@
 		serviceId?: string;
 		itemId?: string;
 		inline?: boolean;
+		isAudio?: boolean;
 		onclose?: () => void;
 		onqualitychange?: (plan: PlaybackPlan) => Promise<PlaybackSession>;
 	}
@@ -36,6 +37,7 @@
 		serviceId = '',
 		itemId = '',
 		inline = false,
+		isAudio = false,
 		onclose,
 		onqualitychange
 	}: Props = $props();
@@ -66,7 +68,7 @@
 	let isVolDragging = $state(false);
 
 	/* ── Derived ── */
-	const theaterActive = $derived(hasStarted && !inline);
+	const theaterActive = $derived(hasStarted && !inline && !isAudio);
 	const progressPct = $derived(ps.duration > 0 ? (ps.currentTime / ps.duration) * 100 : 0);
 	const bufferedPct = $derived(ps.duration > 0 ? (ps.buffered / ps.duration) * 100 : 0);
 	const scrubPct = $derived(isScrubbing ? scrubPreview * 100 : progressPct);
@@ -396,7 +398,7 @@
 			case 'ArrowRight': case 'l': e.preventDefault(); skipBy(10); break;
 			case 'ArrowUp': e.preventDefault(); setVol(ps.volume + 0.1); break;
 			case 'ArrowDown': e.preventDefault(); setVol(ps.volume - 0.1); break;
-			case 'f': e.preventDefault(); toggleFullscreen(); break;
+			case 'f': if (!isAudio) { e.preventDefault(); toggleFullscreen(); } break;
 			case 'm': e.preventDefault(); toggleMute(); break;
 			case 'c': e.preventDefault(); togglePanel('subtitles'); break;
 			case 'Escape':
@@ -431,7 +433,7 @@
 
 	$effect(() => {
 		if (!theaterEl) return;
-		if (inline) return;
+		if (inline || isAudio) return;
 		if (hasStarted) {
 			portalParent = theaterEl.parentNode;
 			portalSibling = theaterEl.nextSibling;
@@ -483,7 +485,8 @@
 	class="theater"
 	class:theater--active={theaterActive}
 	class:theater--inline={inline}
-	class:cursor-none={!ps.showControls && ps.playing}
+	class:theater--audio={isAudio}
+	class:cursor-none={!ps.showControls && ps.playing && !isAudio}
 	onmousemove={resetControlsTimer}
 	onclick={(e) => { if ((e.target as HTMLElement).closest('.ctrl-panel-wrap, .ctrl-bar')) return; }}
 	role="application"
@@ -493,13 +496,21 @@
 	<video
 		bind:this={videoEl}
 		class="theater__video"
+		class:hidden={isAudio}
 		playsinline
 		preload="none"
 		{poster}
 	></video>
 
+	{#if isAudio && poster}
+		<div class="audio-art">
+			<img src={poster} alt="" class="audio-art__img" />
+			<div class="audio-art__dim"></div>
+		</div>
+	{/if}
+
 	{#if !hasStarted}
-		{#if !inline}
+		{#if !inline && !isAudio}
 			<button class="preplay__back" onclick={closeTheater} aria-label="Go back">
 				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
 			</button>
@@ -538,14 +549,14 @@
 	{/if}
 
 	{#if hasStarted && !ps.error}
-		<button class="click-area" onclick={togglePlay} ondblclick={toggleFullscreen} aria-label={ps.playing ? 'Pause' : 'Play'}></button>
+		<button class="click-area" onclick={togglePlay} ondblclick={isAudio ? undefined : toggleFullscreen} aria-label={ps.playing ? 'Pause' : 'Play'}></button>
 	{/if}
 
 	{#if hasStarted && !ps.error}
 		<div class="ctrl" class:ctrl--hidden={!ps.showControls}>
 			<!-- Top bar -->
-			<div class="ctrl__top">
-				{#if !inline || isFullscreen}
+			<div class="ctrl__top" class:ctrl__top--audio={isAudio}>
+				{#if !isAudio && (!inline || isFullscreen)}
 					<button class="cb ctrl__back" onclick={() => { if (inline && isFullscreen) document.exitFullscreen(); else closeTheater(); }} aria-label="Go back">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
 					</button>
@@ -688,13 +699,15 @@
 					{/if}
 
 					<!-- Fullscreen -->
-					<button class="cb cb--sm" onclick={toggleFullscreen} aria-label="Fullscreen">
-						{#if isFullscreen}
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" /></svg>
-						{:else}
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
-						{/if}
-					</button>
+					{#if !isAudio}
+						<button class="cb cb--sm" onclick={toggleFullscreen} aria-label="Fullscreen">
+							{#if isFullscreen}
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" /></svg>
+							{:else}
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
+							{/if}
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -715,7 +728,23 @@
 	.theater--inline.theater--active {
 		position: fixed; inset: 0; z-index: 99999; border-radius: 0;
 	}
+	.theater--audio {
+		aspect-ratio: unset; max-height: unset;
+	}
 	.theater__video { width: 100%; height: 100%; object-fit: contain; }
+	.theater__video.hidden { display: none; }
+
+	.audio-art {
+		position: relative; width: 100%; aspect-ratio: 1;
+		overflow: hidden; border-radius: 0.75rem 0.75rem 0 0;
+	}
+	.audio-art__img {
+		width: 100%; height: 100%; object-fit: cover;
+	}
+	.audio-art__dim {
+		position: absolute; inset: 0;
+		background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 40%);
+	}
 
 	.preplay__back {
 		position: absolute; top: 1rem; left: 1rem; z-index: 10;
@@ -804,6 +833,7 @@
 		padding: 1rem 1.25rem;
 		background: linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, transparent 100%);
 	}
+	.ctrl__top--audio { background: transparent; padding: 0.5rem 0.75rem; }
 	.ctrl__back { flex-shrink: 0; }
 	.ctrl__meta {
 		flex: 1; min-width: 0;
