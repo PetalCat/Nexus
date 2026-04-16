@@ -44,6 +44,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			subtitleTracks: session.subtitleTracks,
 			burnableSubtitleTracks: session.burnableSubtitleTracks,
 			activeLevel: session.activeLevel,
+			levels: session.levels,
 		});
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);

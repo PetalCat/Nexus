@@ -42,6 +42,12 @@ export function createPlayerState() {
 		if (session.activeLevel) {
 			activeLevel = { index: 0, ...session.activeLevel };
 		}
+		// Seed levels from the session if the adapter pre-computed them.
+		// The engine's onLevelSwitched callback will overwrite this later
+		// with live data if/when it fires.
+		if (session.levels && session.levels.length > 0) {
+			levels = session.levels;
+		}
 	}
 
 	function updateQualityLabel(levels: Level[], activeLevelIndex: number) {

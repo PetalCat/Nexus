@@ -1,5 +1,30 @@
 import type { ServiceConfig, UserCredential } from './types';
-import type { PlaybackPlan, PlaybackSession, BrowserCaps } from './playback';
+import type { PlaybackPlan, PlaybackSession, BrowserCaps, SessionLevel } from './playback';
+
+/** Extract quality levels from Invidious's adaptiveFormats — one level per
+ *  unique video height. Sorted descending (highest quality first). */
+export function extractLevels(adaptiveFormats: any[]): SessionLevel[] {
+	const videoFormats = adaptiveFormats.filter((f) => {
+		const mime = String(f.type ?? f.mimeType ?? '');
+		return mime.startsWith('video/') && (f.qualityLabel || f.resolution);
+	});
+
+	const byHeight = new Map<number, { bitrate: number }>();
+	for (const f of videoFormats) {
+		const heightStr = String(f.qualityLabel ?? f.resolution ?? '');
+		const height = parseInt(heightStr);
+		if (!isFinite(height) || height <= 0) continue;
+		const bitrate = parseInt(String(f.bitrate ?? 0)) || 0;
+		const existing = byHeight.get(height);
+		if (!existing || bitrate > existing.bitrate) {
+			byHeight.set(height, { bitrate });
+		}
+	}
+
+	return Array.from(byHeight.entries())
+		.sort((a, b) => b[0] - a[0])
+		.map(([height, { bitrate }], index) => ({ index, height, bitrate }));
+}
 
 const PREFERRED_MUXED_ITAGS = ['22', '18'];
 
@@ -97,6 +122,9 @@ export async function invidiousNegotiatePlayback(
 		audioTracks: [{ id: 0, name: 'Default', lang: '' }],
 		subtitleTracks,
 		burnableSubtitleTracks: [],
+		// Pre-compute quality levels from adaptiveFormats so the quality menu
+		// appears immediately — doesn't depend on dash.js events firing.
+		levels: hasAdaptive ? extractLevels(meta.adaptiveFormats ?? []) : undefined,
 	};
 
 	session.changeQuality = async (newPlan: PlaybackPlan) => {
