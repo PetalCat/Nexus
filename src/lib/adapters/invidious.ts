@@ -184,10 +184,23 @@ async function invFetch<T = any>(
 // ---------------------------------------------------------------------------
 
 /** Route Invidious/YouTube CDN image URLs through the Nexus image proxy so
- *  the browser only talks to the Nexus origin. */
+ *  the browser only talks to the Nexus origin. Invidious emits thumbnails
+ *  like `http://localhost:3000/vi/{id}/maxres.jpg` (its own origin serving
+ *  YouTube thumbnails) — strip the origin and treat as a path within the
+ *  Invidious service so the proxy reaches the configured service URL
+ *  (host.docker.internal:3000) instead of the browser's localhost. */
 function proxyInvImage(url: string | undefined, serviceId: string): string | undefined {
 	if (!url) return undefined;
-	if (url.startsWith('/')) return url; // already proxied
+	if (url.startsWith('/')) return url;
+	try {
+		const parsed = new URL(url);
+		// Strip the origin for Invidious-served URLs (/vi/ paths and similar)
+		if (parsed.pathname.startsWith('/vi/') || parsed.pathname.startsWith('/ggpht/')) {
+			const pathAndQuery = parsed.pathname + parsed.search;
+			return `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(pathAndQuery)}`;
+		}
+	} catch { /* fall through */ }
+	// Third-party CDN (yt3.ggpht.com, i.ytimg.com, etc.) — proxy the absolute URL
 	return `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(url)}`;
 }
 
