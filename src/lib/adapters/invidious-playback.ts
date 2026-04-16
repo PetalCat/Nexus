@@ -82,10 +82,17 @@ export async function invidiousNegotiatePlayback(
 		}
 	} catch { /* captions are optional */ }
 
+	// Use DASH for adaptive quality (all resolutions up to 4K) when adaptive
+	// formats are available. Fall back to progressive muxed for the rare case
+	// where Invidious only returns formatStreams (muxed, 720p max).
+	const hasAdaptive = (meta.adaptiveFormats ?? []).length > 0;
+
 	const session: PlaybackSession = {
-		engine: 'progressive',
-		url: `/api/video/stream/${encodeURIComponent(videoId)}?itag=${itag}`,
-		mime: picked?.mimeType ?? 'video/mp4',
+		engine: hasAdaptive ? 'dash' : 'progressive',
+		url: hasAdaptive
+			? `/api/video/stream/${encodeURIComponent(videoId)}/dash`
+			: `/api/video/stream/${encodeURIComponent(videoId)}?itag=${itag}`,
+		mime: hasAdaptive ? 'application/dash+xml' : (picked?.mimeType ?? 'video/mp4'),
 		mode: 'direct-play',
 		audioTracks: [{ id: 0, name: 'Default', lang: '' }],
 		subtitleTracks,
