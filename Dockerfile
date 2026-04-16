@@ -45,6 +45,10 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json ./
+# Custom entrypoint that wraps adapter-node's handler so we can attach the
+# WebSocket upgrade listener on /api/ws. The SvelteKit build alone doesn't
+# expose the http.Server instance.
+COPY server.js ./
 # Rust stream proxy: handles the byte pipe for video playback.
 # Placed in the path the Node supervisor (src/lib/server/stream-proxy.ts) expects.
 COPY --from=rust-build /stream-proxy/target/release/nexus-stream-proxy /app/stream-proxy/target/release/nexus-stream-proxy
@@ -61,4 +65,4 @@ RUN mkdir -p /app/data
 
 EXPOSE 8585
 
-CMD ["node", "build/index.js"]
+CMD ["node", "server.js"]
