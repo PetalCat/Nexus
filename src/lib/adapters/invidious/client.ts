@@ -54,7 +54,8 @@ export async function invidiousFetch<T = unknown>(
 	userCred?: UserCredential,
 	opts?: InvidiousFetchOptions
 ): Promise<T> {
-	const url = `${config.url}${path}`;
+	const sep = path.includes('?') ? '&' : '?';
+	const url = `${config.url}${path}${sep}hl=en`;
 	const headers: Record<string, string> = {
 		...((opts?.init?.headers as Record<string, string>) ?? {})
 	};
