@@ -3,6 +3,7 @@
 	import type { UnifiedMedia } from '$lib/types/media-ui';
 	import { MEDIA_TYPE_CONFIG } from '$lib/types/media-ui';
 	import { setActiveTransition } from '$lib/transition';
+	import { lowResImageUrl } from '$lib/image-hint';
 	import MediaBadge from './MediaBadge.svelte';
 	import ProgressBar from './ProgressBar.svelte';
 
@@ -34,6 +35,11 @@
 	let cardEl: HTMLButtonElement | undefined = $state();
 	let tiltX = $state(0);
 	let tiltY = $state(0);
+
+	// Low-res placeholder derived from the full-res URL. On fast links this is
+	// pre-empted by the full-res image and never paints; on slow links it
+	// gives the user a recognizable blur until the full-res arrives.
+	const lowResSrc = $derived(lowResImageUrl(media.image));
 
 	const sizeClasses: Record<string, string> = {
 		sm: 'w-[130px] md:w-[145px]',
@@ -117,14 +123,28 @@
 			{#if !imageLoaded}
 				<div class="absolute inset-0 skeleton-bone"></div>
 			{/if}
+			{#if lowResSrc && !imageLoaded}
+				<!-- Blurred LQIP behind the main image. Paints in ~100 ms on slow
+				     links. On fast LAN the full-res below loads first and the
+				     main <img> above covers this before it's visible. -->
+				<img
+					src={lowResSrc}
+					alt=""
+					aria-hidden="true"
+					class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
 			<img
 				src={media.image}
 				alt={media.title}
-				class="h-full w-full object-cover transition-transform duration-300 ease-out"
+				class="relative h-full w-full object-cover transition-transform duration-300 ease-out"
 				class:scale-[1.08]={hovered}
 				class:opacity-0={!imageLoaded}
 				data-media-id={media.id}
 				loading="lazy"
+				decoding="async"
 				onload={() => (imageLoaded = true)}
 				onerror={() => (imageError = true)}
 			/>
