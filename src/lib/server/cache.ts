@@ -11,11 +11,24 @@ interface CacheEntry<T> {
 const store = new Map<string, CacheEntry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
 
+/** TTL resolver — either a fixed number of ms or a function that computes
+ *  a TTL from the resolved value (useful for short-TTL negative caching). */
+export type TtlSpec<T> = number | ((data: T) => number);
+
+function resolveTtl<T>(spec: TtlSpec<T>, data: T): number {
+	return typeof spec === 'function' ? spec(data) : spec;
+}
+
 /**
  * Return cached value if fresh, otherwise call `fn`, cache the result, and return it.
- * `ttlMs` — how long to cache in milliseconds.
+ * `ttlMs` — how long to cache in milliseconds. May be a function of the resolved
+ * value (used to cache negative results for a shorter window than hits).
  */
-export async function withCache<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+export async function withCache<T>(
+	key: string,
+	ttlMs: TtlSpec<T>,
+	fn: () => Promise<T>
+): Promise<T> {
 	const hit = store.get(key);
 	if (hit && Date.now() < hit.expires) {
 		return hit.data as T;
@@ -29,7 +42,7 @@ export async function withCache<T>(key: string, ttlMs: number, fn: () => Promise
 	const request = (async () => {
 		try {
 			const data = await fn();
-			store.set(key, { data, expires: Date.now() + ttlMs });
+			store.set(key, { data, expires: Date.now() + resolveTtl(ttlMs, data) });
 			return data;
 		} finally {
 			inflight.delete(key);
@@ -46,7 +59,7 @@ export async function withCache<T>(key: string, ttlMs: number, fn: () => Promise
  */
 export async function withStaleCache<T>(
 	key: string,
-	ttlMs: number,
+	ttlMs: TtlSpec<T>,
 	staleMs: number,
 	fn: () => Promise<T>
 ): Promise<T> {
@@ -62,7 +75,7 @@ export async function withStaleCache<T>(
 			const refresh = (async () => {
 				try {
 					const data = await fn();
-					store.set(key, { data, expires: Date.now() + ttlMs });
+					store.set(key, { data, expires: Date.now() + resolveTtl(ttlMs, data) });
 					return data;
 				} finally {
 					inflight.delete(key);
