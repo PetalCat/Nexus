@@ -68,7 +68,7 @@ export function pickBestFormat(
 	formats: any[],
 	caps: BrowserCaps,
 	plan: PlaybackPlan
-): { itag: string; mimeType?: string; qualityLabel?: string } | null {
+): { itag: string; mimeType?: string; qualityLabel?: string; height?: number } | null {
 	if (!formats.length) return null;
 
 	// Filter to muxed formats (have both video + audio in one stream)
@@ -176,6 +176,13 @@ export async function invidiousNegotiatePlayback(
 		dashAvailable = dashLevels.length > 0;
 	}
 
+	// Source height for the quality menu cap. For DASH, the largest level
+	// matches the upload resolution. For progressive we fall back to the
+	// picked format's height (single-stream itag).
+	const sourceHeight = dashAvailable
+		? dashLevels.reduce((m, l) => (l.height > m ? l.height : m), 0) || undefined
+		: (typeof picked?.height === 'number' ? picked.height : undefined);
+
 	const session: PlaybackSession = {
 		engine: dashAvailable ? 'dash' : 'progressive',
 		url: dashAvailable
@@ -187,6 +194,7 @@ export async function invidiousNegotiatePlayback(
 		subtitleTracks,
 		burnableSubtitleTracks: [],
 		levels: dashAvailable ? dashLevels : undefined,
+		sourceHeight,
 	};
 
 	session.changeQuality = async (newPlan: PlaybackPlan) => {

@@ -66,6 +66,8 @@ export function mapPlaybackInfoToSession(
 	const mode = derivePlaybackMode(source);
 	const streams: any[] = source.MediaStreams ?? [];
 	const playSessionId = info.PlaySessionId as string | undefined;
+	const videoStream = streams.find((s) => s.Type === 'Video');
+	const sourceHeight = typeof videoStream?.Height === 'number' ? videoStream.Height : undefined;
 
 	// Jellyfin returns TranscodingUrl as a relative path starting with /videos/...
 	// For direct-play, we build the direct stream URL ourselves.
@@ -89,6 +91,7 @@ export function mapPlaybackInfoToSession(
 		audioTracks: filterAudioTracks(streams),
 		subtitleTracks: filterTextSubtitles(streams),
 		burnableSubtitleTracks: filterImageSubtitles(streams),
+		sourceHeight,
 	};
 
 	return session;

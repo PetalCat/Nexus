@@ -752,6 +752,7 @@
 									activeLevel={ps.activeLevel}
 									autoQuality={ps.autoQuality}
 									qualityLabel={ps.qualityLabel}
+									sourceHeight={ps.sourceHeight}
 									onselect={handleQualitySelect}
 									onrequest={onqualitychange ? handleQualityRequest : undefined}
 								/>

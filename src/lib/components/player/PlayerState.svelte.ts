@@ -17,6 +17,7 @@ export function createPlayerState() {
 	let activeLevel = $state<Level | null>(null);
 	let autoQuality = $state(true);
 	let qualityLabel = $state('Auto');
+	let sourceHeight = $state<number | undefined>(undefined);
 
 	// Tracks
 	let audioTracks = $state<TrackInfo[]>([]);
@@ -48,6 +49,7 @@ export function createPlayerState() {
 		if (session.levels && session.levels.length > 0) {
 			levels = session.levels;
 		}
+		sourceHeight = session.sourceHeight;
 	}
 
 	function updateQualityLabel(levels: Level[], activeLevelIndex: number) {
@@ -85,6 +87,7 @@ export function createPlayerState() {
 		get autoQuality() { return autoQuality; },
 		set autoQuality(v: boolean) { autoQuality = v; },
 		get qualityLabel() { return qualityLabel; },
+		get sourceHeight() { return sourceHeight; },
 		get audioTracks() { return audioTracks; },
 		get subtitleTracks() { return subtitleTracks; },
 		get burnableSubtitleTracks() { return burnableSubtitleTracks; },
