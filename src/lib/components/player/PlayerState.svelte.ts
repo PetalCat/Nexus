@@ -13,6 +13,7 @@ export function createPlayerState() {
 
 	// Quality / mode
 	let mode = $state<PlaybackMode>('direct-play');
+	let levels = $state<Level[]>([]);
 	let activeLevel = $state<Level | null>(null);
 	let autoQuality = $state(true);
 	let qualityLabel = $state('Auto');
@@ -71,6 +72,8 @@ export function createPlayerState() {
 		get error() { return error; },
 		set error(v: string | null) { error = v; },
 		get mode() { return mode; },
+		get levels() { return levels; },
+		set levels(v: Level[]) { levels = v; },
 		get activeLevel() { return activeLevel; },
 		set activeLevel(v: Level | null) { activeLevel = v; },
 		get autoQuality() { return autoQuality; },

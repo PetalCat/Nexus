@@ -106,6 +106,7 @@
 		unsubs.push(
 			eng.onLevelSwitched((lvl: Level) => {
 				ps.activeLevel = lvl;
+				ps.levels = eng.levels;
 				ps.updateQualityLabel(eng.levels, eng.activeLevelIndex);
 			})
 		);
@@ -123,6 +124,20 @@
 			})
 		);
 		engineCleanups = unsubs;
+
+		// Populate levels immediately if engine has them (HLS after MANIFEST_PARSED),
+		// and poll briefly for DASH which populates async after attach.
+		ps.levels = eng.levels;
+		if (eng.levels.length === 0) {
+			const levelPoll = setInterval(() => {
+				if (eng.levels.length > 0) {
+					ps.levels = eng.levels;
+					ps.updateQualityLabel(eng.levels, eng.activeLevelIndex);
+					clearInterval(levelPoll);
+				}
+			}, 500);
+			setTimeout(() => clearInterval(levelPoll), 10_000);
+		}
 
 		// Bandwidth polling
 		bwInterval = setInterval(() => {
@@ -681,15 +696,15 @@
 					{/if}
 
 					<!-- Quality -->
-					{#if engine && engine.levels.length > 0}
+					{#if ps.levels.length > 0}
 						<div class="ctrl-panel-wrap">
 							<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
 							</button>
 							{#if ps.activePanel === 'quality'}
 								<QualityMenu
-									levels={engine.levels}
-									activeLevelIndex={engine.activeLevelIndex}
+									levels={ps.levels}
+									activeLevelIndex={engine?.activeLevelIndex ?? -1}
 									autoQuality={ps.autoQuality}
 									qualityLabel={ps.qualityLabel}
 									onselect={handleQualitySelect}
