@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Play } from 'lucide-svelte';
 	import type { UnifiedMedia } from '$lib/adapters/types';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	interface Props {
 		album: UnifiedMedia;
@@ -10,9 +11,11 @@
 	let { album, onplay }: Props = $props();
 
 	let imageError = $state(false);
+	let imgLoaded = $state(false);
 
 	const artist = $derived(album.metadata?.artist ? String(album.metadata.artist) : '');
 	const href = $derived(`/music/albums/${album.sourceId}?service=${album.serviceId}`);
+	const lowResSrc = $derived(lowResImageUrl(album.poster));
 
 	function handlePlay(e: MouseEvent) {
 		e.stopPropagation();
@@ -24,11 +27,23 @@
 <a {href} class="group/album flex flex-col text-left">
 	<div class="cover">
 		{#if album.poster && !imageError}
+			{#if lowResSrc && !imgLoaded}
+				<img
+					src={lowResSrc}
+					alt=""
+					aria-hidden="true"
+					class="lqip"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
 			<img
 				src={album.poster}
 				alt={album.title}
 				class="image"
 				loading="lazy"
+				decoding="async"
+				onload={() => (imgLoaded = true)}
 				onerror={() => (imageError = true)}
 			/>
 		{:else}
@@ -70,10 +85,21 @@
 	}
 
 	.image {
+		position: relative;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 		transition: transform 0.3s ease;
+	}
+
+	.lqip {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		filter: blur(16px);
+		transform: scale(1.1);
 	}
 
 	.group\/album:hover .image {

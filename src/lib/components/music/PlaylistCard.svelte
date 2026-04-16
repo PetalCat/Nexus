@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Playlist, Track } from '$lib/stores/musicStore.svelte';
 	import { ListMusic } from 'lucide-svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	let {
 		playlist,
@@ -18,6 +19,8 @@
 	const artImages = $derived(
 		[...new Map(tracks.map((t) => [t.image, t.image])).values()].slice(0, 4)
 	);
+
+	let loadedImages = $state<Record<string, boolean>>({});
 </script>
 
 <button
@@ -34,11 +37,50 @@
 			<!-- 2x2 collage -->
 			<div class="grid h-full w-full grid-cols-2 grid-rows-2">
 				{#each artImages.slice(0, 4) as src, i}
-					<img {src} alt="" class="h-full w-full object-cover" loading="lazy" />
+					{@const lowResSrc = lowResImageUrl(src)}
+					<div class="relative h-full w-full overflow-hidden">
+						{#if lowResSrc && !loadedImages[src]}
+							<img
+								src={lowResSrc}
+								alt=""
+								aria-hidden="true"
+								class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+								loading="lazy"
+								decoding="async"
+							/>
+						{/if}
+						<img
+							{src}
+							alt=""
+							class="relative h-full w-full object-cover"
+							loading="lazy"
+							decoding="async"
+							onload={() => (loadedImages = { ...loadedImages, [src]: true })}
+						/>
+					</div>
 				{/each}
 			</div>
 		{:else if artImages.length > 0}
-			<img src={artImages[0]} alt="" class="h-full w-full object-cover" loading="lazy" />
+			{@const single = artImages[0]}
+			{@const singleLowRes = lowResImageUrl(single)}
+			{#if singleLowRes && !loadedImages[single]}
+				<img
+					src={singleLowRes}
+					alt=""
+					aria-hidden="true"
+					class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
+			<img
+				src={single}
+				alt=""
+				class="relative h-full w-full object-cover"
+				loading="lazy"
+				decoding="async"
+				onload={() => (loadedImages = { ...loadedImages, [single]: true })}
+			/>
 		{:else}
 			<div class="flex h-full w-full items-center justify-center bg-gradient-to-br from-nexus-surface to-nexus-deep">
 				<ListMusic size={32} strokeWidth={1} class="text-faint" />

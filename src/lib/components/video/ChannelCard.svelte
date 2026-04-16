@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { CheckCircle, Bell, BellOff } from 'lucide-svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	interface Props {
 		authorId: string;
@@ -30,6 +31,9 @@
 	let toggling = $state(false);
 	let notify = $state(false);
 	let togglingNotify = $state(false);
+	let imgLoaded = $state(false);
+
+	const lowResSrc = $derived(lowResImageUrl(thumbnail));
 
 	$effect(() => {
 		subscribed = isSubscribed;
@@ -75,13 +79,28 @@
 </script>
 
 <div class="flex items-center gap-3 py-3">
-	<a href="/videos/channel/{authorId}" class="flex-shrink-0">
+	<a href="/videos/channel/{authorId}" class="relative flex-shrink-0">
 		{#if thumbnail}
-			<img
-				src={thumbnail}
-				alt={author}
-				class="h-12 w-12 rounded-full object-cover"
-			/>
+			<div class="relative h-12 w-12 overflow-hidden rounded-full">
+				{#if lowResSrc && !imgLoaded}
+					<img
+						src={lowResSrc}
+						alt=""
+						aria-hidden="true"
+						class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+						loading="lazy"
+						decoding="async"
+					/>
+				{/if}
+				<img
+					src={thumbnail}
+					alt={author}
+					class="relative h-full w-full object-cover"
+					loading="lazy"
+					decoding="async"
+					onload={() => (imgLoaded = true)}
+				/>
+			</div>
 		{:else}
 			<div class="flex h-12 w-12 items-center justify-center rounded-full bg-nexus-surface text-sm font-bold text-cream/40">
 				{author.charAt(0).toUpperCase()}

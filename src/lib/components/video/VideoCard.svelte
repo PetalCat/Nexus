@@ -2,6 +2,7 @@
 	import { Play } from 'lucide-svelte';
 	import type { UnifiedMedia } from '$lib/types/media-ui';
 	import { setActiveTransition } from '$lib/transition';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	interface Props {
 		video: UnifiedMedia;
@@ -15,9 +16,12 @@
 
 	let hovered = $state(false);
 	let imageError = $state(false);
+	let imgLoaded = $state(false);
 	let cardEl: HTMLButtonElement | undefined = $state();
 	let tiltX = $state(0);
 	let tiltY = $state(0);
+
+	const lowResSrc = $derived(lowResImageUrl(video.image));
 
 	const duration = $derived((video.metadata?.duration as string) ?? '');
 	const channel = $derived((video.metadata?.channel as string) ?? '');
@@ -83,13 +87,25 @@
 		<div class="relative w-40 flex-shrink-0 overflow-hidden rounded-lg aspect-video sm:w-44"
 			style="box-shadow: {hovered ? '0 4px 20px rgba(196, 92, 92, 0.12)' : 'none'}; transition: box-shadow 0.2s ease;">
 			{#if video.image && !imageError}
+				{#if lowResSrc && !imgLoaded}
+					<img
+						src={lowResSrc}
+						alt=""
+						aria-hidden="true"
+						class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+						loading="lazy"
+						decoding="async"
+					/>
+				{/if}
 				<img
 					src={video.image}
 					alt={video.title}
-					class="h-full w-full object-cover transition-transform duration-200 ease-out"
+					class="relative h-full w-full object-cover transition-transform duration-200 ease-out"
 					class:scale-105={hovered}
 					data-media-id={video.id}
 					loading="lazy"
+					decoding="async"
+					onload={() => (imgLoaded = true)}
 					onerror={() => (imageError = true)}
 				/>
 			{:else}
@@ -163,13 +179,25 @@
 					: '0 2px 8px rgba(13, 11, 10, 0.3)'};"
 		>
 			{#if video.image && !imageError}
+				{#if lowResSrc && !imgLoaded}
+					<img
+						src={lowResSrc}
+						alt=""
+						aria-hidden="true"
+						class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+						loading="lazy"
+						decoding="async"
+					/>
+				{/if}
 				<img
 					src={video.image}
 					alt={video.title}
-					class="h-full w-full object-cover transition-transform duration-300 ease-out"
+					class="relative h-full w-full object-cover transition-transform duration-300 ease-out"
 					class:scale-[1.08]={hovered}
 					data-media-id={video.id}
 					loading="lazy"
+					decoding="async"
+					onload={() => (imgLoaded = true)}
 					onerror={() => (imageError = true)}
 				/>
 			{:else}

@@ -4,6 +4,7 @@
 	import MediaBadge from './MediaBadge.svelte';
 	import { ChevronLeft, ChevronRight, Star, Pause, Play } from 'lucide-svelte';
 	import { onMount } from 'svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	interface Props {
 		items: UnifiedMedia[];
@@ -14,6 +15,7 @@
 	let currentIndex = $state(0);
 	let isPaused = $state(false);
 	let intervalId: ReturnType<typeof setInterval> | null = null;
+	let loadedSlides = $state<Record<string, boolean>>({});
 
 	function next() {
 		currentIndex = (currentIndex + 1) % items.length;
@@ -82,6 +84,7 @@
 >
 	<!-- Background slides -->
 	{#each items as item, i (item.id)}
+		{@const lowResSrc = lowResImageUrl(item.image)}
 		<div
 			class="absolute inset-0 transition-opacity duration-[1.5s] ease-out"
 			class:opacity-0={i !== currentIndex}
@@ -90,11 +93,24 @@
 			class:z-0={i !== currentIndex}
 			aria-hidden="true"
 		>
+			{#if lowResSrc && !loadedSlides[item.id]}
+				<img
+					src={lowResSrc}
+					alt=""
+					aria-hidden="true"
+					class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
 			<img
 				src={item.image}
 				alt=""
-				class="absolute inset-0 h-full w-full object-cover"
+				class="relative h-full w-full object-cover"
 				class:animate-ken-burns={i === currentIndex}
+				loading="lazy"
+				decoding="async"
+				onload={() => (loadedSlides = { ...loadedSlides, [item.id]: true })}
 			/>
 
 			<!-- Cinematic overlay system -->

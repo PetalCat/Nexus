@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { lowResImageUrl } from '$lib/image-hint';
+
 	interface Props {
 		artist: {
 			id: string;
@@ -12,18 +14,32 @@
 	let { artist }: Props = $props();
 
 	let imageError = $state(false);
+	let imgLoaded = $state(false);
 
 	const href = $derived(`/music/artists/${artist.id}${artist.serviceId ? `?service=${artist.serviceId}` : ''}`);
+	const lowResSrc = $derived(lowResImageUrl(artist.imageUrl));
 </script>
 
 <a {href} class="group/artist flex flex-col items-center text-center">
 	<div class="avatar">
 		{#if artist.imageUrl && !imageError}
+			{#if lowResSrc && !imgLoaded}
+				<img
+					src={lowResSrc}
+					alt=""
+					aria-hidden="true"
+					class="lqip"
+					loading="lazy"
+					decoding="async"
+				/>
+			{/if}
 			<img
 				src={artist.imageUrl}
 				alt={artist.name}
 				class="image"
 				loading="lazy"
+				decoding="async"
+				onload={() => (imgLoaded = true)}
 				onerror={() => (imageError = true)}
 			/>
 		{:else}
@@ -65,9 +81,20 @@
 	}
 
 	.image {
+		position: relative;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	.lqip {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		filter: blur(16px);
+		transform: scale(1.1);
 	}
 
 	.placeholder {

@@ -2,10 +2,15 @@
 	import type { JellyfinSession } from '../../../routes/admin/+page.server';
 	import DownloadQueue from './DownloadQueue.svelte';
 	import QualityOverview from './QualityOverview.svelte';
+	import { lowResImageUrl } from '$lib/image-hint';
 
 	let { data }: { data: any } = $props();
 
 	const health = $derived(data.health ?? []);
+
+	let loadedBackdrops = $state<Record<string, boolean>>({});
+	let loadedThumbs = $state<Record<string, boolean>>({});
+	let loadedRequestPosters = $state<Record<string, boolean>>({});
 
 	// ── helpers ───────────────────────────────────────────────────────────────
 
@@ -182,19 +187,54 @@
 		<div class="flex flex-col gap-3">
 			{#each data.sessions as session (session.Id)}
 				{@const img = itemBackdrop(session)}
+				{@const lowResImg = lowResImageUrl(img)}
 				{@const pct = progress(session)}
 				<div class="group relative overflow-hidden rounded-2xl" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07)">
 					{#if img}
 						<div class="absolute inset-0 opacity-10 transition-opacity group-hover:opacity-[0.15]">
-							<img src={img} alt="" class="h-full w-full object-cover" />
+							{#if lowResImg && !loadedBackdrops[session.Id]}
+								<img
+									src={lowResImg}
+									alt=""
+									aria-hidden="true"
+									class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+									loading="lazy"
+									decoding="async"
+								/>
+							{/if}
+							<img
+								src={img}
+								alt=""
+								class="relative h-full w-full object-cover"
+								loading="lazy"
+								decoding="async"
+								onload={() => (loadedBackdrops = { ...loadedBackdrops, [session.Id]: true })}
+							/>
 							<div class="absolute inset-0" style="background: linear-gradient(to right, rgba(13,11,10,0.9) 0%, rgba(13,11,10,0.5) 60%, transparent 100%)"></div>
 						</div>
 					{/if}
 
 					<div class="relative flex gap-4 p-4">
 						{#if img}
-							<div class="hidden h-16 w-28 flex-shrink-0 overflow-hidden rounded-lg sm:block" style="background: rgba(255,255,255,0.05)">
-								<img src={img} alt="" class="h-full w-full object-cover" />
+							<div class="relative hidden h-16 w-28 flex-shrink-0 overflow-hidden rounded-lg sm:block" style="background: rgba(255,255,255,0.05)">
+								{#if lowResImg && !loadedThumbs[session.Id]}
+									<img
+										src={lowResImg}
+										alt=""
+										aria-hidden="true"
+										class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+										loading="lazy"
+										decoding="async"
+									/>
+								{/if}
+								<img
+									src={img}
+									alt=""
+									class="relative h-full w-full object-cover"
+									loading="lazy"
+									decoding="async"
+									onload={() => (loadedThumbs = { ...loadedThumbs, [session.Id]: true })}
+								/>
 							</div>
 						{/if}
 
@@ -317,9 +357,29 @@
 		{:else}
 			<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
 				{#each data.requests.slice(0, 5) as req (req.id)}
+					{@const reqLowRes = lowResImageUrl(req.poster)}
 					<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream/[0.02]">
 						{#if req.poster}
-							<img src={req.poster} alt={req.title} class="h-10 w-7 flex-shrink-0 rounded object-cover" style="background: rgba(255,255,255,0.05)" />
+							<div class="relative h-10 w-7 flex-shrink-0 overflow-hidden rounded" style="background: rgba(255,255,255,0.05)">
+								{#if reqLowRes && !loadedRequestPosters[req.id]}
+									<img
+										src={reqLowRes}
+										alt=""
+										aria-hidden="true"
+										class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+										loading="lazy"
+										decoding="async"
+									/>
+								{/if}
+								<img
+									src={req.poster}
+									alt={req.title}
+									class="relative h-full w-full object-cover"
+									loading="lazy"
+									decoding="async"
+									onload={() => (loadedRequestPosters = { ...loadedRequestPosters, [req.id]: true })}
+								/>
+							</div>
 						{:else}
 							<div class="flex h-10 w-7 flex-shrink-0 items-center justify-center rounded" style="background: rgba(255,255,255,0.05)">
 								<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" class="opacity-30">

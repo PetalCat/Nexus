@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { lowResImageUrl } from '$lib/image-hint';
+
 	interface HistoryEvent {
 		id: string;
 		userId: string;
@@ -19,6 +21,8 @@
 	}
 
 	let { events, serviceUrls = {} }: Props = $props();
+
+	let loadedPosters = $state<Record<string, boolean>>({});
 
 	function posterUrl(event: HistoryEvent): string | null {
 		if (!event.serviceId || !event.mediaId) return null;
@@ -103,13 +107,31 @@
 							class="flex items-center gap-3 rounded-lg bg-cream/[0.02] p-2.5 transition-colors hover:bg-cream/[0.04]"
 						>
 							{#if poster}
-								<img
-									src={poster}
-									alt=""
-									class="h-11 w-8 flex-shrink-0 rounded object-cover"
+								{@const lowResPoster = lowResImageUrl(poster)}
+								<div
+									class="relative h-11 w-8 flex-shrink-0 overflow-hidden rounded"
 									style="background: {TYPE_COLORS[event.mediaType] ?? 'rgba(255,255,255,0.03)'};"
-									onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-								/>
+								>
+									{#if lowResPoster && !loadedPosters[event.id]}
+										<img
+											src={lowResPoster}
+											alt=""
+											aria-hidden="true"
+											class="absolute inset-0 h-full w-full object-cover blur-lg scale-110"
+											loading="lazy"
+											decoding="async"
+										/>
+									{/if}
+									<img
+										src={poster}
+										alt=""
+										class="relative h-full w-full object-cover"
+										loading="lazy"
+										decoding="async"
+										onload={() => (loadedPosters = { ...loadedPosters, [event.id]: true })}
+										onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+									/>
+								</div>
 							{:else}
 								<div
 									class="h-11 w-8 flex-shrink-0 rounded"
