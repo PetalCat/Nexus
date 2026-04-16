@@ -32,15 +32,12 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 
 	let mpd = await res.text();
 
-	// Determine the stream proxy base URL (same host as the request, port 3939)
-	const proxyBase = `${url.protocol}//${url.hostname}:3939`;
-
-	// Rewrite BaseURL: encode the full CDN URL so the proxy fetches exact bytes
-	// The CDN URLs in the manifest are HTML-entity-encoded (&amp; → &)
+	// Rewrite BaseURL: route CDN URLs through the Node reverse-proxy at
+	// /api/stream-proxy/proxy?url=... so the browser never talks to port 3939
+	// directly (unreachable in Docker) and CSP connect-src 'self' is honored.
 	mpd = mpd.replace(/<BaseURL>([^<]+)<\/BaseURL>/g, (_match, rawCdnUrl: string) => {
-		// Decode HTML entities (&amp; → &) then re-encode for URL param
 		const cdnUrl = rawCdnUrl.replace(/&amp;/g, '&');
-		return `<BaseURL>${proxyBase}/proxy?url=${encodeURIComponent(cdnUrl)}</BaseURL>`;
+		return `<BaseURL>/api/stream-proxy/proxy?url=${encodeURIComponent(cdnUrl)}</BaseURL>`;
 	});
 
 	return new Response(mpd, {
