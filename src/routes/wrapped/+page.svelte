@@ -290,7 +290,7 @@
 		min-height: 100vh;
 		background: #0a0a0f;
 		color: #f5f0e8;
-		font-family: 'DM Sans', sans-serif;
+		font-family: 'DM Sans Variable', sans-serif;
 		position: relative;
 	}
 
@@ -349,7 +349,7 @@
 	}
 
 	.empty-state h1 {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: 2rem;
 		margin-bottom: 0.75rem;
 		color: #d4a253;
@@ -382,7 +382,7 @@
 	}
 
 	.section-title {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: 1.75rem;
 		margin-bottom: 2rem;
 		color: rgba(245, 240, 232, 0.8);
@@ -429,7 +429,7 @@
 	}
 
 	.hero-subtitle {
-		font-family: 'DM Sans', sans-serif;
+		font-family: 'DM Sans Variable', sans-serif;
 		font-size: 1.25rem;
 		text-transform: uppercase;
 		letter-spacing: 0.2em;
@@ -437,7 +437,7 @@
 	}
 
 	.hero-year {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: clamp(4rem, 12vw, 8rem);
 		font-weight: 700;
 		color: #d4a253;
@@ -454,7 +454,7 @@
 	}
 
 	.hero-number {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: clamp(3rem, 8vw, 5rem);
 		font-weight: 700;
 		color: #d4a253;
@@ -492,7 +492,7 @@
 	}
 
 	.milestone-value {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: 1.75rem;
 		font-weight: 700;
 		color: #d4a253;
@@ -561,7 +561,7 @@
 	}
 
 	.type-hours {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: 'JetBrains Mono Variable', monospace;
 		font-size: 0.8rem;
 		color: #d4a253;
 		width: 3.5rem;
@@ -594,7 +594,7 @@
 	}
 
 	.top-rank {
-		font-family: 'Playfair Display', serif;
+		font-family: 'Playfair Display Variable', serif;
 		font-size: 1.5rem;
 		font-weight: 700;
 		color: #d4a253;
@@ -634,7 +634,7 @@
 	}
 
 	.top-hours {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: 'JetBrains Mono Variable', monospace;
 		font-size: 0.75rem;
 		color: rgba(245, 240, 232, 0.5);
 	}
@@ -653,7 +653,7 @@
 	}
 
 	.genre-rank {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: 'JetBrains Mono Variable', monospace;
 		font-size: 0.8rem;
 		color: rgba(245, 240, 232, 0.35);
 		width: 1.5rem;
@@ -683,7 +683,7 @@
 	}
 
 	.genre-hours {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: 'JetBrains Mono Variable', monospace;
 		font-size: 0.8rem;
 		color: #d4a253;
 		width: 3.5rem;
@@ -737,7 +737,7 @@
 	}
 
 	.month-hours {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: 'JetBrains Mono Variable', monospace;
 		font-size: 0.6rem;
 		color: rgba(245, 240, 232, 0.5);
 		position: absolute;
