@@ -137,19 +137,17 @@ export async function invidiousNegotiatePlayback(
 		);
 		if (capRes.ok) {
 			const capData = await capRes.json();
-			subtitleTracks = (capData.captions ?? []).map((c: any, i: number) => {
-				const rawUrl = String(c.url ?? '');
-				const url = rawUrl.startsWith('http')
-					? rawUrl
-					: `${baseUrl}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
-				return {
-					id: i,
-					name: c.label ?? c.language_code ?? `Caption ${i}`,
-					lang: c.language_code ?? '',
-					url,
-					isExternal: true,
-				};
-			});
+			subtitleTracks = (capData.captions ?? []).map((c: any, i: number) => ({
+				id: i,
+				name: c.label ?? c.language_code ?? `Caption ${i}`,
+				lang: c.language_code ?? '',
+				// Route through our proxy so the browser only talks to Nexus
+				// (Invidious origin is often host.docker.internal from Nexus's
+				// perspective, which browsers can't resolve) and CORS is a
+				// non-issue.
+				url: `/api/video/stream/${encodeURIComponent(videoId)}/captions?label=${encodeURIComponent(c.label ?? c.language_code ?? '')}`,
+				isExternal: true,
+			}));
 		}
 	} catch { /* captions are optional */ }
 
