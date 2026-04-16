@@ -101,6 +101,20 @@
 
 		await eng.attach(videoEl, sess);
 
+		// Inject <track> elements for any adapter-supplied subtitle URLs
+		// (Invidious WebVTT captions, etc.). HLS in-band subtitles come
+		// through the manifest and don't need this.
+		for (const t of sess.subtitleTracks) {
+			if (!t.url) continue;
+			const el = document.createElement('track');
+			el.kind = 'subtitles';
+			el.label = t.name;
+			el.srclang = t.lang || 'en';
+			el.src = t.url;
+			el.id = String(t.id);
+			videoEl.appendChild(el);
+		}
+
 		// Wire callbacks
 		const unsubs: (() => void)[] = [];
 		unsubs.push(
@@ -161,6 +175,12 @@
 		engineCleanups = [];
 		if (bwInterval) { clearInterval(bwInterval); bwInterval = undefined; }
 		if (engine) { engine.detach(); engine = null; }
+		// Remove any <track> elements we previously injected so session swaps
+		// don't accumulate stale captions.
+		if (videoEl) {
+			const existingTracks = videoEl.querySelectorAll('track');
+			existingTracks.forEach((t) => t.remove());
+		}
 	}
 
 	/* ── Session swap on prop change ── */

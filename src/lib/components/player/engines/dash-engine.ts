@@ -19,7 +19,13 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 			player.initialize(video, session.url, true);
 			player.updateSettings({
 				streaming: {
-					abr: { autoSwitchBitrate: { video: true } },
+					abr: {
+						autoSwitchBitrate: { video: true },
+						// Start at the highest available quality; dash.js will
+						// step down automatically if bandwidth can't sustain it.
+						// Matches hls.js's abrEwmaDefaultEstimate high-start pattern.
+						initialBitrate: { video: 50_000_000, audio: 256_000 },
+					},
 					buffer: { fastSwitchEnabled: true },
 				},
 			});

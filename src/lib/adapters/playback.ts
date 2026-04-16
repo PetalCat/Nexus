@@ -31,6 +31,9 @@ export interface TrackInfo {
 	lang: string;
 	codec?: string;
 	isExternal?: boolean;
+	/** Side-loadable VTT/SRT URL. Player injects this as a <track> element.
+	 *  If absent, the track is assumed to come from the HLS/DASH manifest. */
+	url?: string;
 }
 
 /** Pre-computed quality level. Adapters may supply this when they can derive

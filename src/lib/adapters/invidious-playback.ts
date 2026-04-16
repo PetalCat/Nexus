@@ -21,9 +21,13 @@ export function extractLevels(adaptiveFormats: any[]): SessionLevel[] {
 		}
 	}
 
-	return Array.from(byHeight.entries())
-		.sort((a, b) => b[0] - a[0])
-		.map(([height, { bitrate }], index) => ({ index, height, bitrate }));
+	// Highest quality first — menu reads top-to-bottom as "best to worst"
+	const pairs: { height: number; bitrate: number }[] = [];
+	for (const [height, { bitrate }] of byHeight.entries()) {
+		pairs.push({ height, bitrate });
+	}
+	pairs.sort((a, b) => b.height - a.height);
+	return pairs.map((lvl, index) => ({ index, ...lvl }));
 }
 
 /** Parse quality levels from a DASH manifest XML. Invidious's /api/v1/videos
@@ -49,9 +53,13 @@ export function extractLevelsFromDash(manifestXml: string): SessionLevel[] {
 		}
 	}
 
-	return Array.from(byHeight.entries())
-		.sort((a, b) => b[0] - a[0])
-		.map(([height, { bitrate }], index) => ({ index, height, bitrate }));
+	// Highest quality first
+	const pairs: { height: number; bitrate: number }[] = [];
+	for (const [height, { bitrate }] of byHeight.entries()) {
+		pairs.push({ height, bitrate });
+	}
+	pairs.sort((a, b) => b.height - a.height);
+	return pairs.map((lvl, index) => ({ index, ...lvl }));
 }
 
 const PREFERRED_MUXED_ITAGS = ['22', '18'];
@@ -118,7 +126,9 @@ export async function invidiousNegotiatePlayback(
 	const picked = pickBestFormat(allFormats, caps, plan);
 	const itag = picked?.itag ?? '18';
 
-	// Fetch captions list
+	// Fetch captions list — Invidious exposes them at /api/v1/captions/{id}
+	// and each entry has a relative `url` that serves WebVTT. We surface
+	// the full URL on TrackInfo so the player can inject <track> elements.
 	let subtitleTracks: PlaybackSession['subtitleTracks'] = [];
 	try {
 		const capRes = await fetch(
@@ -127,11 +137,19 @@ export async function invidiousNegotiatePlayback(
 		);
 		if (capRes.ok) {
 			const capData = await capRes.json();
-			subtitleTracks = (capData.captions ?? []).map((c: any, i: number) => ({
-				id: i,
-				name: c.label ?? c.language_code ?? `Caption ${i}`,
-				lang: c.language_code ?? '',
-			}));
+			subtitleTracks = (capData.captions ?? []).map((c: any, i: number) => {
+				const rawUrl = String(c.url ?? '');
+				const url = rawUrl.startsWith('http')
+					? rawUrl
+					: `${baseUrl}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+				return {
+					id: i,
+					name: c.label ?? c.language_code ?? `Caption ${i}`,
+					lang: c.language_code ?? '',
+					url,
+					isExternal: true,
+				};
+			});
 		}
 	} catch { /* captions are optional */ }
 
