@@ -555,7 +555,12 @@ export const invidiousAdapter: ServiceAdapter = {
 		} catch {
 			return item;
 		}
-	}
+	},
+
+	async negotiatePlayback(config, userCred, item, plan, caps) {
+		const { invidiousNegotiatePlayback } = await import('./invidious-playback');
+		return invidiousNegotiatePlayback(config, userCred, item, plan, caps);
+	},
 };
 
 // ---------------------------------------------------------------------------
