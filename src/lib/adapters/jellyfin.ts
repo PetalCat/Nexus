@@ -199,16 +199,22 @@ function mediaType(jfType: string): UnifiedMedia['type'] {
 	}
 }
 
+// All Jellyfin image endpoints route through the Nexus image proxy so the
+// browser never talks to the Jellyfin origin directly — see image-proxy.ts.
+function proxyPath(config: ServiceConfig, path: string): string {
+	return `/api/media/image?service=${encodeURIComponent(config.id)}&path=${encodeURIComponent(path)}`;
+}
+
 function posterUrl(config: ServiceConfig, itemId: string) {
-	return `${config.url}/Items/${itemId}/Images/Primary?quality=90&maxWidth=600`;
+	return proxyPath(config, `/Items/${itemId}/Images/Primary?quality=90&maxWidth=600`);
 }
 
 function thumbUrl(config: ServiceConfig, itemId: string) {
-	return `${config.url}/Items/${itemId}/Images/Primary?quality=90&maxWidth=800`;
+	return proxyPath(config, `/Items/${itemId}/Images/Primary?quality=90&maxWidth=800`);
 }
 
 function backdropUrl(config: ServiceConfig, itemId: string, index = 0) {
-	return `${config.url}/Items/${itemId}/Images/Backdrop/${index}?quality=90&maxWidth=1920`;
+	return proxyPath(config, `/Items/${itemId}/Images/Backdrop/${index}?quality=90&maxWidth=1920`);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -250,7 +256,7 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 				name: p.Name ?? '',
 				role: p.Role ?? p.Type ?? '',
 				type: p.Type ?? 'Actor',
-				imageUrl: p.PrimaryImageTag ? `${config.url}/Items/${p.Id}/Images/Primary?quality=90&maxWidth=200` : undefined
+				imageUrl: p.PrimaryImageTag ? proxyPath(config, `/Items/${p.Id}/Images/Primary?quality=90&maxWidth=200`) : undefined
 			});
 		}
 	}
@@ -304,7 +310,7 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 			trackNumber: item.IndexNumber,
 			discNumber: item.ParentIndexNumber,
 			artistImageUrl: item.ArtistItems?.[0]?.Id
-				? `${config.url}/Items/${item.ArtistItems[0].Id}/Images/Primary?quality=90&maxWidth=300`
+				? proxyPath(config, `/Items/${item.ArtistItems[0].Id}/Images/Primary?quality=90&maxWidth=300`)
 				: undefined
 		},
 		actionLabel: type === 'music' || type === 'album' ? 'Listen' : 'Watch',
@@ -460,8 +466,8 @@ export async function getArtists(
 			name: a.Name ?? 'Unknown Artist',
 			sortName: a.SortName,
 			albumCount: a.AlbumCount ?? a.ChildCount ?? 0,
-			imageUrl: a.ImageTags?.Primary ? `${config.url}/Items/${a.Id}/Images/Primary?quality=90&maxWidth=300` : undefined,
-			backdrop: (a.BackdropImageTags?.length ?? 0) > 0 ? `${config.url}/Items/${a.Id}/Images/Backdrop/0?quality=90&maxWidth=1920` : undefined,
+			imageUrl: a.ImageTags?.Primary ? proxyPath(config, `/Items/${a.Id}/Images/Primary?quality=90&maxWidth=300`) : undefined,
+			backdrop: (a.BackdropImageTags?.length ?? 0) > 0 ? proxyPath(config, `/Items/${a.Id}/Images/Backdrop/0?quality=90&maxWidth=1920`) : undefined,
 			genres: a.Genres ?? [],
 			overview: a.Overview
 		}));

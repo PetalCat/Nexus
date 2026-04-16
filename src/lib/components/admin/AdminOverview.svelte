@@ -44,15 +44,18 @@
 	function itemBackdrop(session: JellyfinSession) {
 		const item = session.NowPlayingItem;
 		if (!item) return null;
-		const baseUrl = session._serviceUrl ?? '';
+		const serviceId = session._serviceId ?? '';
+		if (!serviceId) return null;
+		// Route through /api/media/image so the browser only talks to Nexus.
+		const proxy = (path: string) => `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(path)}`;
 		if (item.Type === 'Episode' && item.ParentBackdropItemId && item.ParentBackdropImageTags?.[0]) {
-			return `${baseUrl}/Items/${item.ParentBackdropItemId}/Images/Backdrop?tag=${item.ParentBackdropImageTags[0]}`;
+			return proxy(`/Items/${item.ParentBackdropItemId}/Images/Backdrop?tag=${item.ParentBackdropImageTags[0]}`);
 		}
 		if (item.BackdropImageTags?.[0]) {
-			return `${baseUrl}/Items/${item.Id}/Images/Backdrop?tag=${item.BackdropImageTags[0]}`;
+			return proxy(`/Items/${item.Id}/Images/Backdrop?tag=${item.BackdropImageTags[0]}`);
 		}
 		if (item.ImageTags?.Primary) {
-			return `${baseUrl}/Items/${item.Id}/Images/Primary?tag=${item.ImageTags.Primary}`;
+			return proxy(`/Items/${item.Id}/Images/Primary?tag=${item.ImageTags.Primary}`);
 		}
 		return null;
 	}

@@ -21,9 +21,9 @@
 	let { events, serviceUrls = {} }: Props = $props();
 
 	function posterUrl(event: HistoryEvent): string | null {
-		const baseUrl = serviceUrls[event.serviceId];
-		if (!baseUrl || !event.mediaId) return null;
-		return `${baseUrl}/Items/${event.mediaId}/Images/Primary?maxHeight=88&quality=80`;
+		if (!event.serviceId || !event.mediaId) return null;
+		const path = `/Items/${event.mediaId}/Images/Primary?maxHeight=88&quality=80`;
+		return `/api/media/image?service=${encodeURIComponent(event.serviceId)}&path=${encodeURIComponent(path)}`;
 	}
 
 	const TYPE_COLORS: Record<string, string> = {

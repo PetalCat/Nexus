@@ -183,10 +183,19 @@ async function invFetch<T = any>(
 // Normalization
 // ---------------------------------------------------------------------------
 
-function pickThumbnail(thumbs: InvidiousThumbnail[] | undefined, quality: string): string | undefined {
+/** Route Invidious/YouTube CDN image URLs through the Nexus image proxy so
+ *  the browser only talks to the Nexus origin. */
+function proxyInvImage(url: string | undefined, serviceId: string): string | undefined {
+	if (!url) return undefined;
+	if (url.startsWith('/')) return url; // already proxied
+	return `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(url)}`;
+}
+
+function pickThumbnail(thumbs: InvidiousThumbnail[] | undefined, quality: string, serviceId?: string): string | undefined {
 	if (!thumbs || thumbs.length === 0) return undefined;
 	const match = thumbs.find((t) => t.quality === quality);
-	return (match ?? thumbs[0])?.url;
+	const raw = (match ?? thumbs[0])?.url;
+	return serviceId ? proxyInvImage(raw, serviceId) : raw;
 }
 
 /**
@@ -194,8 +203,8 @@ function pickThumbnail(thumbs: InvidiousThumbnail[] | undefined, quality: string
  * When `detail` is true, additional metadata fields are included.
  */
 export function normalizeVideo(config: ServiceConfig, item: InvidiousVideo, detail = false): UnifiedMedia {
-	const poster = pickThumbnail(item.videoThumbnails, 'medium'); // 320x180
-	const backdrop = pickThumbnail(item.videoThumbnails, 'maxres'); // 1280x720
+	const poster = pickThumbnail(item.videoThumbnails, 'medium', config.id); // 320x180
+	const backdrop = pickThumbnail(item.videoThumbnails, 'maxres', config.id); // 1280x720
 
 	const year = item.published ? new Date(item.published * 1000).getFullYear() : undefined;
 
@@ -226,7 +235,10 @@ export function normalizeVideo(config: ServiceConfig, item: InvidiousVideo, deta
 		metadata.likeCount = item.likeCount;
 		metadata.keywords = item.keywords;
 		metadata.subCountText = item.subCountText;
-		metadata.authorThumbnails = item.authorThumbnails;
+		metadata.authorThumbnails = item.authorThumbnails?.map((t) => ({
+			...t,
+			url: proxyInvImage(t.url, config.id) ?? t.url,
+		}));
 		metadata.adaptiveFormats = item.adaptiveFormats;
 		metadata.formatStreams = item.formatStreams;
 		metadata.captions = item.captions;
@@ -521,7 +533,7 @@ export const invidiousAdapter: ServiceAdapter = {
 					title: v.title ?? 'Unknown Video',
 					mediaType: 'video',
 					releaseDate: v.published ? new Date(v.published * 1000).toISOString() : new Date().toISOString(),
-					poster: pickThumbnail(v.videoThumbnails, 'medium'),
+					poster: pickThumbnail(v.videoThumbnails, 'medium', config.id),
 					overview: v.author ?? v.authorUrl ?? '',
 					status: 'released'
 				}));
