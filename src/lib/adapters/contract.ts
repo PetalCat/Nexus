@@ -287,6 +287,17 @@ export interface NexusAdapter extends AdapterIdentity {
 		config: ServiceConfig,
 		parent: LinkedParentContext
 	): Promise<UserCredentialResult | null>;
+
+	// ── Playback contract (Phase 2) ────────────────────────────────────────
+	/** Negotiate playback for an item. Returns a PlaybackSession the client
+	 *  can hand to an engine (hls.js, dash.js, native <video>). */
+	negotiatePlayback?(
+		config: ServiceConfig,
+		userCred: UserCredential | undefined,
+		item: { id: string; type: string; title?: string },
+		plan: import('./playback').PlaybackPlan,
+		caps: import('./playback').BrowserCaps
+	): Promise<import('./playback').PlaybackSession>;
 }
 
 /**
