@@ -1,4 +1,7 @@
 <script lang="ts">
+	import '@fontsource-variable/playfair-display';
+	import '@fontsource-variable/dm-sans';
+	import '@fontsource-variable/jetbrains-mono';
 	import '../app.css';
 	import NavSidebar from '$lib/components/NavSidebar.svelte';
 	import NotificationPanel from '$lib/components/NotificationPanel.svelte';
