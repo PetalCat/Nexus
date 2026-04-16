@@ -179,6 +179,41 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 		if (jellyfinUserId) upstream.searchParams.set('UserId', jellyfinUserId);
 	}
 
+	// ── Phase 1: delegate byte delivery to the Rust stream-proxy ──────────
+	//
+	// Node continues to build the Jellyfin upstream URL (the negotiation logic
+	// here stays the same for now — Phase 2 replaces it with the adapter
+	// contract). What changes is that instead of Node fetching + piping, we
+	// create a session on the Rust binary and 302-redirect the client to it.
+	// The Rust binary verifies the HMAC, looks up the session, and pipes bytes
+	// zero-copy from Jellyfin.
+	//
+	// If the Rust binary isn't running, fall through to the legacy Node path.
+	{
+		const { createStreamSession } = await import('$lib/server/stream-proxy');
+		const isHlsManifest =
+			upstreamPath.endsWith('/master.m3u8') || upstreamPath.endsWith('/main.m3u8');
+		const handoff = await createStreamSession({
+			upstreamUrl: upstream.toString(),
+			authHeaders: {
+				Authorization: `MediaBrowser Client="Nexus", Device="Nexus Server", DeviceId="nexus-${config.id}", Version="1.0.0", Token="${token}"`,
+				'X-Emby-Token': token
+			},
+			isHls: isHlsManifest
+		});
+		if (handoff) {
+			return new Response(null, {
+				status: 302,
+				headers: {
+					Location: handoff.streamUrl,
+					'Cache-Control': 'no-store'
+				}
+			});
+		}
+		// handoff was null — Rust binary not running. Fall through.
+		console.warn(`[fallback-node-proxy] Rust proxy unavailable, using Node pipe for ${upstreamPath}`);
+	}
+
 	// ── Proxy the request ─────────────────────────────────────────────────
 
 	const proxyHeaders: Record<string, string> = {
