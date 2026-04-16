@@ -1163,7 +1163,12 @@ export const jellyfinAdapter: ServiceAdapter = {
 			default:
 				return null;
 		}
-	}
+	},
+
+	async negotiatePlayback(config, userCred, item, plan, caps) {
+		const { jellyfinNegotiatePlayback } = await import('./jellyfin-playback');
+		return jellyfinNegotiatePlayback(config, userCred, item, plan, caps);
+	},
 };
 
 // ---------------------------------------------------------------------------

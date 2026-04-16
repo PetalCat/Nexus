@@ -11,6 +11,7 @@
  */
 
 import type { ServiceConfig, ServiceHealth, NexusRequest, UnifiedMedia, UnifiedSearchResult, UserCredential, ExternalUser, NexusSession, SyncItem, CalendarItem } from './types';
+import type { NegotiatePlaybackFn } from './playback';
 import type {
 	AdapterCapabilities,
 	AdapterContractVersion,
@@ -290,4 +291,7 @@ export interface ServiceAdapter {
 	getServiceData?(config: ServiceConfig, dataType: string,
 		params?: Record<string, unknown>,
 		userCred?: UserCredential): Promise<unknown>;
+
+	/** Negotiate a playback session for a media item */
+	negotiatePlayback?: NegotiatePlaybackFn;
 }
