@@ -17,7 +17,10 @@ import type { RequestHandler } from './$types';
 const RUST_PROXY_ORIGIN = 'http://127.0.0.1:3939';
 
 export const GET: RequestHandler = async ({ params, url, request }) => {
-	const upstreamPath = `/stream/${params.path}`;
+	// Session-based routes go to /stream/{path}; the legacy Invidious
+	// /proxy?url=... endpoint goes to /{path} (root-level on the Rust binary).
+	const isLegacyProxy = params.path === 'proxy' || params.path?.startsWith('proxy?');
+	const upstreamPath = isLegacyProxy ? `/${params.path}` : `/stream/${params.path}`;
 	const upstreamUrl = `${RUST_PROXY_ORIGIN}${upstreamPath}${url.search}`;
 
 	// Forward Range header for seekable media requests
