@@ -33,6 +33,16 @@ export interface TrackInfo {
 	isExternal?: boolean;
 }
 
+/** Pre-computed quality level. Adapters may supply this when they can derive
+ *  levels from metadata (e.g. parsing a DASH manifest); engines may also
+ *  report levels at runtime. The player uses adapter-supplied levels first
+ *  so the quality menu is visible before the engine finishes loading. */
+export interface SessionLevel {
+	index: number;
+	height: number;
+	bitrate: number;
+}
+
 export interface PlaybackSession {
 	engine: PlaybackEngine;
 	url: string;
@@ -45,6 +55,7 @@ export interface PlaybackSession {
 	subtitleTracks: TrackInfo[];
 	burnableSubtitleTracks: TrackInfo[];
 	activeLevel?: { height: number; bitrate: number };
+	levels?: SessionLevel[];
 
 	changeQuality?(plan: PlaybackPlan): Promise<PlaybackSession>;
 	close?(): Promise<void>;
