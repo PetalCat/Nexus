@@ -190,23 +190,42 @@ fn json_error(status: StatusCode, msg: &str) -> Response<BoxBody<Bytes, BoxError
         .unwrap()
 }
 
-/// Resolve `sub` (e.g. `/Videos/abc/main.m3u8`) against the origin component of
-/// the session's base URL (e.g. `http://jellyfin.local/Videos/abc/master.m3u8`
-/// → origin `http://jellyfin.local`).
+/// Resolve `sub` against the session's base URL, honoring standard relative-URL
+/// rules. Three cases:
+///
+/// 1. `sub` is already absolute (`http://...` or `https://...`) — return it as-is.
+/// 2. `sub` is origin-absolute (starts with `/`) — prepend the base's origin.
+///    Base `http://jf.local/Videos/abc/master.m3u8` + sub `/Users/foo/items`
+///    → `http://jf.local/Users/foo/items`.
+/// 3. `sub` is path-relative (no leading `/`) — resolve against the base's
+///    parent directory. Base `http://jf.local/Videos/abc/master.m3u8` + sub
+///    `live.m3u8?x=1` → `http://jf.local/Videos/abc/live.m3u8?x=1`. Jellyfin
+///    emits variant URIs this way in master playlists, so the path-relative
+///    branch is load-bearing for HLS playback.
 fn resolve_relative(base: &str, sub: &str) -> String {
     if sub.starts_with("http://") || sub.starts_with("https://") {
         return sub.to_string();
     }
-    let origin_end = base
+
+    // Strip any query string from the base before computing the parent directory.
+    let base_no_query = base.split('?').next().unwrap_or(base);
+
+    let origin_end = base_no_query
         .find("://")
-        .and_then(|i| base[i + 3..].find('/').map(|j| i + 3 + j))
-        .unwrap_or(base.len());
-    let origin = &base[..origin_end];
+        .and_then(|i| base_no_query[i + 3..].find('/').map(|j| i + 3 + j))
+        .unwrap_or(base_no_query.len());
+    let origin = &base_no_query[..origin_end];
+
     if sub.starts_with('/') {
-        format!("{origin}{sub}")
-    } else {
-        format!("{origin}/{sub}")
+        return format!("{origin}{sub}");
     }
+
+    // Path-relative: take the base's directory (everything up to and including
+    // the last `/`) and append the sub verbatim. The sub may contain a query
+    // string — that's preserved as part of the returned URL.
+    let dir_end = base_no_query.rfind('/').unwrap_or(base_no_query.len());
+    let dir = &base_no_query[..=dir_end.min(base_no_query.len() - 1)];
+    format!("{dir}{sub}")
 }
 
 #[cfg(test)]
@@ -240,6 +259,32 @@ mod tests {
         assert_eq!(
             resolve_relative("http://a", "http://b/x"),
             "http://b/x"
+        );
+    }
+
+    #[test]
+    fn resolve_relative_handles_path_relative_urls() {
+        // Jellyfin emits variant URIs like `live.m3u8?...` in master playlists.
+        // These are relative to the master's parent directory.
+        assert_eq!(
+            resolve_relative(
+                "http://jellyfin.local/Videos/abc/master.m3u8",
+                "live.m3u8?MaxStreamingBitrate=120000000"
+            ),
+            "http://jellyfin.local/Videos/abc/live.m3u8?MaxStreamingBitrate=120000000"
+        );
+    }
+
+    #[test]
+    fn resolve_relative_strips_base_query_before_resolving() {
+        // Base URL may carry its own query — it should not leak into the
+        // resolved path.
+        assert_eq!(
+            resolve_relative(
+                "http://jf.local/Videos/abc/master.m3u8?DeviceId=nexus",
+                "live.m3u8"
+            ),
+            "http://jf.local/Videos/abc/live.m3u8"
         );
     }
 }
