@@ -4,6 +4,15 @@ import { registry } from '$lib/adapters/registry';
 import { withStaleCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
+/** Allowlisted third-party image hosts that the proxy will fetch when
+ *  `path` is an absolute URL. Keeps the proxy from being an open relay. */
+const THIRD_PARTY_IMAGE_HOSTS = [
+	'yt3.ggpht.com',
+	'i.ytimg.com',
+	'lh3.googleusercontent.com',
+	'image.tmdb.org',
+];
+
 /**
  * Image proxy — fetches images from backend services that require auth
  * (RomM, Calibre-Web, etc.) and returns them to the browser.
@@ -11,6 +20,7 @@ import type { RequestHandler } from './$types';
  * Query params:
  *   service — service ID
  *   path    — path on the service (e.g. /assets/romm/resources/roms/.../cover/big.jpeg)
+ *              OR an absolute URL on an allowlisted third-party host.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return new Response('Unauthorized', { status: 401 });
@@ -20,6 +30,39 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	if (!serviceId || !imagePath) {
 		return new Response('Missing service or path', { status: 400 });
+	}
+
+	// Third-party absolute URL path — no service auth needed, just validate
+	// the host is on the allowlist and proxy the bytes.
+	if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+		let parsed: URL;
+		try { parsed = new URL(imagePath); } catch {
+			return new Response('Invalid URL', { status: 400 });
+		}
+		if (!THIRD_PARTY_IMAGE_HOSTS.includes(parsed.hostname)) {
+			return new Response('Host not allowlisted', { status: 403 });
+		}
+		const cacheKey = `media-image:third-party:${imagePath}`;
+		try {
+			const cached = await withStaleCache(cacheKey, 15 * 60 * 1000, 24 * 60 * 60 * 1000, async () => {
+				const res = await fetch(imagePath, { signal: AbortSignal.timeout(20_000), redirect: 'follow' });
+				if (!res.ok) throw new Error(`upstream:${res.status}`);
+				return {
+					body: await res.arrayBuffer(),
+					contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
+					contentLength: res.headers.get('Content-Length'),
+					lastModified: res.headers.get('Last-Modified'),
+				};
+			});
+			const responseHeaders = new Headers();
+			responseHeaders.set('Content-Type', cached.contentType);
+			if (cached.contentLength) responseHeaders.set('Content-Length', cached.contentLength);
+			if (cached.lastModified) responseHeaders.set('Last-Modified', cached.lastModified);
+			responseHeaders.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+			return new Response(cached.body.slice(0), { status: 200, headers: responseHeaders });
+		} catch {
+			return new Response('Failed to fetch image', { status: 502 });
+		}
 	}
 
 	const config = getServiceConfig(serviceId);

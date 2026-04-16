@@ -61,14 +61,17 @@ interface SSItem {
 	similarity?: number;
 }
 
-function normalizeItem(item: SSItem, config: ServiceConfig): UnifiedMedia {
-	const jfUrl = jellyfinUrl(config);
+function normalizeItem(item: SSItem, config: ServiceConfig, jellyfinServiceId: string): UnifiedMedia {
+	// Route images through the Nexus image proxy so the browser doesn't talk
+	// to the Jellyfin origin directly. We need the Jellyfin service ID for
+	// auth; the caller looks it up once and passes it in.
+	const proxy = (path: string) => `/api/media/image?service=${encodeURIComponent(jellyfinServiceId)}&path=${encodeURIComponent(path)}`;
 	const poster = item.primaryImageTag
-		? `${jfUrl}/Items/${item.id}/Images/Primary?tag=${item.primaryImageTag}`
+		? proxy(`/Items/${item.id}/Images/Primary?tag=${item.primaryImageTag}`)
 		: undefined;
 	const backdrop =
 		item.backdropImageTags && item.backdropImageTags.length > 0
-			? `${jfUrl}/Items/${item.id}/Images/Backdrop?tag=${item.backdropImageTags[0]}`
+			? proxy(`/Items/${item.id}/Images/Backdrop?tag=${item.backdropImageTags[0]}`)
 			: undefined;
 
 	return {
@@ -88,7 +91,7 @@ function normalizeItem(item: SSItem, config: ServiceConfig): UnifiedMedia {
 			...(item.reason ? { reason: item.reason } : {}),
 			...(item.similarity != null ? { similarity: item.similarity } : {})
 		},
-		actionUrl: jfUrl ? `${jfUrl}/web/index.html#!/details?id=${item.id}` : undefined
+		actionUrl: `/media/${item.type === 'Movie' ? 'movie' : 'show'}/${item.id}?service=${encodeURIComponent(jellyfinServiceId)}`
 	};
 }
 
@@ -120,21 +123,26 @@ export async function getStreamyStatsRecommendations(
 ): Promise<UnifiedMedia[]> {
 	if (!userCred.accessToken) return [];
 	const jfUrl = jellyfinUrl(config);
+	// Look up the Jellyfin service whose URL matches, for proxying images
+	const { getServiceConfigs } = await import('$lib/server/services');
+	const jfService = getServiceConfigs().find(
+		(s) => s.type === 'jellyfin' && s.url.replace(/\/+$/, '') === jfUrl
+	);
+	const jellyfinServiceId = jfService?.id ?? 'jellyfin';
+
 	const data = await ssFetch(
 		config,
 		'/api/recommendations',
 		{ serverUrl: jfUrl, type, limit: String(limit), includeReasons: 'true' },
 		userCred
 	);
-	// Response: { data: [{ item, reason, similarity, basedOn }] }
-	// Fall back to flat array for older versions
 	const entries: SSRecommendationEntry[] = Array.isArray(data?.data)
 		? data.data
 		: Array.isArray(data)
 			? (data as SSItem[]).map((i) => ({ item: i }))
 			: [];
 	return entries.map(({ item, reason, similarity }) =>
-		normalizeItem({ ...item, reason, similarity }, config)
+		normalizeItem({ ...item, reason, similarity }, config, jellyfinServiceId)
 	);
 }
 
@@ -269,8 +277,13 @@ export const streamystatsAdapter: ServiceAdapter = {
 				userCred
 			);
 			const items: SSItem[] = Array.isArray(data) ? data : (data.items ?? data.Items ?? []);
+			const { getServiceConfigs } = await import('$lib/server/services');
+			const jfService = getServiceConfigs().find(
+				(s) => s.type === 'jellyfin' && s.url.replace(/\/+$/, '') === jfUrl
+			);
+			const jellyfinServiceId = jfService?.id ?? 'jellyfin';
 			return {
-				items: items.map((item) => normalizeItem(item, config)),
+				items: items.map((item) => normalizeItem(item, config, jellyfinServiceId)),
 				total: items.length,
 				source: config.name
 			};

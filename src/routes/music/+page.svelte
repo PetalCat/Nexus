@@ -15,9 +15,9 @@
 	);
 
 	function albumArt(item: { mediaId: string; serviceId: string }): string | null {
-		const base = data.serviceUrls?.[item.serviceId];
-		if (!base || !item.mediaId) return null;
-		return `${base}/Items/${item.mediaId}/Images/Primary?maxHeight=88&quality=80`;
+		if (!item.serviceId || !item.mediaId) return null;
+		const path = `/Items/${item.mediaId}/Images/Primary?maxHeight=88&quality=80`;
+		return `/api/media/image?service=${encodeURIComponent(item.serviceId)}&path=${encodeURIComponent(path)}`;
 	}
 </script>
 
