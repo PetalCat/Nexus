@@ -1,5 +1,8 @@
+use crate::cache;
 use crate::handlers::hls::rewrite_manifest;
-use crate::proxy::{full_body, proxy_stream, stream_upstream_response, BoxError, HTTP_CLIENT};
+use crate::proxy::{
+    cached_or_stream, full_body, stream_upstream_response, BoxError, HTTP_CLIENT,
+};
 use crate::session::{self as session_store, Session};
 use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::{Bytes, Incoming};
@@ -114,20 +117,26 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
 
-    // For HLS sessions we need to inspect every upstream response to decide
-    // whether to run the manifest rewriter. Non-HLS sessions always stream
-    // bytes straight through.
+    // Non-HLS session: use cached_or_stream so segment-sized bodies hit the
+    // cache and trigger prefetch. proxy_stream stays for pure passthrough
+    // (e.g. ranged requests — cached_or_stream detects and delegates).
     if !session.is_hls {
-        return proxy_stream(&upstream_url, &session.auth_headers, req.headers()).await;
+        return cached_or_stream(&upstream_url, &session.auth_headers, req.headers()).await;
     }
 
-    // HLS session: fetch the upstream with auth headers + client range
-    // headers, then decide whether to rewrite or stream based on content.
+    // HLS session: if the URL looks like a segment (not a manifest), take
+    // the cached path — most requests within an HLS session are segments,
+    // and caching them is the whole point of the proxy-side readahead.
+    if !cache::is_manifest_url(&upstream_url) {
+        return cached_or_stream(&upstream_url, &session.auth_headers, req.headers()).await;
+    }
+
+    // Manifest: fetch with auth, buffer, rewrite so segment URIs route
+    // back through our signed /stream/:id/:suffix path.
     let mut req_builder = HTTP_CLIENT.get(&upstream_url);
     for (k, v) in &session.auth_headers {
         req_builder = req_builder.header(k, v);
     }
-    // Forward range headers for seekable segment requests
     if let Some(range) = req.headers().get("range") {
         if let Ok(v) = range.to_str() {
             req_builder = req_builder.header("range", v);
@@ -153,11 +162,12 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         || upstream_url.ends_with(".m3u8");
 
     if !is_manifest {
-        // Segment, init fragment, key, or other binary content — stream bytes.
+        // URL looked like a manifest but server returned binary. Stream it
+        // through without caching — we can't rely on our cacheable heuristics
+        // for content that lied about its type.
         return stream_upstream_response(upstream).await;
     }
 
-    // Manifest: buffer it fully, rewrite, serve.
     let body = match upstream.bytes().await {
         Ok(b) => b,
         Err(e) => {
