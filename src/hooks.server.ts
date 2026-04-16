@@ -11,6 +11,11 @@ import { broadcastToAll } from '$lib/server/ws';
 import { startStreamProxy } from '$lib/server/stream-proxy';
 import { getEnabledConfigs } from '$lib/server/services';
 import { registerShutdownHandler } from '$lib/server/shutdown';
+import { installTunedDispatcher } from '$lib/server/http-pool';
+
+// Tune undici before any outbound fetch fires — raises per-origin connection
+// cap so the image-proxy hot path doesn't queue on the default of 5.
+installTunedDispatcher();
 
 // Start background analytics
 startSessionPoller();
