@@ -6,6 +6,9 @@
 		activeLevel: Level | null;
 		autoQuality: boolean;
 		qualityLabel: string;
+		/** Source resolution — caps preset options above this. Transcoding
+		 *  up from a lower-resolution source is wasted CPU. */
+		sourceHeight?: number;
 		onselect: (index: number) => void;
 		/** Fires when user picks a preset height that doesn't match an
 		 *  engine-reported level — the parent re-negotiates with the server
@@ -13,7 +16,7 @@
 		onrequest?: (targetHeight: number) => void;
 	}
 
-	let { levels, activeLevel, autoQuality, onselect, onrequest }: Props = $props();
+	let { levels, activeLevel, autoQuality, sourceHeight, onselect, onrequest }: Props = $props();
 
 	// Standard transcode presets — shown when the engine's level list doesn't
 	// already cover them. User can force any of these; the parent calls
@@ -48,10 +51,13 @@
 			| { kind: 'level'; level: Level }
 			| { kind: 'preset'; height: number };
 		const rows: Row[] = [];
-		const presetHeights = PRESETS.filter((h) => !levelHeights.has(h));
+		// Never offer a transcode preset above the source — upscaling from
+		// 720p source to "1440p transcode" just wastes server CPU.
+		const cap = sourceHeight ?? Infinity;
+		const presetHeights = PRESETS.filter((h) => !levelHeights.has(h) && h <= cap);
 		const byHeightDesc = (a: { height: number }, b: { height: number }) => b.height - a.height;
 		const combined: { height: number; kind: 'level' | 'preset'; level?: Level }[] = [
-			...levels.map((l) => ({ height: l.height, kind: 'level' as const, level: l })),
+			...levels.filter((l) => l.height <= cap).map((l) => ({ height: l.height, kind: 'level' as const, level: l })),
 			...presetHeights.map((h) => ({ height: h, kind: 'preset' as const })),
 		];
 		combined.sort(byHeightDesc);

@@ -59,6 +59,10 @@ export interface PlaybackSession {
 	burnableSubtitleTracks: TrackInfo[];
 	activeLevel?: { height: number; bitrate: number };
 	levels?: SessionLevel[];
+	/** Source resolution height (pixels). Used by the quality menu to hide
+	 *  preset options above the source — transcoding up from 720p to 1440p
+	 *  just wastes CPU. Absent if the adapter can't determine it. */
+	sourceHeight?: number;
 
 	changeQuality?(plan: PlaybackPlan): Promise<PlaybackSession>;
 	close?(): Promise<void>;
