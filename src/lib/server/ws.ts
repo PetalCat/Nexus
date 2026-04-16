@@ -259,3 +259,10 @@ export function shutdownWs(): void {
 	connectedUsers.clear();
 	socketToUser.clear();
 }
+
+// Expose attach on globalThis so the outer server.js (which isn't in the
+// SvelteKit bundle graph) can call it once it has the http.Server reference.
+// hooks.server.ts imports from this module at start-up, so by the time
+// server.js tries to look up the function, it's already registered.
+(globalThis as unknown as { __nexusAttachWs?: typeof attachWebSocketServer }).__nexusAttachWs =
+	attachWebSocketServer;
