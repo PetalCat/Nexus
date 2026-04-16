@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
-	import Player from '$lib/components/Player.svelte'; // Legacy: audio-only until NexusPlayer supports it
 	import NexusPlayer from '$lib/components/player/NexusPlayer.svelte';
 	import { probeBrowserCaps } from '$lib/components/player/browserCaps';
 	import type { PlaybackSession, PlaybackPlan } from '$lib/adapters/playback';
@@ -40,7 +39,9 @@
 		selectedSeason = (data as any).selectedSeason as number | null;
 		playbackSession = null;
 		videoPlaybackSession = null;
+		audioPlaybackSession = null;
 		isNegotiating = false;
+		isNegotiatingAudio = false;
 	});
 
 	const autoplay = $derived($page.url.searchParams.get('play') === '1');
@@ -496,6 +497,8 @@
 	let playbackSession = $state<PlaybackSession | null>(null);
 	let isNegotiating = $state(false);
 	let videoPlaybackSession = $state<PlaybackSession | null>(null);
+	let audioPlaybackSession = $state<PlaybackSession | null>(null);
+	let isNegotiatingAudio = $state(false);
 
 	async function negotiatePlayback(serviceId: string, itemId: string, plan: PlaybackPlan = {}): Promise<PlaybackSession> {
 		const caps = probeBrowserCaps();
@@ -539,6 +542,17 @@
 			negotiatePlayback(data.serviceId, item.sourceId)
 				.then(s => { videoPlaybackSession = s; })
 				.catch(e => console.error('[video] negotiate failed:', e));
+		}
+	});
+
+	$effect(() => {
+		if (isPlayable && isAudioType && item?.sourceId && data.serviceId && !audioPlaybackSession && !isNegotiatingAudio) {
+			isNegotiatingAudio = true;
+			const id = jellyfinItemId || item.sourceId;
+			negotiatePlayback(data.serviceId, id)
+				.then(s => { audioPlaybackSession = s; })
+				.catch(e => console.error('[audio] negotiate failed:', e))
+				.finally(() => { isNegotiatingAudio = false; });
 		}
 	});
 
@@ -877,17 +891,24 @@
 							{#if isPlayable && isAudioType}
 								<div class="anim" style="--d:540ms; max-width: 28rem;">
 									{#key item.id}
-									<Player
-										streamUrl={item.streamUrl ?? ''}
-										type={item.type}
-										title={item.title}
-										poster={item.poster}
-										progress={item.progress}
-										duration={item.duration}
-										autoplay={autoplay}
-										serviceId={data.serviceId}
-										itemId={jellyfinItemId}
-									/>
+									{#if audioPlaybackSession}
+										<NexusPlayer
+											session={audioPlaybackSession}
+											title={item.title}
+											poster={item.poster}
+											progress={item.progress}
+											duration={item.duration}
+											autoplay={autoplay}
+											serviceId={data.serviceId}
+											itemId={jellyfinItemId}
+											isAudio={true}
+											onqualitychange={handleQualityChange}
+										/>
+									{:else}
+										<div class="flex items-center justify-center h-24 rounded-lg" style="background: rgba(255,255,255,0.03)">
+											<span class="text-xs text-[var(--color-muted)]">Loading...</span>
+										</div>
+									{/if}
 									{/key}
 								</div>
 							{/if}
