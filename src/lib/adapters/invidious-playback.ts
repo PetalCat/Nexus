@@ -26,6 +26,34 @@ export function extractLevels(adaptiveFormats: any[]): SessionLevel[] {
 		.map(([height, { bitrate }], index) => ({ index, height, bitrate }));
 }
 
+/** Parse quality levels from a DASH manifest XML. Invidious's /api/v1/videos
+ *  is unreliable post-SABR (often returns empty adaptiveFormats), so we parse
+ *  the DASH manifest directly — it's what dash.js will actually play. */
+export function extractLevelsFromDash(manifestXml: string): SessionLevel[] {
+	// Match <Representation ... height="N" ... bandwidth="M"> (or bandwidth before height).
+	// Video representations only — skip audio.
+	const repRegex = /<Representation\b[^>]*>/g;
+	const byHeight = new Map<number, { bitrate: number }>();
+
+	for (const match of manifestXml.matchAll(repRegex)) {
+		const tag = match[0];
+		const heightMatch = tag.match(/\bheight="(\d+)"/);
+		const bandwidthMatch = tag.match(/\bbandwidth="(\d+)"/);
+		if (!heightMatch) continue; // audio reps have no height
+		const height = parseInt(heightMatch[1]);
+		const bitrate = bandwidthMatch ? parseInt(bandwidthMatch[1]) : 0;
+		if (!isFinite(height) || height <= 0) continue;
+		const existing = byHeight.get(height);
+		if (!existing || bitrate > existing.bitrate) {
+			byHeight.set(height, { bitrate });
+		}
+	}
+
+	return Array.from(byHeight.entries())
+		.sort((a, b) => b[0] - a[0])
+		.map(([height, { bitrate }], index) => ({ index, height, bitrate }));
+}
+
 const PREFERRED_MUXED_ITAGS = ['22', '18'];
 
 export function pickBestFormat(
@@ -107,24 +135,42 @@ export async function invidiousNegotiatePlayback(
 		}
 	} catch { /* captions are optional */ }
 
-	// Use DASH for adaptive quality (all resolutions up to 4K) when adaptive
-	// formats are available. Fall back to progressive muxed for the rare case
-	// where Invidious only returns formatStreams (muxed, 720p max).
-	const hasAdaptive = (meta.adaptiveFormats ?? []).length > 0;
+	// Post-SABR Invidious routinely returns empty adaptiveFormats from
+	// /api/v1/videos — the real data lives in the companion-backed DASH
+	// manifest. Fetch it and parse levels from the XML directly. If that
+	// also comes back empty, fall through to progressive muxed as a last
+	// resort.
+	let dashLevels: SessionLevel[] = [];
+	let dashAvailable = false;
+	try {
+		const dashRes = await fetch(
+			`${baseUrl}/api/manifest/dash/id/${encodeURIComponent(videoId)}`,
+			{ signal: AbortSignal.timeout(8000) }
+		);
+		if (dashRes.ok) {
+			const mpd = await dashRes.text();
+			dashLevels = extractLevelsFromDash(mpd);
+			dashAvailable = mpd.includes('<Representation') && dashLevels.length > 0;
+		}
+	} catch { /* fall through */ }
+
+	// Legacy adaptiveFormats as a fallback (rarely useful post-SABR)
+	if (!dashAvailable && (meta.adaptiveFormats ?? []).length > 0) {
+		dashLevels = extractLevels(meta.adaptiveFormats);
+		dashAvailable = dashLevels.length > 0;
+	}
 
 	const session: PlaybackSession = {
-		engine: hasAdaptive ? 'dash' : 'progressive',
-		url: hasAdaptive
+		engine: dashAvailable ? 'dash' : 'progressive',
+		url: dashAvailable
 			? `/api/video/stream/${encodeURIComponent(videoId)}/dash`
 			: `/api/video/stream/${encodeURIComponent(videoId)}?itag=${itag}`,
-		mime: hasAdaptive ? 'application/dash+xml' : (picked?.mimeType ?? 'video/mp4'),
+		mime: dashAvailable ? 'application/dash+xml' : (picked?.mimeType ?? 'video/mp4'),
 		mode: 'direct-play',
 		audioTracks: [{ id: 0, name: 'Default', lang: '' }],
 		subtitleTracks,
 		burnableSubtitleTracks: [],
-		// Pre-compute quality levels from adaptiveFormats so the quality menu
-		// appears immediately — doesn't depend on dash.js events firing.
-		levels: hasAdaptive ? extractLevels(meta.adaptiveFormats ?? []) : undefined,
+		levels: dashAvailable ? dashLevels : undefined,
 	};
 
 	session.changeQuality = async (newPlan: PlaybackPlan) => {
