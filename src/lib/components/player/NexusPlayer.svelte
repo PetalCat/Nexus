@@ -254,6 +254,10 @@
 	/* ── Adaptive downgrade on stalls ── */
 	async function handleAdaptiveDowngrade() {
 		if (!onqualitychange || !engine || !videoEl) return;
+		// Only auto-degrade when the user is in Auto mode. If they picked a
+		// specific height, respect it — better to buffer than silently drop
+		// them to a lower quality they didn't ask for.
+		if (!ps.autoQuality) return;
 		monitor.markAdapted();
 
 		const currentHeight = ps.activeLevel?.height ?? 1080;
