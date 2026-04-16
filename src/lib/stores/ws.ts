@@ -41,8 +41,15 @@ let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
+/** True once a WS handshake has succeeded in this session. Distinguishes
+ *  "server doesn't support WS" (never opened) from "transient disconnect"
+ *  (opened, then dropped). The former should stop retrying quickly. */
+let everConnected = false;
 const MAX_RECONNECT_DELAY = 30_000;
 const HEARTBEAT_INTERVAL = 30_000;
+/** Stop trying after this many consecutive failures without ever connecting —
+ *  the server isn't running a WS handler and retries just spam the console. */
+const MAX_INITIAL_ATTEMPTS = 3;
 
 const messageHandlers = new Map<string, Set<(data: Record<string, unknown>) => void>>();
 
@@ -60,6 +67,7 @@ export function connectWs(): void {
 	ws.onopen = () => {
 		wsConnected.set(true);
 		reconnectAttempts = 0;
+		everConnected = true;
 
 		// Start heartbeat
 		heartbeatTimer = setInterval(() => {
@@ -127,6 +135,10 @@ function cleanup(): void {
 
 function scheduleReconnect(): void {
 	if (reconnectTimer) return;
+	// If we've never successfully connected and we've already burned the
+	// initial attempt budget, assume the server doesn't support WS and stop
+	// retrying. The user can refresh to try again.
+	if (!everConnected && reconnectAttempts >= MAX_INITIAL_ATTEMPTS) return;
 	const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
 	reconnectAttempts++;
 	reconnectTimer = setTimeout(() => {

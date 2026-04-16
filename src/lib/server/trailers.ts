@@ -1,5 +1,5 @@
 // src/lib/server/trailers.ts
-import { withCache } from './cache';
+import { withCache, invalidate } from './cache';
 import { getConfigsForMediaType } from './services';
 
 export interface TrailerInfo {
@@ -26,7 +26,7 @@ export async function resolveTrailerUrl(
 ): Promise<TrailerInfo | null> {
 	const cacheKey = `trailer:${mediaId}:${serviceId}`;
 
-	return withCache(cacheKey, 24 * 60 * 60 * 1000, async () => {
+	const result = await withCache(cacheKey, 24 * 60 * 60 * 1000, async () => {
 		const inv = getInvidiousConfig();
 		if (!inv) return null;
 
@@ -44,6 +44,12 @@ export async function resolveTrailerUrl(
 			audio: audioItag ? `/api/video/stream/${videoId}?itag=${audioItag}` : null
 		};
 	});
+
+	// Don't let a negative result poison the cache for 24h — if the user
+	// didn't have Invidious configured yet or a lookup transiently failed,
+	// we want the next call to retry. Drop null results immediately.
+	if (result === null) invalidate(cacheKey);
+	return result;
 }
 
 function extractYouTubeId(url?: string | null): string | null {
