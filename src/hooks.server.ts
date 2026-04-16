@@ -18,9 +18,12 @@ startStatsScheduler();
 startVideoNotificationPoller();
 startRecScheduler();
 
-// Start video stream proxy sub-server
+// Start video stream proxy sub-server — always start so Jellyfin HLS delivery
+// works regardless of whether Invidious is configured. The binary's Invidious
+// features are dormant when no Invidious service is set up; Jellyfin HLS
+// session handoff works unconditionally.
 const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
-if (invConfig) startStreamProxy(invConfig.url);
+startStreamProxy(invConfig?.url ?? 'http://localhost:3000');
 
 // Start health watchdog — detects service recovery and invalidates stale caches
 startHealthWatchdog();
