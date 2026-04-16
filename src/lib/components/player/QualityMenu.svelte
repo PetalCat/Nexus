@@ -20,6 +20,19 @@
 	// negotiatePlayback with { targetHeight } to trigger a Jellyfin transcode.
 	const PRESETS = [2160, 1440, 1080, 720, 480, 360, 240];
 
+	/** Rough H.264 encoder defaults for streaming at each height — used to
+	 *  show a bitrate estimate next to preset options that don't come from
+	 *  the engine's actual level list. */
+	const PRESET_BITRATES: Record<number, number> = {
+		2160: 35_000_000,
+		1440: 16_000_000,
+		1080: 8_000_000,
+		720: 4_000_000,
+		480: 2_000_000,
+		360: 1_000_000,
+		240: 500_000,
+	};
+
 	function fmtBitrate(bps: number): string {
 		if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
 		if (bps >= 1_000) return `${(bps / 1_000).toFixed(0)} kbps`;
@@ -85,7 +98,9 @@
 			>
 				<span>
 					{row.height}p
-					<span class="panel__meta">transcode</span>
+					<span class="panel__meta">
+						{fmtBitrate(PRESET_BITRATES[row.height] ?? 0)} · transcode
+					</span>
 				</span>
 			</button>
 		{/if}
