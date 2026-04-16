@@ -1,7 +1,10 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
-	import Player from '$lib/components/Player.svelte';
+	import Player from '$lib/components/Player.svelte'; // Legacy: audio-only until NexusPlayer supports it
+	import NexusPlayer from '$lib/components/player/NexusPlayer.svelte';
+	import { probeBrowserCaps } from '$lib/components/player/browserCaps';
+	import type { PlaybackSession, PlaybackPlan } from '$lib/adapters/playback';
 	import ChannelCard from '$lib/components/video/ChannelCard.svelte';
 	import VideoComments from '$lib/components/video/VideoComments.svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
@@ -35,6 +38,9 @@
 		episodes = (data as any).episodes ?? [];
 		seasons = (data as any).seasons ?? [];
 		selectedSeason = (data as any).selectedSeason as number | null;
+		playbackSession = null;
+		videoPlaybackSession = null;
+		isNegotiating = false;
 	});
 
 	const autoplay = $derived($page.url.searchParams.get('play') === '1');
@@ -66,16 +72,7 @@
 	const videoNotifyEnabled = $derived((data as any).videoNotifyEnabled ?? false);
 	const invidiousBaseUrl = $derived((data as any).invidiousBaseUrl as string | undefined);
 	let videoDescExpanded = $state(false);
-	let videoFormats = $state<Array<{ itag: number | string; quality: string; type: string; muxed?: boolean }>>([]);
-
-	// Fetch available formats for Invidious videos
-	$effect(() => {
-		if (!isVideo || !videoStreamUrl) return;
-		fetch(`/api/video/stream/${item.sourceId}/formats`)
-			.then((r) => r.ok ? r.json() : null)
-			.then((d) => { if (d?.formatStreams) videoFormats = d.formatStreams; })
-			.catch(() => {});
-	});
+	// NOTE: videoFormats, videoStreamUrl, videoCaptions removed — NexusPlayer negotiates via /api/play/negotiate
 
 	// Watchlist / Collections state
 	let inWatchlist = $state(false);
@@ -447,11 +444,10 @@
 	}
 
 	const playableTypes = ['movie', 'episode', 'music', 'album', 'live', 'video'];
-	const videoStreamUrl = $derived((data as any).videoStreamUrl as string | undefined);
-	const videoCaptions = $derived((data as any).videoCaptions as { label: string; lang: string; url: string }[] ?? []);
+	// videoStreamUrl / videoCaptions removed — NexusPlayer negotiates client-side
 	const isPlayable = $derived(
 		(!!item.streamUrl && playableTypes.includes(item.type)) ||
-		(item.type === 'video' && !!videoStreamUrl)
+		(item.type === 'video' && !!item.sourceId && !!data.serviceId)
 	);
 	const isAudioType = $derived(item.type === 'music' || item.type === 'album');
 
@@ -493,8 +489,58 @@
 	});
 
 	let showPlayer = $state(false);
-	function startPlayback() { showPlayer = true; }
-	function closePlayer() { history.back(); }
+	function openPlayer() { showPlayer = true; }
+	function closePlayer() { playbackSession = null; history.back(); }
+
+	// ── NexusPlayer negotiate-based playback ──────────────────────────
+	let playbackSession = $state<PlaybackSession | null>(null);
+	let isNegotiating = $state(false);
+	let videoPlaybackSession = $state<PlaybackSession | null>(null);
+
+	async function negotiatePlayback(serviceId: string, itemId: string, plan: PlaybackPlan = {}): Promise<PlaybackSession> {
+		const caps = probeBrowserCaps();
+		const res = await fetch('/api/play/negotiate', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ serviceId, itemId, plan, caps }),
+		});
+		if (!res.ok) throw new Error(`Negotiate failed: ${res.status}`);
+		return res.json();
+	}
+
+	async function beginNegotiation() {
+		if (isNegotiating || !data.serviceId) return;
+		isNegotiating = true;
+		try {
+			const id = jellyfinItemId || item?.sourceId || '';
+			playbackSession = await negotiatePlayback(data.serviceId, id);
+		} catch (e) {
+			console.error('[media] negotiate failed:', e);
+		} finally {
+			isNegotiating = false;
+		}
+	}
+
+	async function handleQualityChange(plan: PlaybackPlan): Promise<PlaybackSession> {
+		const id = jellyfinItemId || item?.sourceId || '';
+		return negotiatePlayback(data.serviceId, id, plan);
+	}
+
+	// Auto-negotiate when theater player opens
+	$effect(() => {
+		if ((showPlayer || autoplay) && isPlayable && !isAudioType && !playbackSession && !isNegotiating) {
+			beginNegotiation();
+		}
+	});
+
+	// Auto-negotiate for Invidious videos
+	$effect(() => {
+		if (item?.type === 'video' && item.sourceId && data.serviceId && !videoPlaybackSession) {
+			negotiatePlayback(data.serviceId, item.sourceId)
+				.then(s => { videoPlaybackSession = s; })
+				.catch(e => console.error('[video] negotiate failed:', e));
+		}
+	});
 
 	/* ── Episode scroll ── */
 	let epScrollEl: HTMLDivElement | undefined = $state();
@@ -628,13 +674,12 @@
 	</nav>
 
 	<!-- ═══════════════════════════════════════════
-	     PLAYER (Theater Mode)
+	     PLAYER (Theater Mode) — NexusPlayer
 	     ═══════════════════════════════════════════ -->
-	{#if isPlayable && !isAudioType && (showPlayer || autoplay)}
+	{#if isPlayable && !isAudioType && (showPlayer || autoplay) && playbackSession}
 		{#key item.id}
-		<Player
-			streamUrl={item.streamUrl ?? ''}
-			type={item.type}
+		<NexusPlayer
+			session={playbackSession}
 			title={item.title}
 			subtitle={subtitleLine}
 			poster={item.backdrop ?? item.poster}
@@ -643,9 +688,14 @@
 			autoplay={true}
 			serviceId={data.serviceId}
 			itemId={jellyfinItemId}
-			onclose={closePlayer}
+			onclose={() => { playbackSession = null; closePlayer(); }}
+			onqualitychange={handleQualityChange}
 		/>
 		{/key}
+	{:else if isPlayable && !isAudioType && (showPlayer || autoplay) && !playbackSession}
+		<div class="flex items-center justify-center h-96 bg-black/80 rounded-xl">
+			<div class="text-[var(--color-muted)]">Loading playback...</div>
+		</div>
 	{/if}
 
 	<!-- ═══════════════════════════════════════════
@@ -662,7 +712,7 @@
 			{#if isPlayable && !isAudioType}
 				<button
 					class="hero__play-trigger"
-					onclick={startPlayback}
+					onclick={openPlayer}
 					aria-label="Play {item.title}"
 				>
 					<div class="hero__play-icon">
@@ -897,7 +947,7 @@
 										Read
 									</a>
 								{:else if isPlayable && !showPlayer && !isAudioType}
-									<button class="act-play" onclick={startPlayback}>
+									<button class="act-play" onclick={openPlayer}>
 										<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z" /></svg>
 										{item.progress ? 'Resume' : item.actionLabel ?? 'Play'}
 									</button>
@@ -1715,22 +1765,18 @@
 	<div class="video-grid">
 		<!-- Left column -->
 		<div class="video-main">
-			<!-- Inline Player -->
-			{#if videoStreamUrl && item}
-				{#key videoStreamUrl}
-				<Player
-					streamUrl={videoStreamUrl}
-					type={item.type}
+			<!-- Inline Player — NexusPlayer -->
+			{#if videoPlaybackSession && item}
+				{#key item.sourceId}
+				<NexusPlayer
+					session={videoPlaybackSession}
 					title={item.title}
 					poster={item.backdrop ?? item.poster}
 					progress={item.progress}
 					duration={item.duration}
 					autoplay={autoplay}
-					videoId={item.sourceId}
-					mode="direct"
-					formats={videoFormats}
-					captions={videoCaptions}
 					inline={true}
+					onqualitychange={handleQualityChange}
 				/>
 				{/key}
 			{:else}
@@ -1741,8 +1787,12 @@
 						<img src={item.poster} alt="" class="h-full w-full object-cover" />
 					{/if}
 					<div class="player-overlay">
-						<Play size={48} class="text-cream/60" />
-						<p class="mt-2 text-sm text-cream/40">No stream available</p>
+						{#if item?.type === 'video' && !videoPlaybackSession}
+							<div class="text-cream/60 text-sm">Loading player...</div>
+						{:else}
+							<Play size={48} class="text-cream/60" />
+							<p class="mt-2 text-sm text-cream/40">No stream available</p>
+						{/if}
 					</div>
 				</div>
 			{/if}
