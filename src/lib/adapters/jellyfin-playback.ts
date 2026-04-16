@@ -106,19 +106,34 @@ export async function jellyfinNegotiatePlayback(
 	const token = userCred?.accessToken ?? config.apiKey ?? '';
 	const userId = userCred?.externalUserId ?? '';
 
-	const profile = buildDeviceProfile(caps, plan);
+	// When the user forces a specific height, derive a bitrate cap (if the
+	// plan didn't specify one) so Jellyfin actually transcodes down instead
+	// of direct-streaming the original. Standard H.264 bitrate ceilings.
+	const PRESET_BITRATES: Record<number, number> = {
+		2160: 35_000_000, 1440: 16_000_000, 1080: 8_000_000,
+		720: 4_000_000, 480: 2_000_000, 360: 1_000_000, 240: 500_000,
+	};
+	const effectivePlan: PlaybackPlan = { ...plan };
+	if (plan.targetHeight && !plan.maxBitrate) {
+		effectivePlan.maxBitrate = PRESET_BITRATES[plan.targetHeight] ?? 8_000_000;
+	}
+	const forcingTranscode = !!plan.targetHeight || !!plan.maxBitrate || plan.burnSubIndex !== undefined;
+
+	const profile = buildDeviceProfile(caps, effectivePlan);
 
 	const body: Record<string, unknown> = {
 		UserId: userId,
 		DeviceProfile: profile,
-		EnableDirectPlay: true,
-		EnableDirectStream: true,
+		// When the user explicitly picked a quality, disable direct-play so
+		// Jellyfin has to honor the height/bitrate cap via transcode.
+		EnableDirectPlay: !forcingTranscode,
+		EnableDirectStream: !forcingTranscode,
 		EnableTranscoding: true,
-		AllowVideoStreamCopy: true,
-		AllowAudioStreamCopy: true,
+		AllowVideoStreamCopy: !forcingTranscode,
+		AllowAudioStreamCopy: !forcingTranscode,
 		AutoOpenLiveStream: true,
 	};
-	if (plan.maxBitrate) body.MaxStreamingBitrate = plan.maxBitrate;
+	if (effectivePlan.maxBitrate) body.MaxStreamingBitrate = effectivePlan.maxBitrate;
 	if (plan.startPositionSeconds) {
 		body.StartTimeTicks = Math.round(plan.startPositionSeconds * 10_000_000);
 	}
