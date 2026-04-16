@@ -621,6 +621,11 @@
 				</div>
 				<ModePill mode={session.mode} isBurnIn={ps.isBurnIn} />
 				<span class="qual-pill">{ps.qualityLabel}</span>
+				{#if ps.measuredBandwidth > 0}
+					<span class="bw-pill" title="Measured network throughput">
+						{(ps.measuredBandwidth / 1_000_000).toFixed(1)} Mbps
+					</span>
+				{/if}
 			</div>
 
 			<div class="ctrl__bot">
@@ -917,6 +922,14 @@
 		background: rgba(124,108,248,0.15); border: 1px solid rgba(124,108,248,0.25);
 		font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
 		color: rgba(124,108,248,0.9); letter-spacing: 0.03em;
+	}
+
+	.bw-pill {
+		flex-shrink: 0;
+		padding: 0.15rem 0.5rem; border-radius: 4px;
+		background: rgba(110, 231, 183, 0.12); border: 1px solid rgba(110, 231, 183, 0.2);
+		font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+		color: rgba(110, 231, 183, 0.9); letter-spacing: 0.03em;
 	}
 
 	.cb {
