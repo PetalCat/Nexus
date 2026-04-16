@@ -67,6 +67,8 @@
 		right: 0;
 		margin-bottom: 0.5rem;
 		min-width: 14rem;
+		max-height: calc(100vh - 8rem);
+		overflow-y: auto;
 		background: rgba(15, 15, 20, 0.95);
 		backdrop-filter: blur(12px);
 		border: 1px solid rgba(255, 255, 255, 0.08);

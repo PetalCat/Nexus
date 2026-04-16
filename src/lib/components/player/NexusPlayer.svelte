@@ -233,6 +233,25 @@
 		ps.updateQualityLabel(engine?.levels ?? [], engine?.activeLevelIndex ?? -1);
 	}
 
+	/* Force a transcode at a specific height — used for preset quality options
+	   that don't match any engine-reported level. Always re-negotiates. */
+	async function handleQualityRequest(targetHeight: number) {
+		if (!onqualitychange) return;
+		ps.activePanel = 'none';
+		ps.autoQuality = false;
+		const savedTime = videoEl?.currentTime ?? 0;
+		try {
+			const newSession = await onqualitychange({
+				targetHeight,
+				startPositionSeconds: savedTime,
+			});
+			await attachEngine(newSession, savedTime);
+			ps.qualityLabel = `${targetHeight}p`;
+		} catch (e) {
+			console.warn('[Player] quality request failed:', e);
+		}
+	}
+
 	/* ── Adaptive downgrade on stalls ── */
 	async function handleAdaptiveDowngrade() {
 		if (!onqualitychange || !engine || !videoEl) return;
@@ -715,8 +734,10 @@
 						</div>
 					{/if}
 
-					<!-- Quality -->
-					{#if ps.levels.length > 0}
+					<!-- Quality: always show when negotiation is available, even
+					     with no engine-reported levels (user can force a transcode
+					     preset via onrequest). -->
+					{#if ps.levels.length > 0 || onqualitychange}
 						<div class="ctrl-panel-wrap">
 							<button class="cb cb--sm" onclick={() => togglePanel('quality')} aria-label="Quality">
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -728,6 +749,7 @@
 									autoQuality={ps.autoQuality}
 									qualityLabel={ps.qualityLabel}
 									onselect={handleQualitySelect}
+									onrequest={onqualitychange ? handleQualityRequest : undefined}
 								/>
 							{/if}
 						</div>
