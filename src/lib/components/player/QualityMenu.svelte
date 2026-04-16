@@ -3,7 +3,7 @@
 
 	interface Props {
 		levels: Level[];
-		activeLevelIndex: number;
+		activeLevel: Level | null;
 		autoQuality: boolean;
 		qualityLabel: string;
 		onselect: (index: number) => void;
@@ -13,7 +13,7 @@
 		onrequest?: (targetHeight: number) => void;
 	}
 
-	let { levels, activeLevelIndex, autoQuality, onselect, onrequest }: Props = $props();
+	let { levels, activeLevel, autoQuality, onselect, onrequest }: Props = $props();
 
 	// Standard transcode presets — shown when the engine's level list doesn't
 	// already cover them. User can force any of these; the parent calls
@@ -71,7 +71,14 @@
 		class:panel__item--on={autoQuality}
 		onclick={() => onselect(-1)}
 	>
-		<span>Auto{#if autoQuality && activeLevelIndex !== -1} <span class="panel__meta">({levels[activeLevelIndex]?.height ?? '?'}p)</span>{/if}</span>
+		<span>
+			Auto
+			{#if autoQuality && activeLevel}
+				<span class="panel__meta">
+					→ {activeLevel.height}p{#if activeLevel.bitrate > 0} · {fmtBitrate(activeLevel.bitrate)}{/if}
+				</span>
+			{/if}
+		</span>
 		{#if autoQuality}<span class="panel__ck">&#10003;</span>{/if}
 	</button>
 
@@ -79,14 +86,14 @@
 		{#if row.kind === 'level'}
 			<button
 				class="panel__item"
-				class:panel__item--on={!autoQuality && activeLevelIndex === row.level.index}
+				class:panel__item--on={!autoQuality && activeLevel?.index === row.level.index}
 				onclick={() => onselect(row.level.index)}
 			>
 				<span>
 					{row.level.height}p
 					{#if row.level.bitrate > 0}<span class="panel__meta">{fmtBitrate(row.level.bitrate)}</span>{/if}
 				</span>
-				{#if !autoQuality && activeLevelIndex === row.level.index}
+				{#if !autoQuality && activeLevel?.index === row.level.index}
 					<span class="panel__ck">&#10003;</span>
 				{/if}
 			</button>

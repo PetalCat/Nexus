@@ -246,7 +246,6 @@
 				startPositionSeconds: savedTime,
 			});
 			await attachEngine(newSession, savedTime);
-			ps.qualityLabel = `${targetHeight}p`;
 		} catch (e) {
 			console.warn('[Player] quality request failed:', e);
 		}
@@ -750,7 +749,7 @@
 							{#if ps.activePanel === 'quality'}
 								<QualityMenu
 									levels={ps.levels}
-									activeLevelIndex={engine?.activeLevelIndex ?? -1}
+									activeLevel={ps.activeLevel}
 									autoQuality={ps.autoQuality}
 									qualityLabel={ps.qualityLabel}
 									onselect={handleQualitySelect}
