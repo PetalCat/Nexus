@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
+	import { goto } from '$app/navigation';
+	import { page as pageStore } from '$app/state';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaRow from '$lib/components/MediaRow.svelte';
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
@@ -19,15 +21,33 @@
 		return items.find((i) => i.backdrop && i.description) ?? items.find((i) => i.backdrop) ?? null;
 	}
 
-	// Client-side search filter
-	let localQuery = $state('');
-	const filtered = $derived(
-		localQuery
-			? data.libraryItems.filter((i: UnifiedMedia) =>
-					i.title.toLowerCase().includes(localQuery.toLowerCase())
-				)
-			: data.libraryItems
-	);
+	// Server-side search: typing updates the URL (?q=…) with a debounce, which
+	// re-runs the loader. No more client-side slice-of-200 filter.
+	// svelte-ignore state_referenced_locally
+	let queryInput = $state(data.q ?? '');
+	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function syncUrl(nextQuery: string, nextPage = 1) {
+		const url = new URL(pageStore.url);
+		if (nextQuery) url.searchParams.set('q', nextQuery);
+		else url.searchParams.delete('q');
+		if (nextPage > 1) url.searchParams.set('page', String(nextPage));
+		else url.searchParams.delete('page');
+		goto(url, { keepFocus: true, replaceState: true, noScroll: true });
+	}
+
+	function onQueryInput() {
+		if (debounceTimer) clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => syncUrl(queryInput.trim(), 1), 300);
+	}
+
+	const totalPages = $derived(Math.max(1, Math.ceil(data.total / data.pageSize)));
+	const hasPrev = $derived(data.page > 1);
+	const hasNext = $derived(data.page < totalPages);
+
+	function gotoPage(p: number) {
+		syncUrl(queryInput.trim(), p);
+	}
 
 	function formatDuration(secs?: number) {
 		if (!secs) return null;
@@ -152,7 +172,7 @@
 				<div class="flex gap-1 overflow-x-auto rounded-lg bg-[var(--color-surface)] p-1 scrollbar-none">
 					{#each sortOptions as s (s.id)}
 						<a
-							href="/shows?sort={s.id}"
+							href="/shows?sort={s.id}{queryInput.trim() ? `&q=${encodeURIComponent(queryInput.trim())}` : ''}"
 							class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {data.sortBy === s.id
 								? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
 								: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
@@ -160,10 +180,15 @@
 					{/each}
 				</div>
 			</div>
-			<input bind:value={localQuery} class="input w-full text-sm sm:w-48" placeholder="Filter..." />
+			<input
+				bind:value={queryInput}
+				oninput={onQueryInput}
+				class="input w-full text-sm sm:w-48"
+				placeholder="Search shows..."
+			/>
 		</div>
 
-		{#if filtered.length === 0}
+		{#if data.libraryItems.length === 0}
 			<div class="flex flex-col items-center justify-center py-24 text-center">
 				<div class="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface)] text-[var(--color-muted)]">
 					<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -184,7 +209,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4">
-				{#each filtered as item (item.id)}
+				{#each data.libraryItems as item (item.id)}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						onmouseenter={() => onCardHover(item)}
@@ -194,6 +219,23 @@
 					</div>
 				{/each}
 			</div>
+
+			<!-- Pagination -->
+			{#if totalPages > 1}
+				<div class="mt-6 flex items-center justify-center gap-3 text-sm">
+					<button
+						class="btn px-3 py-1.5 text-xs disabled:opacity-40"
+						disabled={!hasPrev}
+						onclick={() => gotoPage(data.page - 1)}
+					>Prev</button>
+					<span class="text-[var(--color-muted)]">Page {data.page} of {totalPages}</span>
+					<button
+						class="btn px-3 py-1.5 text-xs disabled:opacity-40"
+						disabled={!hasNext}
+						onclick={() => gotoPage(data.page + 1)}
+					>Next</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 

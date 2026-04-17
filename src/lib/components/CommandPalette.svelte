@@ -5,6 +5,7 @@
 	import { playTrack } from '$lib/stores/musicStore.svelte';
 	import type { Track } from '$lib/stores/musicStore.svelte';
 	import type { UnifiedMedia } from '$lib/adapters/types';
+	import { unifiedSearch } from '$lib/client/unified-search';
 
 	const SCOPES = [
 		{ label: 'All', value: undefined },
@@ -126,17 +127,20 @@
 			return;
 		}
 
-		// Video scope uses a separate API endpoint
+		const typeFilter =
+			palette.scope && palette.scope !== 'video'
+				? (palette.scope as 'movie' | 'show' | 'music' | 'book' | 'game')
+				: undefined;
+
+		// Video scope — single request, handled by the client helper.
 		if (palette.scope === 'video') {
 			const libCtrl = new AbortController();
 			libraryAbort = libCtrl;
 			searchingLibrary = true;
-
-			fetch(`/api/video/search?q=${encodeURIComponent(q.trim())}`, { signal: libCtrl.signal })
-				.then((r) => r.ok ? r.json() : { items: [] })
-				.then((data) => {
+			unifiedSearch({ query: q, scope: 'video', signal: libCtrl.signal })
+				.then((items) => {
 					if (!libCtrl.signal.aborted) {
-						libraryResults = data.items ?? [];
+						libraryResults = items;
 						searched = true;
 						searchingLibrary = false;
 					}
@@ -150,22 +154,14 @@
 			return;
 		}
 
-		const baseParams = new URLSearchParams({ q: q.trim() });
-		if (palette.scope) baseParams.set('type', palette.scope);
-
 		// Phase 1 — Library (Jellyfin/Calibre/RomM, local network, fast)
 		const libCtrl = new AbortController();
 		libraryAbort = libCtrl;
 		searchingLibrary = true;
-
-		const libParams = new URLSearchParams(baseParams);
-		libParams.set('source', 'library');
-
-		fetch(`/api/search?${libParams}`, { signal: libCtrl.signal })
-			.then((r) => r.ok ? r.json() : { items: [] })
-			.then((data) => {
+		unifiedSearch({ query: q, scope: 'library', type: typeFilter, signal: libCtrl.signal })
+			.then((items) => {
 				if (!libCtrl.signal.aborted) {
-					libraryResults = data.items ?? [];
+					libraryResults = items;
 					searched = true;
 					searchingLibrary = false;
 				}
@@ -181,15 +177,10 @@
 		const discCtrl = new AbortController();
 		discoverAbort = discCtrl;
 		searchingDiscover = true;
-
-		const discParams = new URLSearchParams(baseParams);
-		discParams.set('source', 'discover');
-
-		fetch(`/api/search?${discParams}`, { signal: discCtrl.signal })
-			.then((r) => r.ok ? r.json() : { items: [] })
-			.then((data) => {
+		unifiedSearch({ query: q, scope: 'discover', type: typeFilter, signal: discCtrl.signal })
+			.then((items) => {
 				if (!discCtrl.signal.aborted) {
-					discoverResults = data.items ?? [];
+					discoverResults = items;
 					searchingDiscover = false;
 				}
 			})
