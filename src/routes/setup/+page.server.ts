@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { COOKIE_NAME, createSession, createUser, getUserCount, getSetting, setSetting, getUserByUsername } from '$lib/server/auth';
 import { upsertService, getEnabledConfigs } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
@@ -6,18 +6,10 @@ import { buildAccountServiceSummariesForType } from '$lib/server/account-service
 import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ cookies, locals }) => {
-	// Allow the page if: no users yet, OR user has an active session (mid-wizard).
-	const hasSession = !!cookies.get(COOKIE_NAME);
-	if (getUserCount() > 0 && !hasSession) {
-		throw redirect(303, '/login');
-	}
-
-	// If onboarding is complete, go to home
-	if (getSetting('onboarding_complete') === 'true' && hasSession) {
-		throw redirect(303, '/');
-	}
-
+// Lifecycle gates (no-session+users-exist → /login, onboarding-complete → /)
+// live in resolveRedirect (#32). This load only prepares page data for the
+// wizard; form actions below still redirect on success.
+export const load: PageServerLoad = async ({ locals }) => {
 	const adapters = registry.onboardable().map((a) => ({
 		id: a.id,
 		displayName: a.displayName,
