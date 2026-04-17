@@ -42,3 +42,20 @@ jobs:
           PORT: 8585
           DATABASE_URL: ./data/test-ci.db
           ORIGIN: http://localhost:8585
+
+  rust-proxy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stream-proxy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: stream-proxy
+
+      - name: Rust tests
+        run: cargo test --locked
