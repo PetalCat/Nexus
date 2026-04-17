@@ -3,7 +3,14 @@ import { getPresence } from '$lib/server/social';
 import { getUserCredentials } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
-// GET /api/auth/me — current user profile + presence + preferences
+// CANONICAL: `/api/auth/me` owns session identity — GET returns the read-only
+// shape { user (id/username/displayName/avatar/isAdmin), presence, linkedServices }.
+// Session-shape fields (identity + presence + linked creds) are sourced only
+// from this endpoint. Editable profile fields (currently displayName) are
+// mutated via PUT /api/user/profile; playback prefs via POST /api/user/settings.
+// Do NOT add mutation verbs here. See #33.
+//
+// GET /api/auth/me — current user identity + presence + linked services
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
