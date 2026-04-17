@@ -2,8 +2,7 @@ import { registry } from '$lib/adapters/registry';
 import { getEnabledConfigs, needsAutoLink, autoLinkJellyfinServices } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
 import { getUnreadCount } from '$lib/server/notifications';
-import { getDb, schema } from '$lib/db';
-import { eq } from 'drizzle-orm';
+import { getAutoplayTrailers, getAutoplayNext } from '$lib/server/user-prefs';
 import type { LayoutServerLoad } from './$types';
 
 
@@ -20,25 +19,11 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		unreadNotifications = getUnreadCount(locals.user.id);
 	}
 
-	// Autoplay trailers preference — defaults to true (desktop overrides to false on mobile client-side)
-	let autoplayTrailers = true;
-	// Autoplay next episode preference — defaults to false (opt-in).
-	let autoplayNext = false;
-	if (locals.user) {
-		const db = getDb();
-		const trailerSetting = db
-			.select({ value: schema.appSettings.value })
-			.from(schema.appSettings)
-			.where(eq(schema.appSettings.key, `user:${locals.user.id}:autoplayTrailers`))
-			.get();
-		if (trailerSetting) autoplayTrailers = trailerSetting.value === 'true';
-		const nextSetting = db
-			.select({ value: schema.appSettings.value })
-			.from(schema.appSettings)
-			.where(eq(schema.appSettings.key, `user:${locals.user.id}:autoplayNext`))
-			.get();
-		if (nextSetting) autoplayNext = nextSetting.value === 'true';
-	}
+	// Autoplay preferences — both routed through the canonical reader helper
+	// in $lib/server/user-prefs so defaults + storage coercion live in one
+	// place. See that file's header for the consumer list.
+	const autoplayTrailers = locals.user ? getAutoplayTrailers(locals.user.id) : true;
+	const autoplayNext = locals.user ? getAutoplayNext(locals.user.id) : false;
 
 	// Pending request count — streamed, NEVER blocks navigation
 	async function fetchPendingRequests(): Promise<number> {

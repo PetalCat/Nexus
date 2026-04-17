@@ -9,6 +9,7 @@ import { emitMediaAction } from '$lib/server/analytics';
 import { resolveTrailerUrl } from '$lib/server/trailers';
 import { getUserWatchlist } from '$lib/server/social';
 import { getUserRating, getMediaRatingStats } from '$lib/server/ratings';
+import { getAutoplayNext } from '$lib/server/user-prefs';
 import type { UnifiedMedia } from '$lib/adapters/types';
 import type { JellyfinSeason } from '$lib/adapters/jellyfin';
 import type { PageServerLoad } from './$types';
@@ -473,8 +474,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	// ── Playback preferences (issue #20) ──────────────────────────────
 	// Resolve a playbackRate for this item from the user's speed rules.
-	// Pull autoplayNext from the per-user settings table so the player
-	// can decide whether to auto-advance at ended.
+	// autoplayNext goes through the canonical helper in $lib/server/user-prefs
+	// so the player + root layout + settings page cannot disagree on defaults.
 	let playbackRate = 1;
 	let autoplayNext = false;
 	if (userId) {
@@ -491,12 +492,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			const channelId = (item.metadata?.authorId as string | undefined) ?? undefined;
 			playbackRate = resolvePlaybackRate(rules, item.type, params.id, channelId);
 
-			const autoSetting = db
-				.select({ value: schema.appSettings.value })
-				.from(schema.appSettings)
-				.where(eq(schema.appSettings.key, `user:${userId}:autoplayNext`))
-				.get();
-			if (autoSetting) autoplayNext = autoSetting.value === 'true';
+			autoplayNext = getAutoplayNext(userId);
 		} catch { /* silent */ }
 	}
 
