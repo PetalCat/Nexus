@@ -9,7 +9,11 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-	const credits = await withCache(`person-credits:${params.id}`, 1_800_000, async () => {
+	// Key includes userId because the lookup iterates the caller's enabled
+	// service configs and uses their per-user credentials. Without userId
+	// scoping, another user could be served a response derived from a
+	// different user's service set/credentials.
+	const credits = await withCache(`person-credits:${locals.user.id}:${params.id}`, 1_800_000, async () => {
 		const configs = getEnabledConfigs();
 		for (const config of configs) {
 			const adapter = registry.get(config.type);
