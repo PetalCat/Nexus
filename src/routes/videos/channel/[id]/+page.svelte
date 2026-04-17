@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
-	import { formatDuration, formatViews, formatCount, toVideoCardMedia } from '$lib/utils/video-format';
+	import { formatDuration, formatViews, formatCount } from '$lib/utils/video-format';
 	import { goto } from '$app/navigation';
 	import { ArrowLeft, CheckCircle, Users, Eye, Bell, BellOff } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
@@ -187,7 +187,7 @@
 				<div class="grid grid-cols-1 gap-4 pb-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each data.channel.videos as item (item.id)}
 						<VideoCard
-							video={toVideoCardMedia(item)}
+							video={item}
 							layout="grid"
 							showChannel={false}
 							onclick={() => goto(`/media/video/${item.sourceId}?service=${data.channel.serviceId}`)}

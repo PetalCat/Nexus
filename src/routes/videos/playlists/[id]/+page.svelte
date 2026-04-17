@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import { ArrowLeft, ListVideo, Trash2, X } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
-	import { toVideoCardMedia } from '$lib/utils/video-format';
 	import { page } from '$app/stores';
 	import { toast } from '$lib/stores/toast.svelte';
 
@@ -120,7 +119,7 @@
 						<span class="w-6 text-right text-xs tabular-nums text-faint/50">{i + 1}</span>
 						<div class="flex-1">
 							<VideoCard
-								video={toVideoCardMedia(video)}
+								video={video}
 								layout="list"
 								onclick={() => handleVideoClick(video.sourceId, video.serviceId)}
 							/>
