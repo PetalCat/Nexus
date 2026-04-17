@@ -82,7 +82,9 @@ export const userServiceCredentials = sqliteTable('user_service_credentials', {
 
 	// Auth material.
 	accessToken: text('access_token'),        // SID, token, JWT, whatever the adapter uses
-	storedPassword: text('stored_password'),  // encrypted; enables auto-refresh when set
+	// AES-256-GCM encrypted via src/lib/server/crypto.ts (`encryptStoredPassword`);
+	// nullable; raw plaintext never persists. Enables auto-refresh when set.
+	storedPassword: text('stored_password'),
 	extraAuth: text('extra_auth'),            // adapter-specific JSON (refresh tokens, device ids, etc.)
 
 	// Management metadata.

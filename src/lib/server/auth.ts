@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import type { UserCredential } from '../adapters/types';
+import { encryptAtRest } from './crypto';
 
 const SESSION_TTL_DAYS = 30;
 const COOKIE_NAME = 'nexus_session';
@@ -227,8 +228,14 @@ export function upsertUserCredential(
 
 	// Only write storedPassword/extraAuth if explicitly provided — null means
 	// "clear it", undefined means "leave existing value alone".
+	//
+	// Encrypt at the boundary so raw plaintext never leaves this function.
+	// See src/lib/server/crypto.ts — AES-256-GCM envelope, NEXUS_ENCRYPTION_KEY.
 	const storedPasswordProvided = cred.storedPassword !== undefined;
-	const storedPassword = cred.storedPassword ?? null;
+	const storedPassword =
+		cred.storedPassword === undefined || cred.storedPassword === null
+			? null
+			: encryptAtRest(cred.storedPassword);
 	const extraAuthProvided = cred.extraAuth !== undefined;
 	const extraAuth = cred.extraAuth ? JSON.stringify(cred.extraAuth) : null;
 

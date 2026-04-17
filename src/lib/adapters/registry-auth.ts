@@ -17,6 +17,7 @@ import type { ServiceConfig, UserCredential } from './types';
 import type { CredentialProbeResult, UserCredentialResult } from './contract';
 import { registry } from './registry';
 import { AdapterAuthError } from './errors';
+import { decryptStoredPassword } from '../server/crypto';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stale-state helpers
@@ -87,7 +88,10 @@ function getStoredPassword(userId: string, serviceId: string): string | null {
 			)
 		)
 		.get();
-	return row?.storedPassword ?? null;
+	// Decrypt at the boundary — adapters that consume this string downstream
+	// (Jellyfin / Invidious / Calibre / RomM refreshCredential) never see the
+	// envelope.
+	return decryptStoredPassword(row?.storedPassword ?? null);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,6 +285,15 @@ export async function reconnectCredential(
 		};
 	}
 
+	const plaintext = decryptStoredPassword(row.storedPassword);
+	if (!plaintext) {
+		return {
+			success: false,
+			kind: 'no-stored-password',
+			message: 'No saved password — sign in manually.'
+		};
+	}
+
 	const userCred: UserCredential = {
 		accessToken: row.accessToken ?? undefined,
 		externalUserId: row.externalUserId ?? undefined,
@@ -288,7 +301,7 @@ export async function reconnectCredential(
 	};
 
 	try {
-		const refreshed = await adapter.refreshCredential(config, userCred, row.storedPassword);
+		const refreshed = await adapter.refreshCredential(config, userCred, plaintext);
 		updateCredentialAfterRefresh(userId, config.id, refreshed);
 		return { success: true };
 	} catch (err) {
