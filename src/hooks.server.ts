@@ -1,6 +1,7 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
 import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
+import { assertEncryptionKey } from '$lib/server/crypto';
 import { startSessionPoller } from '$lib/server/session-poller';
 import { startStatsScheduler } from '$lib/server/stats-scheduler';
 import { startVideoNotificationPoller } from '$lib/server/video-notifications';
@@ -12,6 +13,11 @@ import { startStreamProxy } from '$lib/server/stream-proxy';
 import { getEnabledConfigs } from '$lib/server/services';
 import { registerShutdownHandler } from '$lib/server/shutdown';
 import { installTunedDispatcher } from '$lib/server/http-pool';
+
+// Hard-fail boot if NEXUS_ENCRYPTION_KEY is missing or malformed. We never
+// silently store plaintext — parker's directive for the Apr-17 security
+// hardening work (issue #5).
+assertEncryptionKey();
 
 // Tune undici before any outbound fetch fires — raises per-origin connection
 // cap so the image-proxy hot path doesn't queue on the default of 5.
@@ -60,7 +66,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Rate limiting — skip health endpoint and image proxy to avoid interfering with uptime checks / page loads
 	if (!path.startsWith('/api/health') && !path.startsWith('/api/media/image')) {
-		const clientIp = getClientIp(event.request);
+		const clientIp = getClientIp(event);
 		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
 			(p) => path.startsWith(p)
 		);
@@ -87,7 +93,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (user) {
 		// Attach user to event locals for use in load functions & API routes
-		event.locals.user = { id: user.id, username: user.username, displayName: user.displayName, avatar: user.avatar ?? null, isAdmin: user.isAdmin };
+		event.locals.user = {
+			id: user.id,
+			username: user.username,
+			displayName: user.displayName,
+			avatar: user.avatar ?? null,
+			isAdmin: user.isAdmin,
+			status: (user.status === 'pending' ? 'pending' : 'active'),
+			forcePasswordReset: !!user.forcePasswordReset
+		};
 
 		// API routes: let endpoints handle their own auth
 		if (path.startsWith('/api')) {

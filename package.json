@@ -50,6 +50,7 @@
 		"drizzle-orm": "^0.44.0",
 		"fast-xml-parser": "^5.5.12",
 		"hls.js": "^1.6.15",
+		"lru-cache": "^11.3.5",
 		"lucide-svelte": "0.469.0",
 		"pdfjs-dist": "5.5.207",
 		"undici": "^8.1.0",
