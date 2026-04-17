@@ -103,8 +103,40 @@ export const handle: Handle = async ({ event, resolve }) => {
 			forcePasswordReset: !!user.forcePasswordReset
 		};
 
-		// API routes: let endpoints handle their own auth
+		// API routes: let endpoints handle their own auth, BUT enforce the
+		// pending/forcePasswordReset gates globally before any endpoint runs.
+		// (issue #7 — previously API routes only saw `!locals.user` checks and
+		// silently accepted pending or password-locked accounts.)
+		//
+		// Allowlist: `/api/auth/*` endpoints must still be reachable so users
+		// can log out and go through the reset-password flow. Everything else
+		// under `/api/` gets the gate.
 		if (path.startsWith('/api')) {
+			const isAuthApi = path.startsWith('/api/auth');
+			if (!isAuthApi && user.forcePasswordReset) {
+				return new Response(
+					JSON.stringify({ message: 'Password reset required', nexusReason: 'password-reset-required' }),
+					{
+						status: 403,
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Nexus-Reason': 'password-reset-required'
+						}
+					}
+				);
+			}
+			if (!isAuthApi && user.status === 'pending') {
+				return new Response(
+					JSON.stringify({ message: 'Account pending approval', nexusReason: 'pending-approval' }),
+					{
+						status: 403,
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Nexus-Reason': 'pending-approval'
+						}
+					}
+				);
+			}
 			return resolve(event);
 		}
 

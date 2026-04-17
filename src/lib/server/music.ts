@@ -145,7 +145,8 @@ export async function getMusicArtistDetail(userId: string, artistId: string, ser
 	let artist: { id: string; name: string; imageUrl?: string; backdrop?: string; albumCount?: number; overview?: string; genres?: string[]; serviceId?: string } | null = null;
 
 	// Try to get artist info from getArtists with the full list (cached)
-	const allArtists = await withCache(`jf:artists:${config.id}`, 120_000, () =>
+	// User-scoped: each user's `cred` may surface different library contents.
+	const allArtists = await withCache(`jf:artists:${config.id}:${userId}`, 120_000, () =>
 		getArtists(config, cred, { limit: 500 })
 	);
 	const foundArtist = allArtists.items.find((a) => a.id === artistId);

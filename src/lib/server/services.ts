@@ -122,7 +122,7 @@ export async function getDashboardFast(userId?: string): Promise<DashboardRow[]>
 		userId
 			? withStaleCache(`cw:${userId}`, 30_000, 5 * 60_000, () => aggregateContinueWatching(configs, userId))
 			: Promise.resolve([]),
-		withStaleCache('new-in-library', 60_000, 10 * 60_000, () => aggregateRecentlyAdded(libraryConfigs, userId))
+		withStaleCache(`new-in-library:${userId ?? 'anon'}`, 60_000, 10 * 60_000, () => aggregateRecentlyAdded(libraryConfigs, userId))
 	]);
 
 	const rows: DashboardRow[] = [];
