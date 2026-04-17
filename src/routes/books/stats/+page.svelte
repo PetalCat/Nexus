@@ -159,9 +159,6 @@
 									<p class="text-[10px] text-[var(--color-faint)]">{formatSessionDate(s.startedAt)}</p>
 								</div>
 								<div class="flex items-center gap-3 text-xs text-[var(--color-muted)]">
-									{#if s.pagesRead}
-										<span>{s.pagesRead} pg</span>
-									{/if}
 									<span class="font-mono">{formatSessionDuration(s.durationSeconds)}</span>
 								</div>
 							</div>

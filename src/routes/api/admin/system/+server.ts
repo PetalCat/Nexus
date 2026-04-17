@@ -20,8 +20,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 		if (existsSync(dbPath)) dbSizeBytes = statSync(dbPath).size;
 	} catch { /* ignore */ }
 
-	// Row counts for key tables
-	const tables = ['users', 'media_items', 'play_sessions', 'media_actions', 'interaction_events', 'services', 'sessions', 'stats_rollups', 'activity'];
+	// Row counts for key tables. The legacy `activity` table was dropped on
+	// 2026-04-17 (migration 0008); `play_sessions` is the canonical progress
+	// store and is already listed below.
+	const tables = ['users', 'media_items', 'play_sessions', 'media_actions', 'interaction_events', 'services', 'sessions', 'stats_rollups'];
 	const rowCounts: Record<string, number> = {};
 	for (const t of tables) {
 		try {
