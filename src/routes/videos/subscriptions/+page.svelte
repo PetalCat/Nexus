@@ -4,7 +4,6 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { Rss, History, ListVideo, ArrowLeft } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
-	import { toVideoCardMedia } from '$lib/utils/video-format';
 	import SignInCard from '$lib/components/account-linking/SignInCard.svelte';
 	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
 
@@ -90,7 +89,7 @@
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each data.today as item (item.id)}
 						<VideoCard
-							video={toVideoCardMedia(item)}
+							video={item}
 							layout="grid"
 							onclick={() => handleVideoClick(item)}
 							onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
@@ -108,7 +107,7 @@
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each data.thisWeek as item (item.id)}
 						<VideoCard
-							video={toVideoCardMedia(item)}
+							video={item}
 							layout="grid"
 							onclick={() => handleVideoClick(item)}
 							onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
@@ -126,7 +125,7 @@
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each data.earlier as item (item.id)}
 						<VideoCard
-							video={toVideoCardMedia(item)}
+							video={item}
 							layout="grid"
 							onclick={() => handleVideoClick(item)}
 							onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}

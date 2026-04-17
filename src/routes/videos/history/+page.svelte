@@ -4,7 +4,6 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { History, X, ArrowLeft } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
-	import { toVideoCardMedia } from '$lib/utils/video-format';
 	import { toast } from '$lib/stores/toast.svelte';
 	import SignInCard from '$lib/components/account-linking/SignInCard.svelte';
 	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
@@ -102,7 +101,7 @@
 			{#each videos as item (item.id)}
 				<div class="group relative">
 					<VideoCard
-						video={toVideoCardMedia(item)}
+						video={item}
 						layout="grid"
 						onclick={() => handleVideoClick(item)}
 					/>
