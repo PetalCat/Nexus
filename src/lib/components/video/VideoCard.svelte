@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Play } from 'lucide-svelte';
-	import type { UnifiedMedia } from '$lib/types/media-ui';
+	import type { UnifiedMedia } from '$lib/adapters/types';
 	import { setActiveTransition } from '$lib/transition';
 	import { lowResImageUrl } from '$lib/image-hint';
+	import { formatDuration, formatViews } from '$lib/utils/video-format';
 
 	interface Props {
 		video: UnifiedMedia;
@@ -21,12 +22,17 @@
 	let tiltX = $state(0);
 	let tiltY = $state(0);
 
-	const lowResSrc = $derived(lowResImageUrl(video.image));
+	const lowResSrc = $derived(lowResImageUrl(video.poster));
 
-	const duration = $derived((video.metadata?.duration as string) ?? '');
-	const channel = $derived((video.metadata?.channel as string) ?? '');
-	const views = $derived((video.metadata?.views as string) ?? '');
-	const uploadDate = $derived((video.metadata?.uploadDate as string) ?? '');
+	const duration = $derived(formatDuration(video.duration));
+	const channel = $derived((video.metadata?.author as string) ?? '');
+	const views = $derived(formatViews(video.metadata?.viewCount as number | undefined));
+	const uploadDate = $derived.by(() => {
+		const pub = video.metadata?.published as number | undefined;
+		if (!pub || typeof pub !== 'number') return '';
+		const d = new Date(pub * 1000);
+		return isNaN(d.getTime()) ? '' : d.toISOString();
+	});
 
 	const timeAgo = $derived.by(() => {
 		if (!uploadDate) return '';
@@ -86,7 +92,7 @@
 		<!-- Thumbnail -->
 		<div class="relative w-40 flex-shrink-0 overflow-hidden rounded-lg aspect-video sm:w-44"
 			style="box-shadow: {hovered ? '0 4px 20px rgba(196, 92, 92, 0.12)' : 'none'}; transition: box-shadow 0.2s ease;">
-			{#if video.image && !imageError}
+			{#if video.poster && !imageError}
 				{#if lowResSrc && !imgLoaded}
 					<img
 						src={lowResSrc}
@@ -98,7 +104,7 @@
 					/>
 				{/if}
 				<img
-					src={video.image}
+					src={video.poster}
 					alt={video.title}
 					class="relative h-full w-full object-cover transition-transform duration-200 ease-out"
 					class:scale-105={hovered}
@@ -178,7 +184,7 @@
 					? '0 8px 32px rgba(196, 92, 92, 0.18), 0 16px 48px rgba(13, 11, 10, 0.7)'
 					: '0 2px 8px rgba(13, 11, 10, 0.3)'};"
 		>
-			{#if video.image && !imageError}
+			{#if video.poster && !imageError}
 				{#if lowResSrc && !imgLoaded}
 					<img
 						src={lowResSrc}
@@ -190,7 +196,7 @@
 					/>
 				{/if}
 				<img
-					src={video.image}
+					src={video.poster}
 					alt={video.title}
 					class="relative h-full w-full object-cover transition-transform duration-300 ease-out"
 					class:scale-[1.08]={hovered}
