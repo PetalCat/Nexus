@@ -64,6 +64,20 @@
       "when": 1776447700002,
       "tag": "0008_drop_activity_table",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1776447700003,
+      "tag": "0009_rec_profile_config_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1776447700004,
+      "tag": "0010_drop_recommendation_feedback",
+      "breakpoints": true
     }
   ]
 }

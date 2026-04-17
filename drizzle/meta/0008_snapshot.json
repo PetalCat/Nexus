@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "6becce02-75d3-41ac-bf5e-a7221dba5368",
-  "prevId": "9b36cf43-da4b-4467-8845-5025d7fa61a0",
+  "prevId": "8fb68b75-fee2-459f-a5c8-c6d7003736a9",
   "tables": {
     "app_settings": {
       "name": "app_settings",

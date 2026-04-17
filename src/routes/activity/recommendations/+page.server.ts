@@ -1,5 +1,6 @@
 import { getRawDb } from '$lib/db';
 import { computeStats } from '$lib/server/stats-engine';
+import { parseRecProfileConfig, DEFAULT_PROFILE } from '$lib/server/recommendations/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -7,40 +8,35 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	const { hasStreamyStats } = await parent();
 	const raw = getRawDb();
 
-	// Load preferences
-	const prefRow = raw.prepare(
-		`SELECT media_type_weights, genre_preferences, similarity_threshold FROM recommendation_preferences WHERE user_id = ?`
-	).get(userId) as { media_type_weights: string; genre_preferences: string; similarity_threshold: number } | undefined;
+	// Canonical RecProfileConfig blob.
+	const row = raw.prepare(
+		`SELECT config FROM user_rec_profiles WHERE user_id = ? AND is_default = 1 LIMIT 1`
+	).get(userId) as { config: string } | undefined;
+	const profile = parseRecProfileConfig(row?.config);
 
-	const preferences = prefRow
-		? {
-				mediaTypeWeights: JSON.parse(prefRow.media_type_weights),
-				genrePreferences: JSON.parse(prefRow.genre_preferences) as Record<string, string>,
-				similarityThreshold: prefRow.similarity_threshold
-			}
-		: {
-				mediaTypeWeights: { movie: 50, show: 50, book: 50, game: 50, music: 50, video: 50 } as Record<string, number>,
-				genrePreferences: {} as Record<string, string>,
-				similarityThreshold: 0.5
-			};
+	// Hidden items (the feedback-history surface — formerly the
+	// recommendation_feedback table).
+	const hiddenItems = raw.prepare(
+		`SELECT id, media_id, service_id, reason, created_at
+		 FROM user_hidden_items
+		 WHERE user_id = ? ORDER BY created_at DESC`
+	).all(userId) as Array<{
+		id: number;
+		media_id: string;
+		service_id: string | null;
+		reason: string | null;
+		created_at: number;
+	}>;
 
-	// Load feedback history
-	const feedback = raw.prepare(
-		`SELECT id, user_id, media_id, media_title, feedback, reason, created_at
-		 FROM recommendation_feedback WHERE user_id = ? ORDER BY created_at DESC`
-	).all(userId) as {
-		id: number; user_id: string; media_id: string; media_title: string | null;
-		feedback: string; reason: string | null; created_at: number;
-	}[];
-
-	// Get user's consumed genres for the tuning UI
+	// User's consumed genres for the tuning UI.
 	const allTimeStats = computeStats(userId, 0, Date.now());
 	const consumedGenres = allTimeStats.topGenres.map((g) => g.genre);
 
 	return {
 		hasStreamyStats,
-		preferences,
-		feedback,
+		profile,
+		defaultProfile: DEFAULT_PROFILE,
+		hiddenItems,
 		consumedGenres
 	};
 };
