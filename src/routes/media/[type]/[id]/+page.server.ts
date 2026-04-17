@@ -471,6 +471,35 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		item.metadata = { ...item.metadata, quality };
 	}
 
+	// ── Playback preferences (issue #20) ──────────────────────────────
+	// Resolve a playbackRate for this item from the user's speed rules.
+	// Pull autoplayNext from the per-user settings table so the player
+	// can decide whether to auto-advance at ended.
+	let playbackRate = 1;
+	let autoplayNext = false;
+	if (userId) {
+		try {
+			const { getDb, schema } = await import('$lib/db');
+			const { eq } = await import('drizzle-orm');
+			const { resolvePlaybackRate } = await import('$lib/server/speed-resolver');
+			const db = getDb();
+			const rules = db
+				.select()
+				.from(schema.playbackSpeedRules)
+				.where(eq(schema.playbackSpeedRules.userId, userId))
+				.all();
+			const channelId = (item.metadata?.authorId as string | undefined) ?? undefined;
+			playbackRate = resolvePlaybackRate(rules, item.type, params.id, channelId);
+
+			const autoSetting = db
+				.select({ value: schema.appSettings.value })
+				.from(schema.appSettings)
+				.where(eq(schema.appSettings.key, `user:${userId}:autoplayNext`))
+				.get();
+			if (autoSetting) autoplayNext = autoSetting.value === 'true';
+		} catch { /* silent */ }
+	}
+
 	// ── Post-play data: next item + skip markers (Jellyfin-only this cycle) ──
 	// Non-Jellyfin sources get null/[] and the player hides the up-next card
 	// and skip buttons accordingly. See plan §4 and the locked decisions.
@@ -495,6 +524,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	return {
 		nextItem,
 		skipMarkers,
+		playbackPrefs: { playbackRate, autoplayNext },
 		item,
 		serviceType: resolvedServiceType,
 		serviceId,

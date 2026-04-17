@@ -3,7 +3,7 @@ import { getDb, schema } from '$lib/db';
 import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
-const ALLOWED_KEYS = ['autoplayTrailers'];
+const ALLOWED_KEYS = ['autoplayTrailers', 'autoplayNext'];
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401);

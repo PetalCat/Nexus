@@ -22,14 +22,22 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 
 	// Autoplay trailers preference — defaults to true (desktop overrides to false on mobile client-side)
 	let autoplayTrailers = true;
+	// Autoplay next episode preference — defaults to false (opt-in).
+	let autoplayNext = false;
 	if (locals.user) {
 		const db = getDb();
-		const setting = db
+		const trailerSetting = db
 			.select({ value: schema.appSettings.value })
 			.from(schema.appSettings)
 			.where(eq(schema.appSettings.key, `user:${locals.user.id}:autoplayTrailers`))
 			.get();
-		if (setting) autoplayTrailers = setting.value === 'true';
+		if (trailerSetting) autoplayTrailers = trailerSetting.value === 'true';
+		const nextSetting = db
+			.select({ value: schema.appSettings.value })
+			.from(schema.appSettings)
+			.where(eq(schema.appSettings.key, `user:${locals.user.id}:autoplayNext`))
+			.get();
+		if (nextSetting) autoplayNext = nextSetting.value === 'true';
 	}
 
 	// Pending request count — streamed, NEVER blocks navigation
@@ -57,6 +65,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		user: locals.user ?? null,
 		unreadNotifications,
 		autoplayTrailers,
+		autoplayNext,
 		// Streamed — never blocks page navigation
 		pendingRequests: fetchPendingRequests(),
 	};
