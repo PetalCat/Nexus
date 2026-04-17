@@ -5,8 +5,7 @@ import {
 	createUser,
 	getSetting,
 	getUserByUsername,
-	upsertUserCredential,
-	validateSession
+	upsertUserCredential
 } from '$lib/server/auth';
 import { getEnabledConfigs, getServiceConfig } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
@@ -14,17 +13,9 @@ import { getDb, schema } from '$lib/db';
 import { and, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ cookies }) => {
-	// Registration must be enabled
-	if (getSetting('registration_enabled') !== 'true') {
-		throw redirect(303, '/login');
-	}
-
-	// Already logged in
-	const token = cookies.get(COOKIE_NAME);
-	const user = validateSession(token);
-	if (user) throw redirect(303, '/');
-
+export const load: PageServerLoad = async () => {
+	// Lifecycle gates (registration-disabled → /login, already-logged-in → /)
+	// live in resolveRedirect (#32).
 	const authServices = getEnabledConfigs()
 		.filter((c) => {
 			const a = registry.get(c.type);
