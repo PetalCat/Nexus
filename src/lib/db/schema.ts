@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Service configurations stored locally. The `apiKey`/`username`/`password`
 // columns are admin-scoped credentials (whatever the adapter uses for
@@ -53,7 +53,15 @@ export const mediaItems = sqliteTable('media_items', {
 	cachedAt: text('cached_at')
 		.notNull()
 		.default(sql`(datetime('now'))`)
-});
+}, (table) => [
+	// Lookup by sourceId — hit per recommendation item by trending/social/collaborative
+	// providers (was SCAN, now SEARCH).
+	index('idx_media_items_source').on(table.sourceId),
+	// Candidate scans by type ordered by cached_at — content-based + time-aware providers.
+	index('idx_media_items_type_cached').on(table.type, table.cachedAt),
+	// Sync/purge paths that iterate one service's items.
+	index('idx_media_items_service').on(table.serviceId),
+]);
 
 // Per-user credentials for user-level services (Jellyfin, Overseerr, Calibre, etc.)
 // See docs/superpowers/specs/2026-04-14-service-account-umbrella-design.md for
@@ -91,6 +99,11 @@ export const userServiceCredentials = sqliteTable('user_service_credentials', {
 	lastProbedAt: text('last_probed_at')
 }, (table) => [
 	uniqueIndex('idx_user_service_creds_unique').on(table.userId, table.serviceId),
+	// Session poller resolves (external_user_id → nexus user_id) every tick; login
+	// flows look up by (serviceId, externalUserId). Both were SCAN before.
+	index('idx_user_service_creds_ext').on(table.serviceId, table.externalUserId),
+	// Iterating all credentials for a given service (discover/picker/unclaimed count).
+	index('idx_user_service_creds_service').on(table.serviceId),
 ]);
 
 // Per-user preferences for auto-linking derived services. One row per
@@ -190,7 +203,10 @@ export const sessions = sqliteTable('sessions', {
 	createdAt: integer('created_at')
 		.notNull()
 		.default(sql`(strftime('%s','now') * 1000)`)
-});
+}, (table) => [
+	// Auth revoke/logout-all deletes by user_id (was SCAN).
+	index('idx_sessions_user').on(table.userId),
+]);
 
 // ── Play Sessions (replaces media_events) ────────────────────────────
 export const playSessions = sqliteTable('play_sessions', {
@@ -218,7 +234,12 @@ export const playSessions = sqliteTable('play_sessions', {
 	source: text('source').notNull(),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
-});
+}, (table) => [
+	// Trending provider + friend-activity service lookup filter by media_id only
+	// (no user_id context). Existing idx_ps_user_media requires user_id as first
+	// key so it didn't help here — this is additive.
+	index('idx_ps_media').on(table.mediaId),
+]);
 
 export type PlaySession = typeof playSessions.$inferSelect;
 export type NewPlaySession = typeof playSessions.$inferInsert;
@@ -264,7 +285,13 @@ export const statsRollups = sqliteTable('stats_rollups', {
 	mediaType: text('media_type').notNull(),
 	stats: text('stats').notNull(),
 	computedAt: integer('computed_at').notNull()
-});
+}, (table) => [
+	// Required by the ON CONFLICT(user_id, period, media_type) upsert in
+	// stats-engine.ts. Without this, every stats rebuild threw "ON CONFLICT
+	// clause does not match any PRIMARY KEY or UNIQUE constraint" at runtime
+	// and cached stats were never written.
+	uniqueIndex('idx_stats_rollups_unique').on(table.userId, table.period, table.mediaType),
+]);
 
 export type StatsRollup = typeof statsRollups.$inferSelect;
 
@@ -329,7 +356,10 @@ export const watchSessions = sqliteTable('watch_sessions', {
 	invitedIds: text('invited_ids'), // JSON array of user IDs invited but not yet joined
 	createdAt: integer('created_at').notNull(),
 	endedAt: integer('ended_at')
-});
+}, (table) => [
+	// getActiveSessions filters by host_id IN (friends) AND status != 'ended'.
+	index('idx_watch_sessions_host').on(table.hostId, table.status),
+]);
 
 export const sessionParticipants = sqliteTable('session_participants', {
 	sessionId: text('session_id').notNull(),
@@ -338,7 +368,12 @@ export const sessionParticipants = sqliteTable('session_participants', {
 	leftAt: integer('left_at'),
 	role: text('role').notNull().default('participant'), // 'host' | 'participant'
 	voiceActive: integer('voice_active', { mode: 'boolean' }).notNull().default(false)
-});
+}, (table) => [
+	// Lookups by session_id (getWatchSession, participant count, join checks).
+	// Also doubles as uniqueness guard matching the legacy UNIQUE(session_id, user_id)
+	// in initDb (the table existed before schema.ts knew about it).
+	uniqueIndex('idx_session_participants_unique').on(table.sessionId, table.userId),
+]);
 
 export const sessionMessages = sqliteTable('session_messages', {
 	id: text('id').primaryKey(),
@@ -357,7 +392,10 @@ export const collections = sqliteTable('collections', {
 	visibility: text('visibility').notNull().default('private'), // 'private' | 'friends' | 'public'
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
-});
+}, (table) => [
+	// Social provider joins collection_items → collections on creator_id IN (friends).
+	index('idx_collections_creator').on(table.creatorId),
+]);
 
 export const collectionItems = sqliteTable('collection_items', {
 	id: text('id').primaryKey(),
@@ -377,7 +415,12 @@ export const collectionMembers = sqliteTable('collection_members', {
 	userId: text('user_id').notNull().references(() => users.id),
 	role: text('role').notNull().default('viewer'), // 'owner' | 'editor' | 'viewer'
 	addedAt: integer('added_at').notNull()
-});
+}, (table) => [
+	// getUserCollections + permission checks query by (collection_id, user_id).
+	// Also serves getUserCollections' SELECT ... WHERE user_id = ? enumeration.
+	uniqueIndex('idx_collection_members_unique').on(table.collectionId, table.userId),
+	index('idx_collection_members_user').on(table.userId),
+]);
 
 export type Friendship = typeof friendships.$inferSelect;
 export type UserPresence = typeof userPresence.$inferSelect;
@@ -427,7 +470,10 @@ export const userRatings = sqliteTable('user_ratings', {
 	rating: integer('rating').notNull(),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull()
-});
+}, (table) => [
+	// getMediaRatingStats aggregates by (media_id, service_id) — was SCAN.
+	index('idx_user_ratings_media').on(table.mediaId, table.serviceId),
+]);
 
 export type UserRating = typeof userRatings.$inferSelect;
 

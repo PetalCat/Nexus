@@ -29,6 +29,13 @@
       "when": 1776193603639,
       "tag": "0003_magical_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776385137546,
+      "tag": "0004_worthless_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

@@ -203,6 +203,33 @@ export const trendingProvider: RecommendationProvider = {
 		const jfBaseUrl = jellyfinService?.url ?? '';
 
 		const maxScore = Math.max(...trending.map((t) => t.trendingScore), 0.001);
+
+		// Batch media_items lookup for all trending IDs (was 1 query per item).
+		const trendingIds = trending.map((t) => t.mediaId);
+		const cachedMap = new Map<string, any>();
+		if (trendingIds.length > 0) {
+			const mp = trendingIds.map(() => '?').join(',');
+			const rows = raw.prepare(
+				`SELECT * FROM media_items WHERE source_id IN (${mp})`
+			).all(...trendingIds) as any[];
+			for (const row of rows) {
+				if (!cachedMap.has(row.source_id)) cachedMap.set(row.source_id, row);
+			}
+		}
+
+		// Batch service_id resolution for all trending IDs (was 1 query per item).
+		// We pick any non-empty service_id per media_id; GROUP BY + MAX does fine.
+		const serviceMap = new Map<string, string>();
+		if (trendingIds.length > 0) {
+			const sp = trendingIds.map(() => '?').join(',');
+			const rows = raw.prepare(
+				`SELECT media_id, MAX(service_id) as service_id FROM play_sessions
+				 WHERE media_id IN (${sp}) AND service_id != ''
+				 GROUP BY media_id`
+			).all(...trendingIds) as Array<{ media_id: string; service_id: string }>;
+			for (const r of rows) serviceMap.set(r.media_id, r.service_id);
+		}
+
 		const results: ScoredRecommendation[] = [];
 
 		for (const t of trending) {
@@ -214,19 +241,14 @@ export const trendingProvider: RecommendationProvider = {
 			try { genres = t.mediaGenres ? JSON.parse(t.mediaGenres) : []; } catch { /* */ }
 			if (ctx.profile.genreBans?.some((ban) => genres.includes(ban))) continue;
 
-			const cached = raw.prepare(
-				`SELECT * FROM media_items WHERE source_id = ? LIMIT 1`
-			).get(t.mediaId) as any;
+			const cached = cachedMap.get(t.mediaId);
 
 			const normalizedScore = t.trendingScore / maxScore;
 
 			// Build image URLs based on service type
 			let poster: string | undefined;
 			let backdrop: string | undefined;
-			const serviceId = raw.prepare(
-				`SELECT service_id FROM play_sessions WHERE media_id = ? AND service_id != '' LIMIT 1`
-			).get(t.mediaId) as { service_id: string } | undefined;
-			const itemServiceId = serviceId?.service_id ?? jfServiceId;
+			const itemServiceId = serviceMap.get(t.mediaId) ?? jfServiceId;
 
 			if (t.mediaType === 'video') {
 				// YouTube/Invidious thumbnails
