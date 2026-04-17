@@ -37,8 +37,66 @@
 	let error = $state('');
 	let justConnected = $state(false);
 
+	// ── Plex PIN flow state ────────────────────────────────────────────────
+	// Plex auth is token-based. Instead of asking the admin to manually grab
+	// an X-Plex-Token out of plex.tv's UI, we run the official plex.tv/link
+	// PIN flow: request a PIN, poll until the user enters it, use the returned
+	// token as the apiKey.
+	const isPlex = $derived(adapterId === 'plex');
+	let plexPinId = $state<number | null>(null);
+	let plexPinCode = $state<string | null>(null);
+	let plexPolling = $state(false);
+	let plexServers = $state<Array<{ name: string; clientIdentifier: string; connections: Array<{ uri: string; local: boolean }> }>>([]);
+	let plexPollTimer: ReturnType<typeof setInterval> | null = null;
+
 	function toggle() {
 		if (!connected && !justConnected) expanded = !expanded;
+	}
+
+	async function startPlexFlow() {
+		error = '';
+		testing = true;
+		try {
+			const res = await fetch('/api/plex/pin', { method: 'POST' });
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Failed to start Plex PIN');
+			plexPinId = data.id;
+			plexPinCode = data.code;
+			plexPolling = true;
+			// Poll every 2s for up to ~10 minutes
+			let ticks = 0;
+			plexPollTimer = setInterval(async () => {
+				ticks += 1;
+				if (ticks > 300) { stopPlexPolling(); return; }
+				try {
+					const pollRes = await fetch(`/api/plex/pin?id=${plexPinId}`);
+					const pollData = await pollRes.json();
+					if (pollData.token) {
+						apiKey = pollData.token;
+						plexServers = pollData.servers ?? [];
+						// Default-select the first local connection if available
+						if (plexServers.length > 0 && !url) {
+							const first = plexServers[0];
+							const localConn = first.connections.find((c) => c.local);
+							url = (localConn ?? first.connections[0])?.uri ?? '';
+						}
+						stopPlexPolling();
+					}
+				} catch { /* keep polling */ }
+			}, 2000);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to start Plex PIN';
+		} finally {
+			testing = false;
+		}
+	}
+
+	function stopPlexPolling() {
+		plexPolling = false;
+		if (plexPollTimer) {
+			clearInterval(plexPollTimer);
+			plexPollTimer = null;
+		}
 	}
 
 	async function handleConnect() {
@@ -54,7 +112,7 @@
 		});
 		testing = false;
 		if (result) { error = result; }
-		else { justConnected = true; expanded = false; }
+		else { justConnected = true; expanded = false; stopPlexPolling(); }
 	}
 
 	const isComplete = $derived(connected || justConnected);
@@ -110,10 +168,57 @@
 					</div>
 				{/if}
 
+				{#if isPlex && !apiKey}
+					<!-- Plex PIN flow — kicks user over to plex.tv/link -->
+					{#if !plexPinCode}
+						<p class="text-sm text-[var(--color-muted)]">
+							Click below to sign in to Plex. We'll show you a 4-character code to enter at
+							<strong>plex.tv/link</strong>.
+						</p>
+						<button class="btn btn-primary py-3 text-sm" onclick={startPlexFlow} disabled={testing}>
+							{testing ? 'Starting...' : 'Sign in with Plex'}
+						</button>
+						<p class="text-[11px] text-[var(--color-muted)] -mt-1">
+							Prefer to paste a token manually?
+							<button type="button" class="underline" onclick={() => { plexPinCode = '_manual'; }}>Enter X-Plex-Token</button>
+						</p>
+					{:else if plexPinCode === '_manual'}
+						<label class="flex flex-col gap-2">
+							<span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">X-Plex-Token</span>
+							<input type="text" bind:value={apiKey} placeholder="Paste your X-Plex-Token" class="input font-mono" />
+							<span class="text-[11px] text-[var(--color-muted)]">Find yours at plex.tv/security or via any Plex web request.</span>
+						</label>
+					{:else}
+						<div class="rounded-xl border px-4 py-3 text-center" style="border-color: {color}40; background: {color}08">
+							<p class="text-xs uppercase tracking-wider text-[var(--color-muted)]">Your PIN</p>
+							<p class="mt-1 text-3xl font-mono font-bold tracking-widest" style="color: {color}">{plexPinCode}</p>
+							<p class="mt-2 text-xs text-[var(--color-muted)]">
+								Enter this at <a href="https://plex.tv/link" target="_blank" rel="noopener" class="underline" style="color: {color}">plex.tv/link</a>
+								{#if plexPolling}
+									<span class="ml-1 inline-flex items-center gap-1">
+										<svg class="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>
+										Waiting...
+									</span>
+								{/if}
+							</p>
+						</div>
+					{/if}
+				{/if}
+
 				{#if onboarding.requiredFields.includes('url')}
 					<label class="flex flex-col gap-2">
 						<span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Server URL</span>
-						<input type="url" bind:value={url} placeholder={defaultUrl || 'http://localhost:8096'} class="input" />
+						{#if isPlex && plexServers.length > 0}
+							<select bind:value={url} class="input">
+								{#each plexServers as srv (srv.clientIdentifier)}
+									{#each srv.connections as conn (conn.uri)}
+										<option value={conn.uri}>{srv.name} — {conn.local ? 'Local' : 'Remote'}: {conn.uri}</option>
+									{/each}
+								{/each}
+							</select>
+						{:else}
+							<input type="url" bind:value={url} placeholder={defaultUrl || 'http://localhost:8096'} class="input" />
+						{/if}
 					</label>
 				{/if}
 
@@ -133,7 +238,7 @@
 						{/if}
 					</div>
 					<p class="text-[11px] text-[var(--color-muted)] -mt-1">Nexus will authenticate automatically -- no API key needed.</p>
-				{:else if onboarding.requiredFields.includes('apiKey')}
+				{:else if onboarding.requiredFields.includes('apiKey') && !isPlex}
 					<label class="flex flex-col gap-2">
 						<span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">API Key</span>
 						<input type="text" bind:value={apiKey} placeholder="Paste your API key" class="input font-mono" />
@@ -141,16 +246,18 @@
 					</label>
 				{/if}
 
-				<button class="btn btn-primary py-3 text-sm" onclick={handleConnect} disabled={testing}>
-					{#if testing}
-						<span class="flex items-center justify-center gap-2">
-							<svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>
-							Testing connection...
-						</span>
-					{:else}
-						Connect to {displayName}
-					{/if}
-				</button>
+				{#if !isPlex || apiKey}
+					<button class="btn btn-primary py-3 text-sm" onclick={handleConnect} disabled={testing}>
+						{#if testing}
+							<span class="flex items-center justify-center gap-2">
+								<svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>
+								Testing connection...
+							</span>
+						{:else}
+							Connect to {displayName}
+						{/if}
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>

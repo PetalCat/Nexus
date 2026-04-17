@@ -118,7 +118,13 @@
 					</span>
 					<div>
 						<p class="text-sm font-semibold text-[var(--color-display)]">Sign in with {activeService.name}</p>
-						<p class="text-xs text-[var(--color-muted)]">Use your {activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} credentials</p>
+						<p class="text-xs text-[var(--color-muted)]">
+							{#if activeService.type === 'plex'}
+								Paste your Plex token (get one at plex.tv/security)
+							{:else}
+								Use your Jellyfin credentials
+							{/if}
+						</p>
 					</div>
 				</div>
 
@@ -130,13 +136,13 @@
 
 				<div>
 					<label for="service-username" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
-						{activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} Username
+						{activeService.type === 'plex' ? 'Plex Email' : 'Jellyfin Username'}
 					</label>
 					<input
 						id="service-username"
 						name="username"
 						class="input"
-						placeholder="username"
+						placeholder={activeService.type === 'plex' ? 'email@example.com' : 'username'}
 						autocomplete="username"
 						value={form?.username ?? ''}
 						required
@@ -145,14 +151,14 @@
 
 				<div>
 					<label for="service-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
-						{activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} Password
+						{activeService.type === 'plex' ? 'Plex Token' : 'Jellyfin Password'}
 					</label>
 					<input
 						id="service-password"
 						name="password"
 						type="password"
 						class="input"
-						placeholder="••••••••"
+						placeholder={activeService.type === 'plex' ? 'X-Plex-Token' : '••••••••'}
 						autocomplete="current-password"
 						required
 					/>
@@ -161,7 +167,7 @@
 				{#if showNexusPassword || form?.needsNexusPassword}
 					<div class="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 px-3 py-2 text-sm text-[var(--color-body)]">
 						A Nexus account with the username <strong>"{form?.collisionUsername}"</strong> already exists.
-						Enter your Nexus password to link your {activeService.type === 'jellyfin' ? 'Jellyfin' : 'Plex'} account.
+						Enter your Nexus password to link your {activeService.type === 'plex' ? 'Plex' : 'Jellyfin'} account.
 					</div>
 					<div>
 						<label for="nexus-password" class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">

@@ -199,13 +199,16 @@ export const plexAdapter: ServiceAdapter = {
 	searchPriority: 0,
 	userLinkable: true,
 	pollIntervalMs: 10_000,
-	authUsernameLabel: 'Email (optional)',
+	icon: 'plex',
+	authUsernameLabel: 'Plex Token',
 	onboarding: {
 		category: 'media-server',
 		description: 'Stream your Plex media library',
 		priority: 2,
-		requiredFields: ['url', 'username', 'password'],
-		supportsAutoAuth: true,
+		// Plex auth is token-based. The apiKey field holds the X-Plex-Token
+		// — users obtain one via plex.tv or the PIN-exchange flow in onboarding.
+		requiredFields: ['url', 'apiKey'],
+		supportsAutoAuth: false,
 	},
 
 	contractVersion: 1,
@@ -447,32 +450,52 @@ export const plexAdapter: ServiceAdapter = {
 		}
 	},
 
-	/** Seasons / sub-items. Currently supports 'season'. */
+	/** Seasons / album tracks / generic sub-items. */
 	async getSubItems(config, parentId, type, _opts, userCred) {
-		if (type !== 'season') return { items: [], total: 0 };
-		try {
-			const data = await plexFetch(
-				config,
-				`/library/metadata/${parentId}/children`,
-				undefined,
-				userCred
-			);
-			const seasons = data?.MediaContainer?.Metadata ?? [];
-			// Shape matches the JellyfinSeason type so media/[type]/[id] can render it.
-			const items = seasons
-				.filter((s: any) => s.type === 'season')
-				.map((s: any) => ({
-					id: String(s.ratingKey),
-					name: s.title ?? `Season ${s.index ?? 0}`,
-					seasonNumber: Number(s.index ?? 0),
-					episodeCount: Number(s.leafCount ?? 0),
-					imageUrl: s.thumb ? imageUrl(config, s.thumb, userCred) : undefined,
-					unplayedCount: Number(s.leafCount ?? 0) - Number(s.viewedLeafCount ?? 0)
-				}));
-			return { items: items as unknown as UnifiedMedia[], total: items.length };
-		} catch {
-			return { items: [], total: 0 };
+		if (type === 'season') {
+			try {
+				const data = await plexFetch(
+					config,
+					`/library/metadata/${parentId}/children`,
+					undefined,
+					userCred
+				);
+				const seasons = data?.MediaContainer?.Metadata ?? [];
+				// Shape matches the JellyfinSeason type so media/[type]/[id] can render it.
+				const items = seasons
+					.filter((s: any) => s.type === 'season')
+					.map((s: any) => ({
+						id: String(s.ratingKey),
+						name: s.title ?? `Season ${s.index ?? 0}`,
+						seasonNumber: Number(s.index ?? 0),
+						episodeCount: Number(s.leafCount ?? 0),
+						imageUrl: s.thumb ? imageUrl(config, s.thumb, userCred) : undefined,
+						unplayedCount: Number(s.leafCount ?? 0) - Number(s.viewedLeafCount ?? 0)
+					}));
+				return { items: items as unknown as UnifiedMedia[], total: items.length };
+			} catch {
+				return { items: [], total: 0 };
+			}
 		}
+		if (type === 'album') {
+			// Album → tracks. Plex stores album as parent and tracks as children.
+			try {
+				const data = await plexFetch(
+					config,
+					`/library/metadata/${parentId}/children`,
+					undefined,
+					userCred
+				);
+				const tracks = data?.MediaContainer?.Metadata ?? [];
+				const items = tracks
+					.filter((t: any) => t.type === 'track')
+					.map((t: unknown) => normalize(config, t, userCred));
+				return { items, total: items.length };
+			} catch {
+				return { items: [], total: 0 };
+			}
+		}
+		return { items: [], total: 0 };
 	},
 
 	/**
@@ -681,5 +704,171 @@ export const plexAdapter: ServiceAdapter = {
 			default:
 				return null;
 		}
+	},
+
+	/**
+	 * Walk every library section and emit a normalised sync item per movie / show
+	 * / artist for the Nexus media index. Mirrors Jellyfin's implementation — a
+	 * simple paginated sweep that runs inside the media-sync task.
+	 */
+	async syncLibraryItems(config): Promise<SyncItem[]> {
+		const BATCH = 200;
+		const items: SyncItem[] = [];
+		try {
+			const sectionsData = await plexFetch(config, '/library/sections', undefined, undefined, 15_000);
+			const dirs: Array<{ key: string; type: string }> = sectionsData?.MediaContainer?.Directory ?? [];
+			// Only index top-level library types Nexus renders as first-class results.
+			const WANT = new Set(['movie', 'show', 'artist']);
+			for (const dir of dirs.filter((d) => WANT.has(d.type))) {
+				let offset = 0;
+				for (let safety = 0; safety < 1000; safety++) {
+					const page = await plexFetch(
+						config,
+						`/library/sections/${dir.key}/all`,
+						{
+							'X-Plex-Container-Start': String(offset),
+							'X-Plex-Container-Size': String(BATCH)
+						},
+						undefined,
+						30_000
+					);
+					const container = page?.MediaContainer ?? {};
+					const batch = container.Metadata ?? [];
+					if (batch.length === 0) break;
+					for (const raw of batch) {
+						const mt = mediaType(raw.type);
+						const providerIds: Record<string, string> = {};
+						if (Array.isArray(raw.Guid)) {
+							for (const g of raw.Guid) {
+								const id = String(g.id ?? '');
+								if (id.startsWith('tmdb://')) providerIds.Tmdb = id.slice('tmdb://'.length);
+								else if (id.startsWith('imdb://')) providerIds.Imdb = id.slice('imdb://'.length);
+							}
+						}
+						items.push({
+							sourceId: String(raw.ratingKey),
+							title: raw.title ?? 'Unknown',
+							sortTitle: raw.titleSort,
+							mediaType: mt,
+							year: raw.year,
+							genres: raw.Genre?.map((g: { tag: string }) => g.tag) ?? [],
+							poster: raw.thumb ? imageUrl(config, raw.thumb) : undefined,
+							backdrop: raw.art ? imageUrl(config, raw.art) : undefined,
+							duration: raw.duration ? Math.round(raw.duration / 1000) : undefined,
+							rating: raw.rating,
+							tmdbId: providerIds.Tmdb,
+							imdbId: providerIds.Imdb
+						});
+					}
+					offset += batch.length;
+					const total = container.totalSize ?? offset;
+					if (offset >= total) break;
+				}
+			}
+		} catch (e) {
+			console.warn('[plex] syncLibraryItems failed:', e instanceof Error ? e.message : e);
+		}
+		return items;
+	},
+
+	/**
+	 * Plex tokens don't expire the way Jellyfin access tokens do. The contract
+	 * allows `refreshCredential` for any adapter — here it simply re-validates
+	 * the existing token against the server and returns it unchanged.
+	 */
+	async refreshCredential(config, userCred) {
+		const token = userCred.accessToken;
+		if (!token) throw new Error('Plex refresh: no stored token');
+		const res = await fetch(`${config.url}/`, {
+			headers: {
+				'X-Plex-Token': token,
+				Accept: 'application/json'
+			},
+			signal: AbortSignal.timeout(5000)
+		});
+		if (!res.ok) throw new Error(`Plex refresh probe failed: ${res.status}`);
+		return {
+			accessToken: token,
+			externalUserId: userCred.externalUserId ?? '',
+			externalUsername: userCred.externalUsername ?? ''
+		};
+	},
+
+	async negotiatePlayback(config, userCred, item, plan, caps) {
+		const { plexNegotiatePlayback } = await import('./plex-playback');
+		return plexNegotiatePlayback(config, userCred, item, plan, caps);
 	}
 };
+
+// ---------------------------------------------------------------------------
+// Plex PIN authentication (plex.tv/link flow)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start a Plex PIN authentication flow.
+ *
+ * 1. Caller invokes `startPlexPin()` — Nexus asks plex.tv for a new PIN.
+ * 2. The user navigates to https://plex.tv/link and enters the 4-char code.
+ * 3. Caller polls `pollPlexPin(id)` every ~2s; once the user links, Plex
+ *    returns an `authToken` — that's the X-Plex-Token Nexus stores.
+ *
+ * This is the only sane way to obtain a Plex token for a managed (headless)
+ * Nexus install, since Plex doesn't expose password-grant anymore.
+ */
+export async function startPlexPin(): Promise<{ id: number; code: string }> {
+	const res = await fetch('https://plex.tv/api/v2/pins?strong=true', {
+		method: 'POST',
+		headers: {
+			'X-Plex-Client-Identifier': 'nexus',
+			'X-Plex-Product': 'Nexus',
+			'X-Plex-Version': '1.0.0',
+			Accept: 'application/json'
+		},
+		signal: AbortSignal.timeout(8000)
+	});
+	if (!res.ok) throw new Error(`Plex PIN start failed: ${res.status}`);
+	const data = await res.json();
+	return { id: Number(data.id), code: String(data.code) };
+}
+
+/** Poll a Plex PIN — returns the auth token once the user completes the link. */
+export async function pollPlexPin(id: number): Promise<string | null> {
+	const res = await fetch(`https://plex.tv/api/v2/pins/${id}`, {
+		headers: {
+			'X-Plex-Client-Identifier': 'nexus',
+			'X-Plex-Product': 'Nexus',
+			Accept: 'application/json'
+		},
+		signal: AbortSignal.timeout(8000)
+	});
+	if (!res.ok) throw new Error(`Plex PIN poll failed: ${res.status}`);
+	const data = await res.json();
+	return data.authToken ? String(data.authToken) : null;
+}
+
+/** Convenience: list the Plex servers the user (behind this token) can see. */
+export async function listPlexResources(token: string): Promise<Array<{
+	name: string;
+	clientIdentifier: string;
+	connections: Array<{ uri: string; local: boolean }>;
+}>> {
+	const res = await fetch('https://plex.tv/api/v2/resources?includeHttps=1', {
+		headers: {
+			'X-Plex-Token': token,
+			'X-Plex-Client-Identifier': 'nexus',
+			'X-Plex-Product': 'Nexus',
+			Accept: 'application/json'
+		},
+		signal: AbortSignal.timeout(8000)
+	});
+	if (!res.ok) throw new Error(`Plex resources failed: ${res.status}`);
+	const data = await res.json();
+	if (!Array.isArray(data)) return [];
+	return data
+		.filter((r: { provides?: string }) => (r.provides ?? '').includes('server'))
+		.map((r: any) => ({
+			name: r.name,
+			clientIdentifier: r.clientIdentifier,
+			connections: (r.connections ?? []).map((c: any) => ({ uri: c.uri, local: !!c.local }))
+		}));
+}

@@ -46,7 +46,12 @@
 	});
 
 	const autoplay = $derived($page.url.searchParams.get('play') === '1');
-	const inLibrary = $derived(data.serviceType === 'jellyfin' || data.serviceType === 'calibre' || data.serviceType === 'romm');
+	const inLibrary = $derived(
+		data.serviceType === 'jellyfin' ||
+			data.serviceType === 'plex' ||
+			data.serviceType === 'calibre' ||
+			data.serviceType === 'romm'
+	);
 
 	const typeLabel: Record<string, string> = {
 		movie: 'Movie',
@@ -104,6 +109,7 @@
 	const ratingSource = $derived.by(() => {
 		const st = data.serviceType;
 		if (st === 'jellyfin') return 'Community';
+		if (st === 'plex') return 'Plex';
 		if (st === 'overseerr' || st === 'seerr') return 'TMDB';
 		if (st === 'radarr') return 'IMDb';
 		if (st === 'sonarr') return 'TMDB';

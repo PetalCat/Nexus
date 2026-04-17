@@ -12,6 +12,7 @@ export type MediaType = 'movie' | 'show' | 'book' | 'game' | 'music' | 'live' | 
 
 export type MediaSource =
 	| 'jellyfin'
+	| 'plex'
 	| 'kavita'
 	| 'romm'
 	| 'overseerr'

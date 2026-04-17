@@ -72,6 +72,69 @@ async function fetchJellyfinSessions(config: {
 	}));
 }
 
+/**
+ * Normalise Plex sessions (via adapter.pollSessions → NexusSession) into the
+ * JellyfinSession shape the admin UI already knows how to render. Plex reports
+ * time in ms and play method via TranscodeSession; we rebuild the fields the
+ * UI reads (PlayState.PositionTicks, PlayMethod, NowPlayingItem.*).
+ */
+async function fetchPlexSessions(config: {
+	id: string;
+	name: string;
+	url: string;
+}): Promise<JellyfinSession[]> {
+	const full = getEnabledConfigs().find((c) => c.id === config.id);
+	if (!full) return [];
+	const adapter = registry.get('plex');
+	if (!adapter?.pollSessions) return [];
+	const base = config.url.replace(/\/+$/, '');
+	const sessions = await adapter.pollSessions(full);
+	return sessions.map((s): JellyfinSession => {
+		const streamType = s.metadata?.streamType as string | undefined;
+		const isTranscoding = !!s.metadata?.isTranscoding;
+		const playMethod = isTranscoding
+			? 'Transcode'
+			: streamType === 'direct-stream'
+				? 'DirectStream'
+				: 'DirectPlay';
+		const runtimeMs = s.durationSeconds ? s.durationSeconds * 1000 : undefined;
+		const positionMs = s.positionSeconds ? s.positionSeconds * 1000 : undefined;
+		// Re-map Nexus media types back to Jellyfin "Type" strings the admin UI expects.
+		const typeMap: Record<string, string> = {
+			movie: 'Movie',
+			show: 'Series',
+			episode: 'Episode',
+			music: 'Audio',
+			album: 'MusicAlbum'
+		};
+		return {
+			Id: s.sessionId,
+			UserId: s.userId,
+			UserName: s.username,
+			Client: s.client,
+			DeviceName: s.device,
+			PlayState: {
+				PositionTicks: positionMs ? positionMs * 10_000 : undefined,
+				IsPaused: s.state === 'paused',
+				PlayMethod: playMethod
+			},
+			NowPlayingItem: {
+				Id: s.mediaId,
+				Name: s.mediaTitle ?? 'Unknown',
+				Type: typeMap[s.mediaType] ?? 'Movie',
+				SeriesName: s.parentTitle,
+				ProductionYear: s.year,
+				RunTimeTicks: runtimeMs ? runtimeMs * 10_000 : undefined
+				// Backdrops are not carried in NexusSession — admin UI will
+				// render a plain tile without a backdrop image for Plex sessions.
+			},
+			_serviceId: config.id,
+			_serviceUrl: base,
+			_serviceName: config.name
+		};
+	});
+}
+
 // ---------------------------------------------------------------------------
 // Page load
 // ---------------------------------------------------------------------------
@@ -81,15 +144,25 @@ export const load: PageServerLoad = async () => {
 		.filter((c) => c.type === 'jellyfin')
 		.map((c) => ({ id: c.id, name: c.name, url: c.url, apiKey: c.apiKey }));
 
+	const plexConfigs = getEnabledConfigs()
+		.filter((c) => c.type === 'plex')
+		.map((c) => ({ id: c.id, name: c.name, url: c.url }));
+
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 
 	const [sessionsResult, requestsResult] = await Promise.allSettled([
-		// Live sessions from all Jellyfin instances (short cache — 10s)
-		withCache('admin-sessions', 10_000, () =>
-			Promise.all(jellyfinConfigs.map(fetchJellyfinSessions)).then((all) =>
-				all.flat().filter((s) => s.NowPlayingItem)
-			)
-		),
+		// Live sessions from every configured media server (short cache — 10s)
+		withCache('admin-sessions', 10_000, async () => {
+			const [jfSets, plexSets] = await Promise.all([
+				Promise.allSettled(jellyfinConfigs.map(fetchJellyfinSessions)),
+				Promise.allSettled(plexConfigs.map(fetchPlexSessions))
+			]);
+			const all = [
+				...jfSets.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])),
+				...plexSets.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+			];
+			return all.filter((s) => s.NowPlayingItem);
+		}),
 
 		// Recent requests across all Overseerr instances
 		withCache('admin-requests', 30_000, () =>
@@ -133,7 +206,11 @@ export const load: PageServerLoad = async () => {
 	return {
 		sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : [],
 		requests: requestsResult.status === 'fulfilled' ? requestsResult.value : [],
-		jellyfinUrls: Object.fromEntries(jellyfinConfigs.map((c) => [c.id, c.url])),
+		// Map of every configured media-server origin URL, keyed by serviceId.
+		// Kept under the legacy `jellyfinUrls` name for UI compat.
+		jellyfinUrls: Object.fromEntries(
+			[...jellyfinConfigs, ...plexConfigs].map((c) => [c.id, c.url])
+		),
 		onlineUsers,
 		totalUsers,
 		playTimeToday,

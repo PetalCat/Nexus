@@ -187,7 +187,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let episodes: UnifiedMedia[] = [];
 	let selectedSeason: number | null = null;
 
-	if (item.type === 'show' && resolvedServiceType === 'jellyfin') {
+	// Media servers that expose a "seasons + episodes" hierarchy (Jellyfin, Plex).
+	const SHOW_SERVERS = new Set(['jellyfin', 'plex']);
+
+	if (item.type === 'show' && SHOW_SERVERS.has(resolvedServiceType)) {
 		const seriesId = item.sourceId;
 
 		// Show page — fetch all seasons, then episodes for the selected season
@@ -222,7 +225,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				selectedSeason = seasonNumber;
 
 				// Also fetch seasons so user can navigate between them
-				if (resolvedServiceType === 'jellyfin') {
+				if (SHOW_SERVERS.has(resolvedServiceType)) {
 					const subResult = await adapter?.getSubItems?.(config, seriesId, 'season', {}, userCred);
 					seasons = (subResult?.items ?? []) as unknown as JellyfinSeason[];
 				}
@@ -265,10 +268,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	let hasLinkedInvidious = false;
 	let videoNotifyEnabled = false;
 
-	// Local resume fallback for Jellyfin.
-	// Jellyfin user progress is the source of truth, but if sync is delayed we use the
-	// latest Nexus activity row so the Resume button still lands near the correct position.
-	if (userId && resolvedServiceType === 'jellyfin' && (item.type === 'movie' || item.type === 'episode')) {
+	// Local resume fallback for server-hosted media (Jellyfin / Plex).
+	// Upstream user progress is the source of truth, but if sync is delayed we use
+	// the latest Nexus activity row so the Resume button still lands near the
+	// correct position.
+	const RESUME_SERVERS = new Set(['jellyfin', 'plex']);
+	if (
+		userId &&
+		RESUME_SERVERS.has(resolvedServiceType) &&
+		(item.type === 'movie' || item.type === 'episode')
+	) {
 		try {
 			const { getDb } = await import('$lib/db');
 			const { activity } = await import('$lib/db/schema');
