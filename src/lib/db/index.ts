@@ -248,8 +248,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	safeAddColumn('users', 'force_password_reset', 'INTEGER NOT NULL DEFAULT 0');
 	safeAddColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'");
 
-	// activity table — added user_id for per-user tracking
-	safeAddColumn('activity', 'user_id', 'TEXT');
+	// Legacy `activity` table dropped 2026-04-17 (migration 0008). The
+	// user_id / position columns we used to ALTER onto it are now native on
+	// play_sessions, which is the canonical progress store.
 
 	// ── Play Sessions (replaces media_events) ──────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS play_sessions (
@@ -530,8 +531,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// Add is_collaborative column to existing playlists (migration-safe)
 	try { db.run(`ALTER TABLE music_playlists ADD COLUMN is_collaborative INTEGER NOT NULL DEFAULT 0`); } catch { /* column exists */ }
 
-	// Books UI redesign — position sync + positioned notes
-	try { db.run(`ALTER TABLE activity ADD COLUMN position TEXT`); } catch { /* column exists */ }
+	// Books UI redesign — positioned notes. (The old `activity` position
+	// column is gone along with the table; play_sessions carries `position`
+	// natively.)
 	try { db.run(`ALTER TABLE book_notes ADD COLUMN cfi TEXT`); } catch { /* column exists */ }
 	try { db.run(`ALTER TABLE book_notes ADD COLUMN chapter TEXT`); } catch { /* column exists */ }
 
