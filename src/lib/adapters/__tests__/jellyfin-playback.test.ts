@@ -1,13 +1,16 @@
 // src/lib/adapters/__tests__/jellyfin-playback.test.ts
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	mapPlaybackInfoToSession,
 	derivePlaybackMode,
 	filterTextSubtitles,
 	filterImageSubtitles,
+	jellyfinNegotiatePlayback,
 } from '../jellyfin-playback';
 
-vi.mock('$lib/server/stream-proxy');
+vi.mock('$lib/server/stream-proxy', () => ({
+	createStreamSession: async () => null,
+}));
 
 describe('derivePlaybackMode', () => {
 	it('returns direct-play when TranscodingUrl is absent and SupportsDirectPlay', () => {
@@ -49,5 +52,79 @@ describe('filterImageSubtitles', () => {
 		expect(result).toHaveLength(2);
 		expect(result[0].codec).toBe('pgssub');
 		expect(result[1].codec).toBe('dvdsub');
+	});
+});
+
+describe('jellyfinNegotiatePlayback body construction', () => {
+	let fetchSpy: any;
+
+	beforeEach(() => {
+		fetchSpy = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				PlaySessionId: 'ps-123',
+				MediaSources: [
+					{
+						Id: 'item-1',
+						ItemId: 'item-1',
+						SupportsDirectPlay: true,
+						SupportsDirectStream: true,
+						MediaStreams: [{ Type: 'Video', Height: 1080 }],
+					},
+				],
+			}),
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+	});
+
+	const config = { id: 'svc', url: 'https://jf.test', apiKey: 'k' } as any;
+	const item = { id: 'item-1', type: 'movie' };
+	const caps = { videoCodecs: ['h264'], audioCodecs: ['aac'], containers: ['mp4'] } as any;
+
+	it('maps audioTrackHint to AudioStreamIndex in the POST body (#14)', async () => {
+		await jellyfinNegotiatePlayback(config, undefined, item, { audioTrackHint: 3 }, caps);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.AudioStreamIndex).toBe(3);
+	});
+
+	it('maps subtitleTrackHint to SubtitleStreamIndex in the POST body (#14)', async () => {
+		await jellyfinNegotiatePlayback(config, undefined, item, { subtitleTrackHint: 5 }, caps);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.SubtitleStreamIndex).toBe(5);
+	});
+
+	it('burnSubIndex wins over subtitleTrackHint when both are provided', async () => {
+		await jellyfinNegotiatePlayback(
+			config,
+			undefined,
+			item,
+			{ burnSubIndex: 9, subtitleTrackHint: 5 },
+			caps
+		);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.SubtitleStreamIndex).toBe(9);
+	});
+
+	it('forces transcode when audioTrackHint is present', async () => {
+		await jellyfinNegotiatePlayback(config, undefined, item, { audioTrackHint: 3 }, caps);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.EnableDirectPlay).toBe(false);
+		expect(body.EnableDirectStream).toBe(false);
+	});
+
+	it('forces transcode when subtitleTrackHint is present', async () => {
+		await jellyfinNegotiatePlayback(config, undefined, item, { subtitleTrackHint: 5 }, caps);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.EnableDirectPlay).toBe(false);
+		expect(body.EnableDirectStream).toBe(false);
+	});
+
+	it('leaves direct-play enabled when no quality/track overrides are set', async () => {
+		await jellyfinNegotiatePlayback(config, undefined, item, {}, caps);
+		const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+		expect(body.EnableDirectPlay).toBe(true);
+		expect(body.EnableDirectStream).toBe(true);
+		expect(body.AudioStreamIndex).toBeUndefined();
+		expect(body.SubtitleStreamIndex).toBeUndefined();
 	});
 });

@@ -120,7 +120,15 @@ export async function jellyfinNegotiatePlayback(
 	if (plan.targetHeight && !plan.maxBitrate) {
 		effectivePlan.maxBitrate = PRESET_BITRATES[plan.targetHeight] ?? 8_000_000;
 	}
-	const forcingTranscode = !!plan.targetHeight || !!plan.maxBitrate || plan.burnSubIndex !== undefined;
+	// Track hints force a transcode (or at least a re-mux) because Jellyfin
+	// heuristic-picks a default audio/subtitle stream for direct-play and
+	// can't flip it without a new negotiation. See plan §3.
+	const forcingTranscode =
+		!!plan.targetHeight ||
+		!!plan.maxBitrate ||
+		plan.burnSubIndex !== undefined ||
+		plan.audioTrackHint !== undefined ||
+		plan.subtitleTrackHint !== undefined;
 
 	const profile = buildDeviceProfile(caps, effectivePlan);
 
@@ -140,8 +148,16 @@ export async function jellyfinNegotiatePlayback(
 	if (plan.startPositionSeconds) {
 		body.StartTimeTicks = Math.round(plan.startPositionSeconds * 10_000_000);
 	}
+	// SubtitleStreamIndex is used by Jellyfin for both burn-in AND
+	// native text-track picks. burnSubIndex wins if both are present
+	// (caller should not pass both simultaneously).
 	if (plan.burnSubIndex !== undefined) {
 		body.SubtitleStreamIndex = plan.burnSubIndex;
+	} else if (plan.subtitleTrackHint !== undefined) {
+		body.SubtitleStreamIndex = plan.subtitleTrackHint;
+	}
+	if (plan.audioTrackHint !== undefined) {
+		body.AudioStreamIndex = plan.audioTrackHint;
 	}
 
 	const res = await fetch(`${config.url}/Items/${item.id}/PlaybackInfo`, {

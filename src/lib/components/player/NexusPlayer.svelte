@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { PlaybackSession, PlaybackPlan } from '$lib/adapters/playback';
 	import type { PlayerEngine, Level } from './PlayerEngine';
+	import type { NextItem, SkipMarker, SponsorSegment, SubtitleMode } from './types';
 	import { createPlayerState } from './PlayerState.svelte';
 	import { createNetworkMonitor } from './networkMonitor';
 	import { playerErrorMessage } from './errorCopy';
@@ -24,6 +25,26 @@
 		isAudio?: boolean;
 		onclose?: () => void;
 		onqualitychange?: (plan: PlaybackPlan) => Promise<PlaybackSession>;
+
+		// Subtitle / audio selection (issue #14).
+		onsubtitlechange?: (trackId: number, mode: SubtitleMode) => void;
+		onaudiochange?: (trackId: number) => void;
+		/** Initial track IDs; if present, used on session attach so UI
+		 *  reflects what the user picked last time for this item. */
+		initialSubtitleTrack?: number;
+		initialAudioTrack?: number;
+
+		// Post-play flow (issue #19). All optional; absence hides the UI.
+		nextItem?: NextItem | null;
+		onplaynext?: (next: NextItem) => void;
+		oncomplete?: () => void;
+		skipMarkers?: SkipMarker[];
+
+		// Settings-derived behavior (issue #20).
+		playbackRate?: number;
+		autoplayNext?: boolean;
+		sponsorSegments?: SponsorSegment[];
+		onsponsorskip?: (seg: SponsorSegment) => void;
 	}
 
 	let {
@@ -39,7 +60,19 @@
 		inline = false,
 		isAudio = false,
 		onclose,
-		onqualitychange
+		onqualitychange,
+		onsubtitlechange,
+		onaudiochange,
+		initialSubtitleTrack,
+		initialAudioTrack,
+		nextItem,
+		onplaynext,
+		oncomplete,
+		skipMarkers = [],
+		playbackRate = 1,
+		autoplayNext = false,
+		sponsorSegments = [],
+		onsponsorskip
 	}: Props = $props();
 
 	/* ── Refs ── */
@@ -73,6 +106,24 @@
 	const bufferedPct = $derived(ps.duration > 0 ? (ps.buffered / ps.duration) * 100 : 0);
 	const scrubPct = $derived(isScrubbing ? scrubPreview * 100 : progressPct);
 
+	/* ── Subtitle <track> registry. Browsers don't key TextTrack.id from
+	   our <track id> attribute, so maintain our own id → element map and
+	   activate via the element's `.track.mode` property. ── */
+	const subtitleTrackEls = new Map<number, HTMLTrackElement>();
+
+	/* ── Post-play / skip overlays ── */
+	let postPlayVisible = $state(false);
+	let postPlayCountdown = $state(10);
+	let postPlayCountdownTimer: ReturnType<typeof setInterval> | undefined;
+	let activeSkipMarker = $state<SkipMarker | null>(null);
+
+	/* ── SponsorBlock skip dedupe — fire onsponsorskip at most once per
+	   segment per attach. Reset on session swap. ── */
+	const sponsorSkipped = new Set<number>(); // index into sponsorSegments
+
+	const POSTPLAY_WINDOW_SEC = 20;
+	const POSTPLAY_COUNTDOWN_SEC = 10;
+
 	/* ── Engine creation ── */
 	async function createEngine(type: 'hls' | 'dash' | 'progressive'): Promise<PlayerEngine> {
 		switch (type) {
@@ -104,6 +155,7 @@
 		// Inject <track> elements for any adapter-supplied subtitle URLs
 		// (Invidious WebVTT captions, etc.). HLS in-band subtitles come
 		// through the manifest and don't need this.
+		subtitleTrackEls.clear();
 		for (const t of sess.subtitleTracks) {
 			if (!t.url) continue;
 			const el = document.createElement('track');
@@ -112,8 +164,19 @@
 			el.srclang = t.lang || 'en';
 			el.src = t.url;
 			el.id = String(t.id);
+			el.default = initialSubtitleTrack !== undefined && t.id === initialSubtitleTrack;
 			videoEl.appendChild(el);
+			subtitleTrackEls.set(t.id, el);
 		}
+
+		// Apply playback rate on each attach — the native video element
+		// resets rate across a new source.
+		if (videoEl && playbackRate && playbackRate !== 1) {
+			videoEl.playbackRate = playbackRate;
+		}
+
+		// Reset SponsorBlock skip dedupe for the new attach.
+		sponsorSkipped.clear();
 
 		// Wire callbacks
 		const unsubs: (() => void)[] = [];
@@ -192,6 +255,13 @@
 			prevSessionUrl = url;
 			const savedTime = videoEl.currentTime;
 			attachEngine(session, savedTime);
+		}
+	});
+
+	/* ── Apply playbackRate whenever it or the video element changes. ── */
+	$effect(() => {
+		if (videoEl && playbackRate && isFinite(playbackRate) && playbackRate > 0) {
+			videoEl.playbackRate = playbackRate;
 		}
 	});
 
@@ -275,16 +345,48 @@
 		}
 	}
 
-	/* ── Audio / Subtitle selection ── */
+	/* ── Audio / Subtitle selection ──
+	   Raise dedicated events; the caller decides whether to renegotiate.
+	   (Previously audio shoehorned through onqualitychange and Jellyfin
+	   dropped the hint; subtitle selection compared videoEl.textTracks[i].id
+	   against our String(id) which the browser never keys from <track id>.
+	   Both fixed here and in the caller + adapter.) */
 	function handleAudioSelect(id: number) {
 		ps.currentAudioTrack = id;
 		ps.activePanel = 'none';
-		// Audio track switching requires session renegotiation in most cases
-		if (onqualitychange && videoEl) {
-			const savedTime = videoEl.currentTime;
-			onqualitychange({ audioTrackHint: id, startPositionSeconds: savedTime })
-				.then((newSession) => attachEngine(newSession, savedTime))
-				.catch(() => {});
+		onaudiochange?.(id);
+	}
+
+	function activateNativeSubtitle(id: number) {
+		if (!videoEl) return;
+		// First try our own <track id → element> map (populated for adapter-
+		// supplied URLs). Browsers don't expose the <track id> attribute back
+		// through TextTrack.id, so we must not compare those.
+		const el = subtitleTrackEls.get(id);
+		if (el) {
+			for (const other of subtitleTrackEls.values()) {
+				if (other.track) other.track.mode = 'hidden';
+			}
+			if (el.track) el.track.mode = 'showing';
+			// Also turn off any HLS/manifest-supplied tracks we don't own.
+			for (let i = 0; i < videoEl.textTracks.length; i++) {
+				const tt = videoEl.textTracks[i];
+				if (!Array.from(subtitleTrackEls.values()).some((e) => e.track === tt)) {
+					tt.mode = 'hidden';
+				}
+			}
+			return;
+		}
+		// Fallback for HLS in-manifest tracks (no <track> element): match on
+		// language + label against the session's declared tracks.
+		const declared = session.subtitleTracks.find((t) => t.id === id);
+		if (!declared) return;
+		for (let i = 0; i < videoEl.textTracks.length; i++) {
+			const tt = videoEl.textTracks[i];
+			const matches =
+				(declared.lang && tt.language === declared.lang) ||
+				(declared.name && tt.label === declared.name);
+			tt.mode = matches ? 'showing' : 'hidden';
 		}
 	}
 
@@ -292,24 +394,116 @@
 		ps.currentSubtitleTrack = id;
 		ps.isBurnIn = false;
 		ps.activePanel = 'none';
-		// Client-side text track activation
-		if (videoEl) {
-			for (let i = 0; i < videoEl.textTracks.length; i++) {
-				videoEl.textTracks[i].mode = videoEl.textTracks[i].id === String(id) ? 'showing' : 'hidden';
+		if (id === -1) {
+			// Off — deactivate everything and notify caller.
+			if (videoEl) {
+				for (let i = 0; i < videoEl.textTracks.length; i++) {
+					videoEl.textTracks[i].mode = 'hidden';
+				}
 			}
+			onsubtitlechange?.(id, 'off');
+			return;
 		}
+		activateNativeSubtitle(id);
+		onsubtitlechange?.(id, 'native');
 	}
 
 	function handleBurnInSelect(id: number) {
 		ps.currentSubtitleTrack = id;
 		ps.isBurnIn = true;
 		ps.activePanel = 'none';
-		// Burn-in requires re-transcode
-		if (onqualitychange && videoEl) {
+		// Burn-in still requires a transcode; caller decides via
+		// onsubtitlechange(id, 'burn-in') whether to renegotiate.
+		if (onsubtitlechange) {
+			onsubtitlechange(id, 'burn-in');
+		} else if (onqualitychange && videoEl) {
+			// Legacy fallback for callers that haven't wired onsubtitlechange yet.
 			const savedTime = videoEl.currentTime;
 			onqualitychange({ burnSubIndex: id, startPositionSeconds: savedTime })
 				.then((newSession) => attachEngine(newSession, savedTime))
 				.catch(() => {});
+		}
+	}
+
+	/* ── Skip marker / post-play lifecycle ── */
+	function updateSkipAndPostPlay(currentTime: number) {
+		// Active skip marker
+		if (skipMarkers.length > 0) {
+			const marker = skipMarkers.find(
+				(m) => currentTime >= m.startSec && currentTime < m.endSec
+			);
+			activeSkipMarker = marker ?? null;
+		}
+
+		// SponsorBlock auto-skip (action === 'skip' only)
+		for (let i = 0; i < sponsorSegments.length; i++) {
+			const seg = sponsorSegments[i];
+			if (seg.action !== 'skip') continue;
+			if (sponsorSkipped.has(i)) continue;
+			if (currentTime >= seg.startSec && currentTime < seg.endSec) {
+				sponsorSkipped.add(i);
+				if (videoEl) videoEl.currentTime = seg.endSec;
+				onsponsorskip?.(seg);
+				return; // Only fire one per tick
+			}
+		}
+
+		// Near-end post-play card
+		if (
+			nextItem != null &&
+			ps.duration > 0 &&
+			currentTime >= ps.duration - POSTPLAY_WINDOW_SEC
+		) {
+			if (!postPlayVisible) {
+				postPlayVisible = true;
+				postPlayCountdown = POSTPLAY_COUNTDOWN_SEC;
+			}
+		}
+	}
+
+	function onClickSkipMarker(marker: SkipMarker) {
+		if (videoEl) videoEl.currentTime = marker.endSec;
+	}
+
+	function dismissPostPlay() {
+		postPlayVisible = false;
+		if (postPlayCountdownTimer) {
+			clearInterval(postPlayCountdownTimer);
+			postPlayCountdownTimer = undefined;
+		}
+	}
+
+	function onEnded() {
+		ps.playing = false;
+		ps.showControls = true;
+		if (nextItem && autoplayNext && onplaynext) {
+			// Countdown-then-play behavior runs via PostPlayCard so user can
+			// cancel. Show it and start the timer if not already running.
+			if (!postPlayVisible) {
+				postPlayVisible = true;
+				postPlayCountdown = POSTPLAY_COUNTDOWN_SEC;
+			}
+			if (!postPlayCountdownTimer) {
+				postPlayCountdownTimer = setInterval(() => {
+					postPlayCountdown -= 1;
+					if (postPlayCountdown <= 0) {
+						clearInterval(postPlayCountdownTimer!);
+						postPlayCountdownTimer = undefined;
+						if (nextItem) {
+							postPlayVisible = false;
+							onplaynext?.(nextItem);
+						}
+					}
+				}, 1000);
+			}
+		} else if (nextItem) {
+			// No autoplay — show the card, but no countdown.
+			postPlayVisible = true;
+			postPlayCountdown = 0;
+		} else {
+			// No next item — just fire oncomplete so the caller can render
+			// its own completion CTA in the page (#19).
+			oncomplete?.();
 		}
 	}
 
@@ -472,7 +666,10 @@
 	function bindVideoEvents(el: HTMLVideoElement) {
 		el.addEventListener('play', () => { ps.playing = true; resetControlsTimer(); });
 		el.addEventListener('pause', () => { ps.playing = false; ps.showControls = true; });
-		el.addEventListener('timeupdate', () => { if (!isScrubbing) ps.currentTime = el.currentTime; });
+		el.addEventListener('timeupdate', () => {
+			if (!isScrubbing) ps.currentTime = el.currentTime;
+			updateSkipAndPostPlay(el.currentTime);
+		});
 		el.addEventListener('durationchange', () => {
 			if (el.duration && isFinite(el.duration)) ps.duration = el.duration;
 		});
@@ -481,7 +678,7 @@
 		});
 		el.addEventListener('waiting', () => { ps.isLoading = true; });
 		el.addEventListener('canplay', () => { ps.isLoading = false; });
-		el.addEventListener('ended', () => { ps.playing = false; ps.showControls = true; });
+		el.addEventListener('ended', onEnded);
 	}
 
 	/* ── Portal for theater mode ── */
@@ -778,6 +975,8 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- Post-play / skip overlays rendered in commit 3 (issue #19). -->
 </div>
 
 <style>
