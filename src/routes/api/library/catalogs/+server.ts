@@ -4,7 +4,10 @@ import { getEnabledConfigs } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
-// GET /api/collections — list all collections from all adapters
+// GET /api/library/catalogs — list all adapter-sourced "catalogs"
+// (Jellyfin BoxSets, Plex collections, RomM collections, etc.). Renamed
+// 2026-04-17 from /api/collections to disambiguate from the user/social
+// collections at /library/collections + /api/collections/[id]/items.
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
