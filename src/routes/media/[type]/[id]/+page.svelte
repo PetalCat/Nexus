@@ -2039,15 +2039,21 @@
 	   HERO (content layer — backdrop & gradients handled by HeroSection)
 	   ═══════════════════════════════════════ */
 
-	/* Play trigger */
+	/* Play trigger — scoped to just the icon + resume pill, not the whole
+	   hero area. Previously `inset: 0` made clicking anywhere on the banner
+	   start playback, which is annoying when you're trying to interact with
+	   the description / actions / metadata. */
 	.hero__play-trigger {
-		position: absolute; inset: 0; z-index: 5;
-		display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;
+		position: absolute;
+		top: 50%; left: 50%; transform: translate(-50%, -50%);
+		z-index: 5;
+		display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+		padding: 0;
 		background: none; border: none; cursor: pointer;
-		opacity: 0; transition: opacity 0.35s ease;
+		opacity: 0.8; transition: opacity 0.2s ease;
 	}
 	.hero__play-trigger:hover { opacity: 1; }
-	@media (hover: none) { .hero__play-trigger { opacity: 0.55; } }
+	@media (hover: none) { .hero__play-trigger { opacity: 0.85; } }
 
 	.hero__play-icon {
 		width: 64px; height: 64px;
