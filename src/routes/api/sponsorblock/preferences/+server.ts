@@ -13,7 +13,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		.get();
 
 	if (!pref) {
-		// Return defaults (not yet saved)
+		// Return defaults (not yet saved). showOnTimeline removed 2026-04-17
+		// — no scrub-bar consumer ships; see codex-review/27 bug A.
 		return json({
 			enabled: true,
 			categorySettings: {
@@ -22,7 +23,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 				music_offtopic: 'off', filler: 'off',
 				poi_highlight: 'show', chapter: 'off'
 			},
-			showOnTimeline: true,
 			showSkipNotice: true,
 			skipNoticeDuration: 3000
 		});
@@ -31,7 +31,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 	return json({
 		enabled: pref.enabled,
 		categorySettings: JSON.parse(pref.categorySettings),
-		showOnTimeline: pref.showOnTimeline,
 		showSkipNotice: pref.showSkipNotice,
 		skipNoticeDuration: pref.skipNoticeDuration
 	});
@@ -55,7 +54,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 		categorySettings: typeof body.categorySettings === 'string'
 			? body.categorySettings
 			: JSON.stringify(body.categorySettings ?? {}),
-		showOnTimeline: body.showOnTimeline ?? true,
+		// showOnTimeline removed 2026-04-17 — no reader, no UI.
 		showSkipNotice: body.showSkipNotice ?? true,
 		skipNoticeDuration: body.skipNoticeDuration ?? 3000,
 		updatedAt: now

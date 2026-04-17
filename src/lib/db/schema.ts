@@ -753,8 +753,9 @@ export const sponsorblockPreferences = sqliteTable('sponsorblock_preferences', {
 		poi_highlight: 'show',
 		chapter: 'off'
 	})),
-	/** Show coloured segments on the player timeline */
-	showOnTimeline: integer('show_on_timeline', { mode: 'boolean' }).notNull().default(true),
+	// `show_on_timeline` was removed 2026-04-17 (migration 0011). No
+	// scrub-bar segment renderer ships this cycle, so storing the preference
+	// would only drift from reality (see codex-review/27, bug A).
 	/** Show a toast/snackbar when a segment is skipped */
 	showSkipNotice: integer('show_skip_notice', { mode: 'boolean' }).notNull().default(true),
 	/** Skip notice duration in ms (0 = permanent until dismissed) */
