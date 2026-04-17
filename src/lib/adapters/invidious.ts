@@ -390,31 +390,15 @@ export const invidiousAdapter: ServiceAdapter = {
 		};
 	},
 
-	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
-		if (!userCred?.accessToken) return [];
-		try {
-			// Invidious watch history returns video IDs (most recent first).
-			// No per-video progress is tracked, so treat recent history entries
-			// as "started" with a nominal progress value.
-			const videoIds = await getWatchHistory(config, userCred, 1);
-			if (!videoIds || videoIds.length === 0) return [];
-
-			// Fetch details for up to 10 most recent videos in parallel
-			const ids = videoIds.slice(0, 10);
-			const results = await Promise.allSettled(
-				ids.map(id => invFetch<InvidiousVideo>(config, `/api/v1/videos/${encodeURIComponent(id)}`, userCred))
-			);
-
-			return results
-				.filter((r): r is PromiseFulfilledResult<InvidiousVideo> => r.status === 'fulfilled')
-				.map(r => {
-					const item = normalizeVideo(config, r.value);
-					item.progress = 0.05;
-					return item;
-				});
-		} catch {
-			return [];
-		}
+	async getContinueWatching(): Promise<UnifiedMedia[]> {
+		// Invidious watch history != progress. The previous implementation
+		// stamped progress=0.05 on every recent watch-history entry, which
+		// polluted the unified Continue Watching row. Deleted as part of
+		// the 2026-04-17 player alignment plan (#12). If per-video progress
+		// tracking ever lands, it'll flow through `play_sessions` like
+		// every other real progress source. A "Recently Watched Videos"
+		// row, if we want it, is separate work.
+		return [];
 	},
 
 	async search(
