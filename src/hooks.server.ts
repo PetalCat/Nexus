@@ -162,16 +162,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 			}
 		}
 
-		// First-run welcome flow for non-admin users.
-		// Admins go through /setup; regular users get /welcome. The flag is
-		// set to an ISO timestamp when the user finishes the wizard via
-		// actions.complete — null means they've never seen it.
+		// First-run welcome flow. 2026-04-17 (#24): admins also pass through
+		// /welcome exactly once — global install state (/setup) and per-user
+		// state (/welcome) are now orthogonal. The flag is set to an ISO
+		// timestamp when the user finishes the wizard via actions.complete —
+		// null means they've never seen it.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const welcomeCompletedAt = (user as any).welcomeCompletedAt as string | null | undefined;
 		if (
-			!user.isAdmin &&
 			!welcomeCompletedAt &&
 			!path.startsWith('/welcome') &&
+			!path.startsWith('/setup') &&
 			!path.startsWith('/login') &&
 			!path.startsWith('/logout') &&
 			!path.startsWith('/api/auth/logout') &&

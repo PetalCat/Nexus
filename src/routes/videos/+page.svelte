@@ -221,7 +221,7 @@
 			context="Your subscription feed and history require Invidious"
 			onReconnected={() => invalidateAll()}
 		/>
-	{:else if data.invidiousSummary && data.hasInvidious && !data.hasLinkedAccount}
+	{:else if data.invidiousSummary && data.hasVideoProvider && !data.hasLinkedAccount}
 		<!-- Inline sign-in card — replaces the "no CTA" empty state -->
 		<SignInCard
 			service={data.invidiousSummary}
@@ -232,7 +232,7 @@
 	{/if}
 
 	<!-- Sub-nav — always visible -->
-	{#if data.hasLinkedAccount && data.hasInvidious}
+	{#if data.hasLinkedAccount && data.hasVideoProvider}
 		<nav class="flex items-center gap-1" aria-label="Video sections">
 			<a
 				href="/videos"
@@ -259,7 +259,7 @@
 	{/if}
 
 	<!-- Search bar — centered, wider -->
-	{#if data.hasInvidious}
+	{#if data.hasVideoProvider}
 		<div class="relative mx-auto w-full max-w-xl">
 			<div class="relative flex items-center">
 				<Search size={16} class="absolute left-3 text-muted pointer-events-none" />
@@ -306,13 +306,13 @@
 		</div>
 	{/if}
 
-	{#if !data.hasInvidious}
+	{#if !data.hasVideoProvider}
 		<div class="flex flex-col items-center justify-center py-20 text-center">
 			<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface text-muted">
 				<PlaySquare size={28} strokeWidth={1.5} />
 			</div>
-			<p class="font-medium text-cream">No video service connected</p>
-			<p class="mt-1 text-sm text-muted">Add an Invidious instance in settings to browse videos.</p>
+			<p class="font-medium text-cream">Connect a video service</p>
+			<p class="mt-1 text-sm text-muted">Add a video provider in settings to browse videos.</p>
 			<a href="/settings/accounts" class="mt-4 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-cream transition-colors hover:bg-accent/80">
 				Connect a Service
 			</a>

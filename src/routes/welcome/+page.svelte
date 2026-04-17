@@ -1,14 +1,12 @@
 <script lang="ts">
 	/**
-	 * /welcome — non-admin first-run flow. Three-phase Wizarr-inspired wizard:
+	 * /welcome — per-user first-run flow (admin AND non-admin as of #24).
+	 * Three-phase Wizarr-inspired wizard:
 	 *
 	 * Phase 1 — Welcome copy
 	 * Phase 2 — Connect services (each card opens AccountLinkModal)
 	 * Phase 3 — Summary + Done button (POSTs to ?/complete to mark
 	 *           welcome_completed_at)
-	 *
-	 * The admin never sees this page — they go through /setup instead. See
-	 * the umbrella spec for the full design.
 	 */
 	import type { PageData } from './$types';
 	import { invalidateAll } from '$app/navigation';

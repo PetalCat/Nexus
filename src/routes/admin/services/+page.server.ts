@@ -18,7 +18,7 @@ export const load: PageServerLoad = async () => {
 
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 	const prowlarrConfigs = getEnabledConfigs().filter((c) => c.type === 'prowlarr');
-	const hasInvidious = getEnabledConfigs().some((c) => c.type === 'invidious');
+	const hasVideoProvider = getEnabledConfigs().some((c) => c.type === 'invidious');
 
 	const [requestsResult, queueResult, prowlarrResult, proxyResult] = await Promise.allSettled([
 		// Recent requests across all Overseerr instances
@@ -49,7 +49,7 @@ export const load: PageServerLoad = async () => {
 
 		// Stream proxy stats (Rust sub-server on port 3939)
 		withCache('admin-proxy-stats', 10_000, async () => {
-			if (!hasInvidious) return null;
+			if (!hasVideoProvider) return null;
 			try {
 				const res = await fetch('http://localhost:3939/stats', { signal: AbortSignal.timeout(3000) });
 				if (!res.ok) return null;
