@@ -562,6 +562,18 @@
 		}
 	}
 
+	/** Handle "play next" from the post-play card (#19).
+	 *  Navigate to the next item so its own page loader runs; the browser
+	 *  history stack stays sensible and the page-server can resolve fresh
+	 *  adapter data (skip markers, further up-next, etc.). */
+	function handlePlayNext(next: { id: string; serviceId: string }) {
+		if (!next?.id) return;
+		// Determine a reasonable type prefix. For Jellyfin NextUp results the
+		// next item is always an episode when originating from a show.
+		const nextType = 'episode';
+		goto(`/media/${nextType}/${next.id}?service=${next.serviceId}&play=1`);
+	}
+
 	/** Handle subtitle change from the player UI (issue #14).
 	 *  - 'off' / 'native'  — no renegotiate needed; the player flips the
 	 *    <track> mode directly. We fire only to record the user's pick
@@ -758,6 +770,10 @@
 			onqualitychange={handleQualityChange}
 			onaudiochange={handleAudioChange}
 			onsubtitlechange={handleSubtitleChange}
+			nextItem={(data as any).nextItem ?? null}
+			skipMarkers={(data as any).skipMarkers ?? []}
+			onplaynext={handlePlayNext}
+			autoplayNext={(data as any).playbackPrefs?.autoplayNext ?? false}
 		/>
 		{/key}
 	{:else if isPlayable && !isAudioType && (showPlayer || autoplay) && !playbackSession}

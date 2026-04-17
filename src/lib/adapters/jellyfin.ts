@@ -906,6 +906,107 @@ export const jellyfinAdapter: ServiceAdapter = {
 		}
 	},
 
+	/**
+	 * Next item for the post-play card (#19). Strategy:
+	 *  1. If current item is an Episode, ask /Shows/NextUp with its
+	 *     SeriesId — this gives the canonical next episode.
+	 *  2. Otherwise, return null (movies and singletons don't auto-queue).
+	 *
+	 * We deliberately do NOT fall back to Suggestions here — the up-next
+	 * card should be deterministic, not "maybe you'd like this."
+	 */
+	async getNextItem(config: ServiceConfig, sourceId: string, userCred?: UserCredential) {
+		if (!userCred?.externalUserId && !userCred?.accessToken) return null;
+		try {
+			const userId = await getUserId(config, userCred);
+			const item = await jfFetchUser(
+				config,
+				`/Users/${userId}/Items/${sourceId}`,
+				{ Fields: 'SeriesId,IndexNumber,ParentIndexNumber' },
+				userCred
+			);
+			const seriesId = item?.SeriesId;
+			if (!seriesId) return null;
+			const nextUp = await jfFetchUser(
+				config,
+				'/Shows/NextUp',
+				{
+					UserId: userId,
+					SeriesId: seriesId,
+					Limit: '1',
+					Fields: FIELDS,
+					EnableUserData: 'true'
+				},
+				userCred
+			);
+			const nx = (nextUp.Items ?? [])[0];
+			if (!nx || nx.Id === sourceId) return null;
+			const duration =
+				typeof nx.RunTimeTicks === 'number' ? nx.RunTimeTicks / 10_000_000 : undefined;
+			const ud = nx.UserData ?? {};
+			let progress: number | undefined;
+			if (ud.PlayedPercentage != null) progress = Math.min(1, ud.PlayedPercentage / 100);
+			else if (ud.PlaybackPositionTicks && nx.RunTimeTicks) {
+				progress = Math.min(1, ud.PlaybackPositionTicks / nx.RunTimeTicks);
+			}
+			const season = nx.ParentIndexNumber;
+			const episode = nx.IndexNumber;
+			const sub =
+				season != null && episode != null
+					? `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}${nx.Name ? ` · ${nx.Name}` : ''}`
+					: undefined;
+			return {
+				id: nx.Id,
+				serviceId: config.id,
+				title: nx.SeriesName ?? nx.Name ?? 'Next episode',
+				subtitle: sub,
+				poster: nx.ImageTags?.Primary
+					? `${config.url}/Items/${nx.Id}/Images/Primary?tag=${nx.ImageTags.Primary}`
+					: undefined,
+				duration,
+				progress
+			};
+		} catch {
+			return null;
+		}
+	},
+
+	/**
+	 * Skip markers from Jellyfin's MediaSegments endpoint (10.9+). Returns
+	 * [] on older servers or errors so callers can treat "no markers" and
+	 * "this server doesn't support markers" identically.
+	 */
+	async getSkipMarkers(config: ServiceConfig, sourceId: string, userCred?: UserCredential) {
+		try {
+			const data = await jfFetchUser(
+				config,
+				`/MediaSegments/${sourceId}`,
+				undefined,
+				userCred
+			);
+			const items = Array.isArray(data?.Items) ? data.Items : [];
+			const out: Array<{ kind: 'intro' | 'credits' | 'recap'; startSec: number; endSec: number; label?: string }> = [];
+			for (const seg of items) {
+				// Jellyfin Type: 'Intro' | 'Outro' | 'Preview' | 'Recap' | 'Commercial'
+				const t = String(seg.Type ?? '').toLowerCase();
+				let kind: 'intro' | 'credits' | 'recap' | null = null;
+				if (t === 'intro') kind = 'intro';
+				else if (t === 'outro' || t === 'credits') kind = 'credits';
+				else if (t === 'recap') kind = 'recap';
+				if (!kind) continue;
+				const startSec =
+					typeof seg.StartTicks === 'number' ? seg.StartTicks / 10_000_000 : NaN;
+				const endSec =
+					typeof seg.EndTicks === 'number' ? seg.EndTicks / 10_000_000 : NaN;
+				if (!isFinite(startSec) || !isFinite(endSec) || endSec <= startSec) continue;
+				out.push({ kind, startSec, endSec });
+			}
+			return out;
+		} catch {
+			return [];
+		}
+	},
+
 	/** Fetch similar items for a given Jellyfin item */
 	async getSimilar(config: ServiceConfig, sourceId: string, userCred?: UserCredential): Promise<UnifiedMedia[]> {
 		try {
