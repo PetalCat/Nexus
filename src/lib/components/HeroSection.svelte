@@ -1,4 +1,7 @@
 <!-- src/lib/components/HeroSection.svelte -->
+<!-- CANONICAL: layout hero wrapper with backdrop + trailer + slotted content.
+     Do not create a second HeroSection; extend this via props/snippets. -->
+
 <script lang="ts">
 	import TrailerPlayer from './TrailerPlayer.svelte';
 	import { browser } from '$app/environment';
