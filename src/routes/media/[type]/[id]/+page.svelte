@@ -545,6 +545,42 @@
 		return negotiatePlayback(data.serviceId, id, plan);
 	}
 
+	/** Handle audio track change from the player UI (issue #14).
+	 *  Audio selection requires a server-side re-negotiate on Jellyfin
+	 *  because the mux can't flip streams in place. */
+	async function handleAudioChange(trackId: number): Promise<void> {
+		const id = jellyfinItemId || item?.sourceId || '';
+		const savedTime = playbackSession ? undefined : 0;
+		try {
+			const plan: PlaybackPlan = { audioTrackHint: trackId };
+			if (savedTime !== undefined) plan.startPositionSeconds = savedTime;
+			const next = await negotiatePlayback(data.serviceId, id, plan);
+			playbackSession = next;
+			if (videoPlaybackSession) videoPlaybackSession = next;
+		} catch (e) {
+			console.warn('[media] audio change failed:', e);
+		}
+	}
+
+	/** Handle subtitle change from the player UI (issue #14).
+	 *  - 'off' / 'native'  — no renegotiate needed; the player flips the
+	 *    <track> mode directly. We fire only to record the user's pick
+	 *    for future resume (future work; not persisted yet).
+	 *  - 'burn-in'         — requires a re-transcode. */
+	async function handleSubtitleChange(trackId: number, mode: 'off' | 'native' | 'burn-in'): Promise<void> {
+		if (mode !== 'burn-in') return; // native / off — no server action
+		const id = jellyfinItemId || item?.sourceId || '';
+		try {
+			const next = await negotiatePlayback(data.serviceId, id, {
+				burnSubIndex: trackId
+			});
+			playbackSession = next;
+			if (videoPlaybackSession) videoPlaybackSession = next;
+		} catch (e) {
+			console.warn('[media] subtitle change failed:', e);
+		}
+	}
+
 	// Auto-negotiate when theater player opens
 	$effect(() => {
 		if ((showPlayer || autoplay) && isPlayable && !isAudioType && !playbackSession && !isNegotiating) {
@@ -720,6 +756,8 @@
 			itemId={jellyfinItemId}
 			onclose={() => { playbackSession = null; closePlayer(); }}
 			onqualitychange={handleQualityChange}
+			onaudiochange={handleAudioChange}
+			onsubtitlechange={handleSubtitleChange}
 		/>
 		{/key}
 	{:else if isPlayable && !isAudioType && (showPlayer || autoplay) && !playbackSession}
@@ -919,6 +957,8 @@
 											itemId={jellyfinItemId}
 											isAudio={true}
 											onqualitychange={handleQualityChange}
+											onaudiochange={handleAudioChange}
+											onsubtitlechange={handleSubtitleChange}
 										/>
 									{:else}
 										<div class="flex items-center justify-center h-24 rounded-lg" style="background: rgba(255,255,255,0.03)">
@@ -1814,6 +1854,8 @@
 					autoplay={autoplay}
 					inline={true}
 					onqualitychange={handleQualityChange}
+					onaudiochange={handleAudioChange}
+					onsubtitlechange={handleSubtitleChange}
 				/>
 				{/key}
 			{:else}
