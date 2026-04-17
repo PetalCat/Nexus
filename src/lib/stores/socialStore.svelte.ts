@@ -11,12 +11,15 @@ let _activityFeed = $state<ActivityEvent[]>([]);
 let _sessions = $state<SocialSession[]>([]);
 let _sharedItems = $state<SharedItem[]>([]);
 let _collabPlaylists = $state<CollaborativePlaylist[]>([]);
-let _ghostMode = $state(false);
+
+// Ghost mode is NOT held here — the canonical single source is the server-
+// side `user_presence.ghost_mode` column, surfaced via /api/auth/me and
+// mutated via PUT /api/auth/me/ghost. See src/lib/server/social.ts (the
+// CANONICAL comment at updatePresence) and codex-review/27 bug B.
 
 export const social = {
 	get friends() { return _friends; },
 	get onlineFriends() { return _friends.filter((f) => f.status === 'online'); },
-	get ghostMode() { return _ghostMode; },
 	get activityFeed() { return _activityFeed; },
 	get sessions() { return _sessions; },
 	get sharedItems() { return _sharedItems; },
@@ -34,10 +37,6 @@ export function getFriendsWhoWatched(mediaId: string): FriendProfile[] {
 
 export function getOnlineFriendCount(): number {
 	return _friends.filter((f) => f.status === 'online').length;
-}
-
-export function toggleGhostMode(): void {
-	_ghostMode = !_ghostMode;
 }
 
 export function getActivityFeed(): ActivityEvent[] {
