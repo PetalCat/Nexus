@@ -161,16 +161,15 @@ export const calibreAdapter: ServiceAdapter = {
 		}
 	},
 
-	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
-		// Per 2026-04-17 data-model unification, per-user reading state comes from
-		// `play_sessions` not the adapter. Emit items with `progress` undefined;
-		// callers join against play_sessions to compute resume progress.
-		try {
-			const feed = await opdsFetch(config, '/opds/unreadbooks', userCred);
-			return feed.entries.slice(0, 10).map((entry) => opdsEntryToUnifiedMedia(config, entry));
-		} catch {
-			return [];
-		}
+	async getContinueWatching(): Promise<UnifiedMedia[]> {
+		// Calibre has no per-page reading progress upstream. The previous
+		// implementation read /opds/unreadbooks and stamped a fake
+		// progress=0.05 on every entry, which polluted the unified
+		// Continue Watching row. Deleted as part of the 2026-04-17 player
+		// alignment plan (#12). If issue #11 (real page tracking) ever
+		// lands, Calibre progress will flow through `play_sessions` like
+		// everything else — not through this method.
+		return [];
 	},
 
 	async getRecentlyAdded(config, userCred): Promise<UnifiedMedia[]> {

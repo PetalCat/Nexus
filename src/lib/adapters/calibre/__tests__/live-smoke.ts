@@ -57,7 +57,10 @@ async function main(): Promise<void> {
 
 	await step('getContinueWatching', async () => {
 		const items = await calibreAdapter.getContinueWatching!(config);
-		// Empty is acceptable (all books marked read); just verify it doesn't throw
+		// Calibre intentionally returns [] here — per-user reading progress
+		// comes from `play_sessions`, not the adapter. See the 2026-04-17
+		// player alignment plan (#12).
+		if (items.length !== 0) throw new Error(`expected empty, got ${items.length}`);
 		return { count: items.length };
 	});
 

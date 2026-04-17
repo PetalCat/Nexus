@@ -7,6 +7,7 @@ import { importJellyfinUser, isOverseerrType } from '../adapters/overseerr';
 import { getDb, getRawDb, schema } from '../db';
 import { getAllUsers, getUserCredentialForService, upsertUserCredential } from './auth';
 import { withCache, withStaleCache, invalidate } from './cache';
+import { getContinueWatching as getContinueWatchingCanonical } from './continue-watching';
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -219,61 +220,12 @@ async function getPersonalizedRows(userId: string): Promise<DashboardRow[]> {
 }
 
 async function aggregateContinueWatching(configs: ServiceConfig[], userId?: string): Promise<UnifiedMedia[]> {
-	const results = await Promise.allSettled(
-		configs.map(async (config) => {
-			const adapter = registry.get(config.type);
-			const cred = resolveUserCred(config, userId);
-			return adapter?.getContinueWatching?.(config, cred) ?? [];
-		})
-	);
-	const items = results
-		.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
-		.sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
-
-	if (!userId || items.length > 0) return items;
-
-	// Fallback for cases where upstream resume APIs lag: build from local play_sessions.
-	const db = getDb();
-	const recent = db
-		.select({
-			mediaId: schema.playSessions.mediaId,
-			serviceId: schema.playSessions.serviceId,
-			progress: schema.playSessions.progress
-		})
-		.from(schema.playSessions)
-		.where(
-			and(
-				eq(schema.playSessions.userId, userId),
-				eq(schema.playSessions.completed, 0)
-			)
-		)
-		.orderBy(desc(schema.playSessions.updatedAt))
-		.limit(25)
-		.all();
-
-	if (recent.length === 0) return items;
-
-	const seen = new Set<string>();
-	const fallbackItems = await Promise.allSettled(
-		recent.map(async (row) => {
-			const config = configs.find((c) => c.id === row.serviceId && LIBRARY_TYPES.has(c.type));
-			if (!config) return null;
-			const key = `${row.serviceId}:${row.mediaId}`;
-			if (seen.has(key)) return null;
-			seen.add(key);
-			const adapter = registry.get(config.type);
-			if (!adapter?.getItem) return null;
-			const cred = resolveUserCred(config, userId);
-			const item = await adapter.getItem(config, row.mediaId, cred);
-			if (!item) return null;
-			item.progress = Math.max(item.progress ?? 0, row.progress ?? 0);
-			return item;
-		})
-	);
-
-	return fallbackItems
-		.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : []))
-		.sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0));
+	// Canonical source is `play_sessions` (unified data model). The helper
+	// returns items ordered by `updated_at DESC` (recency). Do not re-sort.
+	// See src/lib/server/continue-watching.ts and the spec at
+	// docs/superpowers/specs/2026-04-17-player-alignment-plan.md §2.
+	if (!userId) return [];
+	return getContinueWatchingCanonical(userId, { configs });
 }
 
 async function aggregateRecentlyAdded(configs: ServiceConfig[], userId?: string): Promise<UnifiedMedia[]> {
