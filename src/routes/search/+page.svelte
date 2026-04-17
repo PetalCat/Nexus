@@ -6,12 +6,14 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// Split results: library items vs requestable (Overseerr, not yet available)
+	// Split results: library vs requestable. The server tags every item with
+	// `_requestable` based on adapter CAPABILITY (has `getRequests`), not a
+	// hardcoded `serviceType === 'overseerr'` check.
 	const libraryItems = $derived(
-		data.items.filter((i) => i.serviceType !== 'overseerr' || i.status === 'available')
+		data.items.filter((i) => !(i as UnifiedMedia & { _requestable?: boolean })._requestable)
 	);
 	const requestableItems = $derived(
-		data.items.filter((i) => i.serviceType === 'overseerr' && i.status !== 'available')
+		data.items.filter((i) => (i as UnifiedMedia & { _requestable?: boolean })._requestable)
 	);
 
 	const typeGroups = $derived(() => {

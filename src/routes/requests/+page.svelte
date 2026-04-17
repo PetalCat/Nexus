@@ -3,6 +3,7 @@
 	import type { NexusRequest, UnifiedMedia } from '$lib/adapters/types';
 	import { invalidateAll, goto } from '$app/navigation';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { unifiedSearch } from '$lib/client/unified-search';
 
 	let { data }: { data: PageData } = $props();
 
@@ -227,19 +228,24 @@
 	});
 
 	// ── Live search (debounced) ───────────────────────────
+	// Routes to the 'requestable' scope so the server applies the
+	// capability-based filter (any adapter with `getRequests`), not a
+	// hardcoded serviceType === 'overseerr' check.
 	$effect(() => {
 		const q = searchQuery.trim();
 		if (q.length < 2) { searchResults = []; searching = false; return; }
 		searching = true;
+		const ctrl = new AbortController();
 		const timer = setTimeout(async () => {
 			try {
-				const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-				const body = await res.json();
-				searchResults = (body.items ?? []).filter((i: UnifiedMedia) => i.serviceType === 'overseerr');
+				searchResults = await unifiedSearch({ query: q, scope: 'requestable', signal: ctrl.signal });
 			} catch { searchResults = []; }
 			finally { searching = false; }
 		}, 350);
-		return () => clearTimeout(timer);
+		return () => {
+			clearTimeout(timer);
+			ctrl.abort();
+		};
 	});
 
 	// ── IntersectionObserver for infinite scroll ──────────

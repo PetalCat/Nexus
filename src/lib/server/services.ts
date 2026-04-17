@@ -373,6 +373,57 @@ export async function getLibraryItems(opts?: {
 	}); // end withCache
 }
 
+/**
+ * Browse a library surface (e.g. /movies, /shows) with real server-side
+ * pagination and optional text filter.
+ *
+ * `q` is applied as an in-memory filter over the paginated slice when the
+ * underlying adapters don't support search-within-library natively. For
+ * large libraries this is weaker than a native search call — for full cross-
+ * service search, use `unifiedSearch({ scope: 'library' })` instead.
+ */
+export async function browseLibrary(opts: {
+	type: string;
+	page?: number;
+	pageSize?: number;
+	sortBy?: string;
+	q?: string;
+	userId?: string;
+}): Promise<{ items: UnifiedMedia[]; total: number; page: number; pageSize: number }> {
+	const page = Math.max(1, opts.page ?? 1);
+	const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 48));
+	const offset = (page - 1) * pageSize;
+
+	// If there's a search query, run library-scoped unified search and paginate
+	// over the full match set (search is cached upstream).
+	if (opts.q && opts.q.trim().length >= 2) {
+		const all = await legacyLibrarySearch(opts.q.trim(), opts.userId);
+		const filtered = all.filter((i) => i.type === opts.type);
+		return {
+			items: filtered.slice(offset, offset + pageSize),
+			total: filtered.length,
+			page,
+			pageSize
+		};
+	}
+
+	const { items, total } = await getLibraryItems(
+		{ type: opts.type, sortBy: opts.sortBy, limit: pageSize, offset },
+		opts.userId
+	);
+	return { items, total, page, pageSize };
+}
+
+/**
+ * Internal: library-scoped search. Exists so `browseLibrary` can reuse the
+ * same code path as the unified-search helper without importing it (the
+ * unified helper re-exports `unifiedSearch` from THIS file, which would be
+ * a cycle).
+ */
+async function legacyLibrarySearch(query: string, userId?: string): Promise<UnifiedMedia[]> {
+	return unifiedSearch(query, userId, 'library');
+}
+
 export async function getAllLiveChannels(userId?: string): Promise<UnifiedMedia[]> {
 	return withCache(`live-channels:${userId ?? 'anon'}`, 60_000, async () => {
 		const configs = getEnabledConfigs();
