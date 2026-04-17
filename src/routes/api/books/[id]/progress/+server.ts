@@ -1,23 +1,22 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getRawDb } from '$lib/db';
 import { getConfigsForMediaType } from '$lib/server/services';
 import {
 	getLatestSession,
-	upsertPlaySession,
-	findOpenSession
+	upsertPlaySession
 } from '$lib/server/play-sessions';
-import { randomBytes } from 'node:crypto';
 
 /**
  * Book reader progress endpoint.
  *
- * Writes ONLY to `play_sessions` (current state: progress, resume position,
- * completion) and — on session close — appends a granular
- * `book_reading_sessions` row for stats.
- *
- * The old `activity` table branch was removed on 2026-04-17 along with the
- * table itself.
+ * CANONICAL: writes ONLY to `play_sessions` — the single source of truth for
+ * reading progress, resume position, duration, and completion. The legacy
+ * `activity` table was dropped 2026-04-17 (migration 0008), and the
+ * secondary `book_reading_sessions` detail table was dropped 2026-04-17
+ * (migration 0012) once every field it carried was either derivable from
+ * `play_sessions` or never populated by the real writer. Reader-side
+ * annotations (notes, highlights, bookmarks) live in their own tables —
+ * they never shared truth with this endpoint.
  */
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
@@ -50,11 +49,7 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 	const bookId = params.id;
 	const position = cfi ?? (page != null ? String(page) : null);
 
-	// Snapshot the open session BEFORE upserting — so if this call closes it
-	// we can write a matching book_reading_sessions row with the right bounds.
-	const beforeOpen = findOpenSession(userId, svcId, bookId);
-
-	const row = upsertPlaySession({
+	upsertPlaySession({
 		userId,
 		serviceId: svcId,
 		serviceType: 'calibre',
@@ -67,39 +62,6 @@ export const PUT: RequestHandler = async ({ params, locals, request }) => {
 		stopped: ended === true,
 		completed: progress >= 1
 	});
-
-	// Detail-row for book stats. Closed when either:
-	//   - caller sent `{ ended: true }`, OR
-	//   - the upsert naturally terminated the session (progress >= 0.9 / stopped).
-	const didClose = !!row.ended_at && !!beforeOpen && !beforeOpen.ended_at;
-	if (didClose && beforeOpen) {
-		try {
-			const raw = getRawDb();
-			const durationSeconds = Math.max(
-				0,
-				Math.round(((row.ended_at ?? Date.now()) - beforeOpen.started_at) / 1000)
-			);
-			raw.prepare(
-				`INSERT INTO book_reading_sessions
-				   (id, user_id, book_id, service_id, started_at, ended_at,
-				    start_cfi, end_cfi, pages_read, duration_seconds)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-			).run(
-				randomBytes(16).toString('hex'),
-				userId,
-				bookId,
-				svcId,
-				beforeOpen.started_at,
-				row.ended_at ?? Date.now(),
-				beforeOpen.position ?? null,
-				position,
-				null,
-				durationSeconds
-			);
-		} catch (e) {
-			console.error('[books/progress] book_reading_sessions insert failed:', e);
-		}
-	}
 
 	return json({ ok: true });
 };

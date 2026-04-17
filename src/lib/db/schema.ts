@@ -652,18 +652,11 @@ export const bookHighlights = sqliteTable('book_highlights', {
 	createdAt: integer('created_at').notNull()
 });
 
-export const bookReadingSessions = sqliteTable('book_reading_sessions', {
-	id: text('id').primaryKey(),
-	userId: text('user_id').notNull(),
-	bookId: text('book_id').notNull(),
-	serviceId: text('service_id').notNull(),
-	startedAt: integer('started_at').notNull(),
-	endedAt: integer('ended_at'),
-	startCfi: text('start_cfi'),
-	endCfi: text('end_cfi'),
-	pagesRead: integer('pages_read'),
-	durationSeconds: integer('duration_seconds')
-});
+// `book_reading_sessions` was dropped on 2026-04-17 (migration 0012).
+// `play_sessions` is the canonical progress/session store for books; every
+// field the old table carried was either derivable from `play_sessions`
+// (started_at, ended_at, duration, position via CFI) or never populated in
+// practice (`pages_read` was always null).
 
 export const bookBookmarks = sqliteTable('book_bookmarks', {
 	id: text('id').primaryKey(),
@@ -687,7 +680,6 @@ export const readingGoals = sqliteTable('reading_goals', {
 
 export type BookNote = typeof bookNotes.$inferSelect;
 export type BookHighlight = typeof bookHighlights.$inferSelect;
-export type BookReadingSession = typeof bookReadingSessions.$inferSelect;
 export type BookBookmark = typeof bookBookmarks.$inferSelect;
 export type ReadingGoal = typeof readingGoals.$inferSelect;
 

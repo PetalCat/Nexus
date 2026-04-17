@@ -248,8 +248,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	safeAddColumn('users', 'force_password_reset', 'INTEGER NOT NULL DEFAULT 0');
 	safeAddColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'");
 
-	// activity table — added user_id for per-user tracking
-	safeAddColumn('activity', 'user_id', 'TEXT');
+	// Legacy `activity` table dropped 2026-04-17 (migration 0008). The
+	// user_id / position columns we used to ALTER onto it are now native on
+	// play_sessions, which is the canonical progress store.
 
 	// ── Play Sessions (replaces media_events) ──────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS play_sessions (
@@ -530,8 +531,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	// Add is_collaborative column to existing playlists (migration-safe)
 	try { db.run(`ALTER TABLE music_playlists ADD COLUMN is_collaborative INTEGER NOT NULL DEFAULT 0`); } catch { /* column exists */ }
 
-	// Books UI redesign — position sync + positioned notes
-	try { db.run(`ALTER TABLE activity ADD COLUMN position TEXT`); } catch { /* column exists */ }
+	// Books UI redesign — positioned notes. (The old `activity` position
+	// column is gone along with the table; play_sessions carries `position`
+	// natively.)
 	try { db.run(`ALTER TABLE book_notes ADD COLUMN cfi TEXT`); } catch { /* column exists */ }
 	try { db.run(`ALTER TABLE book_notes ADD COLUMN chapter TEXT`); } catch { /* column exists */ }
 
@@ -659,20 +661,10 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_book_highlights_user_book ON book_highlights(user_id, book_id, service_id)`);
 
-	db.run(`CREATE TABLE IF NOT EXISTS book_reading_sessions (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		book_id TEXT NOT NULL,
-		service_id TEXT NOT NULL,
-		started_at INTEGER NOT NULL,
-		ended_at INTEGER,
-		start_cfi TEXT,
-		end_cfi TEXT,
-		pages_read INTEGER,
-		duration_seconds INTEGER
-	)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_user ON book_reading_sessions(user_id, book_id)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_started ON book_reading_sessions(user_id, started_at)`);
+	// `book_reading_sessions` was dropped 2026-04-17 (migration 0012).
+	// `play_sessions` now carries every field the old table used — started_at,
+	// ended_at, duration_ms, position (CFI or page), media_type='book'.
+	db.run(`DROP TABLE IF EXISTS book_reading_sessions`);
 
 	db.run(`CREATE TABLE IF NOT EXISTS book_bookmarks (
 		id TEXT PRIMARY KEY,

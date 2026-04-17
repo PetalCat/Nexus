@@ -84,8 +84,7 @@
 		interaction_events: 'Interaction Events',
 		services: 'Services',
 		sessions: 'Sessions',
-		stats_rollups: 'Stats Rollups',
-		activity: 'Activity'
+		stats_rollups: 'Stats Rollups'
 	};
 </script>
 
