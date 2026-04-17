@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getStreamyStatsRecommendations } from '$lib/adapters/streamystats';
+import { parseRecProfileConfig } from '$lib/server/recommendations/types';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -44,22 +45,22 @@ export const GET: RequestHandler = async ({ locals }) => {
 	try {
 		const recs = await getStreamyStatsRecommendations(ssConfig, 'all', userCred, 50);
 
-		// Load dismissed/downvoted items
+		// Dismiss-list comes from the canonical user_hidden_items table.
 		const raw = getRawDb();
-		const feedback = raw.prepare(
-			`SELECT media_id, feedback FROM recommendation_feedback WHERE user_id = ?`
-		).all(userId) as { media_id: string; feedback: string }[];
-		const dismissed = new Set(
-			feedback.filter((f) => f.feedback === 'dismiss' || f.feedback === 'down').map((f) => f.media_id)
-		);
+		const hiddenRows = raw.prepare(
+			`SELECT media_id FROM user_hidden_items WHERE user_id = ?`
+		).all(userId) as Array<{ media_id: string }>;
+		const dismissed = new Set(hiddenRows.map((h) => h.media_id));
 
-		// Load preferences
-		const prefRow = raw.prepare(
-			`SELECT similarity_threshold FROM recommendation_preferences WHERE user_id = ?`
-		).get(userId) as { similarity_threshold: number } | undefined;
-		const threshold = prefRow?.similarity_threshold ?? 0.5;
+		// Similarity threshold from the canonical RecProfileConfig. `noveltyFactor`
+		// is 0=familiar / 1=adventurous; invert it to a "similarity floor" the
+		// adapter recs must clear.
+		const profileRow = raw.prepare(
+			`SELECT config FROM user_rec_profiles WHERE user_id = ? AND is_default = 1 LIMIT 1`
+		).get(userId) as { config: string } | undefined;
+		const profile = parseRecProfileConfig(profileRow?.config);
+		const threshold = 1 - (profile.noveltyFactor ?? 0.5);
 
-		// Filter out dismissed items and apply similarity threshold
 		let filtered = recs.filter((r) => !dismissed.has(r.id));
 		filtered = filtered.filter((r) => {
 			const sim = (r as any).similarity ?? 1;

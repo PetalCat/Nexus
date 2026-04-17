@@ -748,26 +748,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		updated_at INTEGER NOT NULL
 	)`);
 
-	// ── Recommendation preferences & feedback ────────────────────────
-	db.run(`CREATE TABLE IF NOT EXISTS recommendation_preferences (
-		user_id TEXT PRIMARY KEY,
-		media_type_weights TEXT NOT NULL DEFAULT '{"movie":50,"show":50,"book":50,"game":50,"music":50,"video":50}',
-		genre_preferences TEXT NOT NULL DEFAULT '{}',
-		similarity_threshold REAL NOT NULL DEFAULT 0.5,
-		updated_at INTEGER NOT NULL DEFAULT 0
-	)`);
-
-	db.run(`CREATE TABLE IF NOT EXISTS recommendation_feedback (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id TEXT NOT NULL,
-		media_id TEXT NOT NULL,
-		media_title TEXT,
-		feedback TEXT NOT NULL,
-		reason TEXT,
-		created_at INTEGER NOT NULL
-	)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_rec_feedback_user ON recommendation_feedback(user_id, created_at DESC)`);
-	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rec_feedback_unique ON recommendation_feedback(user_id, media_id)`);
+	// `recommendation_preferences` and `recommendation_feedback` were removed
+	// 2026-04-17. Tuning folded into `user_rec_profiles.config`; negative
+	// feedback into `user_hidden_items`.
 
 	// ── Hot-path indexes (added 2026-04-16 during query audit) ─────────
 	// Mirrors drizzle/0004; kept here so legacy installs without a migration

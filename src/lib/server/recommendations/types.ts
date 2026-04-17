@@ -1,4 +1,5 @@
 import type { UnifiedMedia, MediaType } from '$lib/adapters/types';
+import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
 // Recommendation types
@@ -27,24 +28,44 @@ export interface ScoredRecommendation {
 	basedOn?: string[]; // item titles that informed this
 }
 
-export interface RecProfileConfig {
-	weights: {
-		contentBased: number;
-		collaborative: number;
-		social: number;
-		trending: number;
-		external: number;
-	};
-	mediaTypes?: MediaType[];
-	genreBoosts?: Record<string, number>; // multipliers (>1 boost, <1 suppress)
-	genreBans?: string[]; // completely exclude
-	noveltyFactor?: number; // 0=familiar, 1=discovery
-	recencyHalfLifeDays?: number; // exponential decay half-life
-	yearRange?: { min?: number; max?: number };
-	minRating?: number;
-	disabledProviders?: string[];
-	rowOrder?: string[];
-}
+// ---------------------------------------------------------------------------
+// Canonical recommendation profile shape.
+//
+// `user_rec_profiles.config` is the single tuning store — the old
+// `recommendation_preferences` table was dropped 2026-04-17 (migration 0010).
+// The zod schema is enforced at every boundary that reads or writes a profile.
+// ---------------------------------------------------------------------------
+
+const MEDIA_TYPE = z.enum([
+	'movie', 'show', 'episode', 'book', 'comic', 'manga',
+	'game', 'music', 'album', 'track', 'podcast', 'live', 'audiobook', 'video'
+]);
+
+export const RecProfileConfigSchema = z.object({
+	weights: z.object({
+		contentBased: z.number().min(0).max(1),
+		collaborative: z.number().min(0).max(1),
+		social: z.number().min(0).max(1),
+		trending: z.number().min(0).max(1),
+		external: z.number().min(0).max(1)
+	}),
+	/** Optional 0-100 per media type (legacy `mediaTypeWeights` fold-in). */
+	byMediaType: z.record(MEDIA_TYPE, z.number().min(0).max(100)).optional(),
+	mediaTypes: z.array(MEDIA_TYPE).optional(),
+	genreBoosts: z.record(z.string(), z.number()).optional(),
+	genreBans: z.array(z.string()).optional(),
+	noveltyFactor: z.number().min(0).max(1).optional(),
+	recencyHalfLifeDays: z.number().positive().optional(),
+	yearRange: z.object({
+		min: z.number().int().optional(),
+		max: z.number().int().optional()
+	}).optional(),
+	minRating: z.number().min(0).max(10).optional(),
+	disabledProviders: z.array(z.string()).optional(),
+	rowOrder: z.array(z.string()).optional()
+});
+
+export type RecProfileConfig = z.infer<typeof RecProfileConfigSchema>;
 
 export const DEFAULT_PROFILE: RecProfileConfig = {
 	weights: {
@@ -57,6 +78,36 @@ export const DEFAULT_PROFILE: RecProfileConfig = {
 	noveltyFactor: 0.3,
 	recencyHalfLifeDays: 30
 };
+
+/**
+ * Parse an arbitrary JSON string (from `user_rec_profiles.config`) into a
+ * safe RecProfileConfig, falling back to DEFAULT_PROFILE if the blob is
+ * malformed or missing required fields.
+ */
+export function parseRecProfileConfig(raw: string | null | undefined): RecProfileConfig {
+	if (!raw) return DEFAULT_PROFILE;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return DEFAULT_PROFILE;
+	}
+	const result = RecProfileConfigSchema.safeParse(parsed);
+	if (result.success) return result.data;
+	// If the blob has the legacy `mediaTypeWeights` key, try to rescue it.
+	if (parsed && typeof parsed === 'object' && 'mediaTypeWeights' in parsed) {
+		const legacy = parsed as { mediaTypeWeights?: unknown };
+		const rescued: RecProfileConfig = {
+			...DEFAULT_PROFILE,
+			byMediaType:
+				legacy.mediaTypeWeights && typeof legacy.mediaTypeWeights === 'object'
+					? (legacy.mediaTypeWeights as Record<string, number>)
+					: undefined
+		};
+		return rescued;
+	}
+	return DEFAULT_PROFILE;
+}
 
 export interface RecommendationContext {
 	userId: string;
