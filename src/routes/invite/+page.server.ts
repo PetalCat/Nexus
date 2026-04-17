@@ -6,8 +6,7 @@ import {
 	getUserByUsername,
 	upsertUserCredential,
 	validateInviteCode,
-	consumeInviteCode,
-	validateSession
+	consumeInviteCode
 } from '$lib/server/auth';
 import { getEnabledConfigs, getServiceConfig } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
@@ -15,13 +14,9 @@ import { getDb, schema } from '$lib/db';
 import { and, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ url, cookies }) => {
+export const load: PageServerLoad = async ({ url }) => {
+	// Lifecycle gate (already-logged-in → /) lives in resolveRedirect (#32).
 	const code = url.searchParams.get('code') ?? '';
-
-	// If already logged in, go to home
-	const token = cookies.get(COOKIE_NAME);
-	const user = validateSession(token);
-	if (user) throw redirect(303, '/');
 
 	if (!code) {
 		return { valid: false, error: 'No invite code provided', authServices: [] };
