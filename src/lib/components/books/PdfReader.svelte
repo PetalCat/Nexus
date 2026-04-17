@@ -3,8 +3,10 @@
 	import { browser } from '$app/environment';
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import type { BookBookmark, BookHighlight } from '$lib/db/schema';
-	import * as pdfjsLib from 'pdfjs-dist';
-	import { TextLayer } from 'pdfjs-dist';
+	// Type-only imports — pdfjs-dist is a ~400 KB chunk, so we defer the
+	// actual module load until initPdf() runs. See the `pdfjs` variable
+	// below for the lazily-loaded module handle.
+	import type { PDFDocumentProxy, PageViewport, RenderTask } from 'pdfjs-dist';
 	import { Loader2 } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import PdfToolbar from './PdfToolbar.svelte';
@@ -42,8 +44,13 @@
 		highlights = []
 	}: Props = $props();
 
+	// ── Lazy pdfjs-dist handle ─────────────────────────────────────
+	// Populated by initPdf() via dynamic import so the ~400 KB pdfjs
+	// bundle only loads on this route (not e.g. when opening an EPUB).
+	let pdfjs: typeof import('pdfjs-dist') | null = null;
+
 	// ── Core state ─────────────────────────────────────────────────
-	let pdfDoc = $state<pdfjsLib.PDFDocumentProxy | null>(null);
+	let pdfDoc = $state<PDFDocumentProxy | null>(null);
 	let numPages = $state(0);
 	let currentPage = $state(1);
 	let scale = $state(1);
@@ -111,8 +118,8 @@
 	let textLayerRefs: (HTMLDivElement | null)[] = [];
 	let renderedPages = new SvelteSet<number>();
 	let renderingPages = new SvelteSet<number>();
-	let activeRenderTasks = new SvelteMap<number, pdfjsLib.RenderTask>();
-	let pageViewports: pdfjsLib.PageViewport[] = [];
+	let activeRenderTasks = new SvelteMap<number, RenderTask>();
+	let pageViewports: PageViewport[] = [];
 	let observer: IntersectionObserver | null = null;
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 	let scrollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -599,7 +606,7 @@
 
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
-		if (!pdfDoc || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
+		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
 
 		const idx = pageNum - 1;
 		const canvas = canvasRefs[idx];
@@ -633,7 +640,7 @@
 			// Render text layer
 			clearTextLayer(textDiv);
 			const textContent = await page.getTextContent();
-			const textLayer = new TextLayer({
+			const textLayer = new pdfjs.TextLayer({
 				container: textDiv,
 				textContentSource: textContent,
 				viewport: viewport
@@ -656,7 +663,7 @@
 	}
 
 	// ── Calculate fit-width scale ──────────────────────────────────
-	async function calculateFitWidthScale(doc: pdfjsLib.PDFDocumentProxy): Promise<number> {
+	async function calculateFitWidthScale(doc: PDFDocumentProxy): Promise<number> {
 		const firstPage = await doc.getPage(1);
 		const vp = firstPage.getViewport({ scale: 1 });
 		const containerWidth = viewportEl?.clientWidth ?? 800;
@@ -664,7 +671,7 @@
 	}
 
 	// ── Initialize page viewports (at scale=1 for placeholder sizing) ──
-	async function initPageViewports(doc: pdfjsLib.PDFDocumentProxy) {
+	async function initPageViewports(doc: PDFDocumentProxy) {
 		pageViewports = [];
 		for (let i = 1; i <= doc.numPages; i++) {
 			const page = await doc.getPage(i);
@@ -673,7 +680,7 @@
 	}
 
 	// ── Load PDF outline ──────────────────────────────────────────
-	async function loadOutline(doc: pdfjsLib.PDFDocumentProxy) {
+	async function loadOutline(doc: PDFDocumentProxy) {
 		try {
 			const outline = await doc.getOutline();
 			if (outline) {
@@ -700,9 +707,22 @@
 			loading = true;
 			loadError = null;
 
-			pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+			// Lazy-load pdfjs-dist (~400 KB) on first reader open so that
+			// readers for other formats (EPUB) don't pay the bundle cost.
+			if (!pdfjs) {
+				try {
+					pdfjs = await import('pdfjs-dist');
+				} catch (err) {
+					console.warn('[PdfReader] failed to load pdfjs-dist', err);
+					loadError = 'Failed to load PDF viewer';
+					loading = false;
+					return;
+				}
+			}
 
-			const loadingTask = pdfjsLib.getDocument(fileUrl);
+			pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+
+			const loadingTask = pdfjs.getDocument(fileUrl);
 			loadingTask.onProgress = (data: { loaded: number; total: number }) => {
 				if (data.total > 0) {
 					loadProgress = data.loaded / data.total;
