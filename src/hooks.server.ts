@@ -13,16 +13,20 @@ boot();
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
-	// Allowlisted pre-auth paths bypass the rest of the middleware entirely.
-	// (Session, redirect resolver, and the API state gate all short-circuit on
-	// these paths too, but returning early keeps the hot-path short.)
-	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
-		return resolve(event);
-	}
+	// Allowlisted pre-auth paths bypass rate limiting + the API state gate,
+	// but still go through session loading and the redirect resolver — the
+	// resolver now owns the per-entry-point lifecycle gates (#32), so we
+	// can't short-circuit around it any more.
+	const isAllowlisted = NO_AUTH_PATHS.some((p) => path.startsWith(p));
 
 	// Rate limiting — skip health endpoint and image proxy to avoid interfering
-	// with uptime checks / page loads.
-	if (!path.startsWith('/api/health') && !path.startsWith('/api/media/image')) {
+	// with uptime checks / page loads. Also skip allowlisted paths to preserve
+	// the prior bypass behavior.
+	if (
+		!isAllowlisted &&
+		!path.startsWith('/api/health') &&
+		!path.startsWith('/api/media/image')
+	) {
 		const clientIp = getClientIp(event);
 		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
 			(p) => path.startsWith(p)
@@ -66,7 +70,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// need to gate the pending/locked states here because the resolver does
 	// not redirect /api/* — it leaves the gate to hooks, where we respond with
 	// a structured 403 instead of redirecting an API call. (#7)
-	if (user && path.startsWith('/api')) {
+	//
+	// Skipped for allowlisted paths (/api/ingest/webhook) — those are
+	// intentionally callable without a session.
+	if (user && !isAllowlisted && path.startsWith('/api')) {
 		const isAuthApi = path.startsWith('/api/auth');
 		if (!isAuthApi && user.forcePasswordReset) {
 			return new Response(
