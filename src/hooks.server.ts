@@ -1,57 +1,12 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
 import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
-import { assertEncryptionKey } from '$lib/server/crypto';
-import { startSessionPoller } from '$lib/server/session-poller';
-import { startStatsScheduler } from '$lib/server/stats-scheduler';
-import { startVideoNotificationPoller } from '$lib/server/video-notifications';
-import { startRecScheduler } from '$lib/server/rec-scheduler';
-import { initSocialWsHandlers } from '$lib/server/social-ws';
-import { startHealthWatchdog, onServiceRecovery } from '$lib/server/health-watchdog';
-import { broadcastToAll } from '$lib/server/ws';
-import { startStreamProxy } from '$lib/server/stream-proxy';
-import { getEnabledConfigs } from '$lib/server/services';
-import { registerShutdownHandler } from '$lib/server/shutdown';
-import { installTunedDispatcher } from '$lib/server/http-pool';
+import { boot } from '$lib/server/boot';
 
-// Hard-fail boot if NEXUS_ENCRYPTION_KEY is missing or malformed. We never
-// silently store plaintext — parker's directive for the Apr-17 security
-// hardening work (issue #5).
-assertEncryptionKey();
-
-// Tune undici before any outbound fetch fires — raises per-origin connection
-// cap so the image-proxy hot path doesn't queue on the default of 5.
-installTunedDispatcher();
-
-// Start background analytics
-startSessionPoller();
-startStatsScheduler();
-startVideoNotificationPoller();
-startRecScheduler();
-
-// Start video stream proxy sub-server — always start so Jellyfin HLS delivery
-// works regardless of whether Invidious is configured. The binary's Invidious
-// features are dormant when no Invidious service is set up; Jellyfin HLS
-// session handoff works unconditionally.
-const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
-startStreamProxy(invConfig?.url ?? 'http://localhost:3000');
-
-// Start health watchdog — detects service recovery and invalidates stale caches
-startHealthWatchdog();
-
-// When services recover, notify all connected clients so they can refresh
-onServiceRecovery((recoveredIds) => {
-	broadcastToAll({
-		type: 'services:recovered',
-		data: { serviceIds: recoveredIds }
-	});
-});
-
-// Register social WS event handlers
-initSocialWsHandlers();
-
-// Register graceful shutdown handler for SIGTERM/SIGINT
-registerShutdownHandler();
+// All server-startup concerns (crypto validation, pollers, schedulers, stream
+// proxy, watchdog, lifecycle) are orchestrated in `$lib/server/boot`. Keep
+// hooks.server.ts focused on per-request middleware.
+boot();
 
 /** Paths that never require auth (login/setup flows) */
 const NO_AUTH_PATHS = ['/login', '/setup', '/invite', '/register', '/pending-approval', '/reset-password', '/api/ingest/webhook'];
