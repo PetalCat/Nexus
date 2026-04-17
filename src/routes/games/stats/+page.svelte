@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import StatCard from '$lib/components/games/StatCard.svelte';
+	import StatCard from '$lib/components/ui/StatCard.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -42,7 +42,7 @@
 		{#if data.avgRating}
 			<StatCard label="Avg Rating" value={data.avgRating} />
 		{/if}
-		<StatCard label="Finished" value={data.finishedCount} subtitle="{data.completionRate}% completion" />
+		<StatCard label="Finished" value={data.finishedCount} sublabel="{data.completionRate}% completion" />
 		<StatCard label="Platforms" value={data.platformBreakdown.length} />
 		<StatCard label="Genres" value={data.genreBreakdown.length} />
 	</div>
