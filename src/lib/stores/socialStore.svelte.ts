@@ -13,9 +13,11 @@ let _sharedItems = $state<SharedItem[]>([]);
 let _collabPlaylists = $state<CollaborativePlaylist[]>([]);
 
 // Ghost mode is NOT held here — the canonical single source is the server-
-// side `user_presence.ghost_mode` column, surfaced via /api/auth/me and
-// mutated via PUT /api/auth/me/ghost. See src/lib/server/social.ts (the
-// CANONICAL comment at updatePresence) and codex-review/27 bug B.
+// side `user_presence.ghost_mode` column, surfaced via GET /api/auth/me and
+// mutated by server-side `updatePresence()` (see src/lib/server/social.ts
+// CANONICAL comment). Any future client ghost UI goes through a new endpoint
+// that calls updatePresence; do NOT add a client-side mirror. See #33 + codex-
+// review/27 bug B.
 
 export const social = {
 	get friends() { return _friends; },

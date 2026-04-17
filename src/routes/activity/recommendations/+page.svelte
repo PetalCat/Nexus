@@ -11,7 +11,7 @@
 	let recsError = $state<string | null>(null);
 
 	// Canonical RecProfileConfig blob. The UI sliders mutate this in place and
-	// PUT the whole thing back to /api/recommendations/preferences on save.
+	// PUT the whole thing back to /api/user/recommendations/preferences on save.
 	// svelte-ignore state_referenced_locally — the initial-capture is the desired
 	// behavior here; SSR navigation remounts the page.
 	let profile = $state<RecProfileConfig>(structuredClone(data.profile));
@@ -55,7 +55,7 @@
 
 	async function refreshHidden() {
 		try {
-			const res = await fetch('/api/recommendations/preferences');
+			const res = await fetch('/api/user/recommendations/preferences');
 			if (res.ok) {
 				const body = await res.json();
 				hiddenItems = (body.hiddenItems ?? []).map((h: any) => ({
@@ -72,7 +72,7 @@
 	async function loadRecs() {
 		if (!data.hasStreamyStats) { recsLoading = false; return; }
 		try {
-			const res = await fetch('/api/recommendations');
+			const res = await fetch('/api/user/recommendations');
 			const json = await res.json();
 			recommendations = json.recommendations ?? [];
 			recsError = json.error ?? null;
@@ -88,7 +88,7 @@
 	async function savePreferences() {
 		savingPrefs = true;
 		try {
-			const res = await fetch('/api/recommendations/preferences', {
+			const res = await fetch('/api/user/recommendations/preferences', {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(profile)
