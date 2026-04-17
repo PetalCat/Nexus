@@ -2,6 +2,11 @@ import { json, error } from '@sveltejs/kit';
 import { updateUser } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
+// CANONICAL: `/api/user/profile` owns editable profile fields — currently
+// just displayName. Session-shape fields (id, username, isAdmin, presence,
+// linkedServices) belong to GET /api/auth/me; playback prefs belong to
+// POST /api/user/settings. Do NOT mirror identity fields here. See #33.
+
 // PUT: Update display name
 export const PUT: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401);
