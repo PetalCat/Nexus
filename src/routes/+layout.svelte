@@ -12,6 +12,7 @@
 	import { onNavigate, afterNavigate, invalidateAll } from '$app/navigation';
 	import { initAnalytics, trackPageView, destroyAnalytics } from '$lib/stores/analytics';
 	import { connectWs, disconnectWs, onMessage } from '$lib/stores/ws';
+	import { probeBandwidthIfStale } from '$lib/bandwidth-probe';
 	import { setNavigating } from '$lib/transition';
 	import { togglePalette } from '$lib/stores/commandPalette.svelte';
 	import { Bell, Menu, User, Search } from 'lucide-svelte';
@@ -72,6 +73,10 @@
 		initAnalytics();
 		if (data.user) {
 			connectWs();
+			// Kick the bandwidth probe for this session (no-op if recent).
+			// The player uses the result to cap initial transcode bitrate so
+			// first play doesn't stall on slow WAN links.
+			probeBandwidthIfStale();
 			unsubWs = onMessage('notification:new', () => {
 				// Re-fetch notifications when a new one arrives
 				fetchNotifications();
