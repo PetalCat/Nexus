@@ -3,6 +3,7 @@
 	import ServiceBadge from '$lib/components/ServiceBadge.svelte';
 	import NexusPlayer from '$lib/components/player/NexusPlayer.svelte';
 	import { probeBrowserCaps } from '$lib/components/player/browserCaps';
+	import { getEstimatedBandwidth, recommendedMaxBitrate } from '$lib/bandwidth-probe';
 	import type { PlaybackSession, PlaybackPlan } from '$lib/adapters/playback';
 	import ChannelCard from '$lib/components/video/ChannelCard.svelte';
 	import VideoComments from '$lib/components/video/VideoComments.svelte';
@@ -502,10 +503,19 @@
 
 	async function negotiatePlayback(serviceId: string, itemId: string, plan: PlaybackPlan = {}): Promise<PlaybackSession> {
 		const caps = probeBrowserCaps();
+		// If the user hasn't explicitly picked a quality AND we have a recent
+		// bandwidth estimate, cap maxBitrate to 80% of measured throughput so
+		// Jellyfin transcodes down to something the link can actually sustain.
+		// Prevents the "12 Mbps stream over a 5 Mbps pipe" first-play stall.
+		const effectivePlan: PlaybackPlan = { ...plan };
+		if (effectivePlan.maxBitrate == null && effectivePlan.targetHeight == null) {
+			const bps = getEstimatedBandwidth();
+			if (bps) effectivePlan.maxBitrate = recommendedMaxBitrate(bps);
+		}
 		const res = await fetch('/api/play/negotiate', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ serviceId, itemId, plan, caps }),
+			body: JSON.stringify({ serviceId, itemId, plan: effectivePlan, caps }),
 		});
 		if (!res.ok) throw new Error(`Negotiate failed: ${res.status}`);
 		return res.json();
