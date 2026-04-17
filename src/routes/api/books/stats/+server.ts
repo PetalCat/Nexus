@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDb, schema } from '$lib/db';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNotNull } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401);
@@ -17,36 +17,49 @@ export const GET: RequestHandler = async ({ locals }) => {
 		))
 		.get()?.count ?? 0;
 
-	// Total pages and reading time from sessions
+	// Total reading time from closed book sessions (play_sessions is canonical).
+	// `pages_read` is not tracked in the unified model, so we report 0 for pages
+	// rather than carrying a secondary truth.
 	const sessionStats = db.select({
-		totalPages: sql<number>`coalesce(sum(${schema.bookReadingSessions.pagesRead}), 0)`,
-		totalSeconds: sql<number>`coalesce(sum(${schema.bookReadingSessions.durationSeconds}), 0)`
+		totalSeconds: sql<number>`coalesce(sum(${schema.playSessions.durationMs}) / 1000, 0)`
 	})
-		.from(schema.bookReadingSessions)
-		.where(eq(schema.bookReadingSessions.userId, locals.user.id))
+		.from(schema.playSessions)
+		.where(and(
+			eq(schema.playSessions.userId, locals.user.id),
+			eq(schema.playSessions.mediaType, 'book'),
+			isNotNull(schema.playSessions.endedAt)
+		))
 		.get();
 
-	// Monthly breakdown (last 12 months)
+	// Monthly breakdown (last 12 months) — groups on started_at.
 	const monthlyBreakdown = db.select({
-		month: sql<string>`strftime('%Y-%m', ${schema.bookReadingSessions.startedAt} / 1000, 'unixepoch')`,
-		pages: sql<number>`coalesce(sum(${schema.bookReadingSessions.pagesRead}), 0)`,
+		month: sql<string>`strftime('%Y-%m', ${schema.playSessions.startedAt} / 1000, 'unixepoch')`,
+		pages: sql<number>`0`,
 		sessions: sql<number>`count(*)`,
-		readingTime: sql<number>`coalesce(sum(${schema.bookReadingSessions.durationSeconds}), 0)`
+		readingTime: sql<number>`coalesce(sum(${schema.playSessions.durationMs}) / 1000, 0)`
 	})
-		.from(schema.bookReadingSessions)
-		.where(eq(schema.bookReadingSessions.userId, locals.user.id))
-		.groupBy(sql`strftime('%Y-%m', ${schema.bookReadingSessions.startedAt} / 1000, 'unixepoch')`)
-		.orderBy(sql`strftime('%Y-%m', ${schema.bookReadingSessions.startedAt} / 1000, 'unixepoch') desc`)
+		.from(schema.playSessions)
+		.where(and(
+			eq(schema.playSessions.userId, locals.user.id),
+			eq(schema.playSessions.mediaType, 'book'),
+			isNotNull(schema.playSessions.endedAt)
+		))
+		.groupBy(sql`strftime('%Y-%m', ${schema.playSessions.startedAt} / 1000, 'unixepoch')`)
+		.orderBy(sql`strftime('%Y-%m', ${schema.playSessions.startedAt} / 1000, 'unixepoch') desc`)
 		.limit(12)
 		.all();
 
-	// Reading streak: consecutive days with sessions
+	// Reading streak: consecutive days with closed sessions.
 	const recentDays = db.select({
-		day: sql<string>`distinct strftime('%Y-%m-%d', ${schema.bookReadingSessions.startedAt} / 1000, 'unixepoch')`
+		day: sql<string>`distinct strftime('%Y-%m-%d', ${schema.playSessions.startedAt} / 1000, 'unixepoch')`
 	})
-		.from(schema.bookReadingSessions)
-		.where(eq(schema.bookReadingSessions.userId, locals.user.id))
-		.orderBy(sql`strftime('%Y-%m-%d', ${schema.bookReadingSessions.startedAt} / 1000, 'unixepoch') desc`)
+		.from(schema.playSessions)
+		.where(and(
+			eq(schema.playSessions.userId, locals.user.id),
+			eq(schema.playSessions.mediaType, 'book'),
+			isNotNull(schema.playSessions.endedAt)
+		))
+		.orderBy(sql`strftime('%Y-%m-%d', ${schema.playSessions.startedAt} / 1000, 'unixepoch') desc`)
 		.limit(365)
 		.all();
 
@@ -65,7 +78,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 	return json({
 		totalBooksRead: completedBooks,
-		totalPages: sessionStats?.totalPages ?? 0,
+		totalPages: 0,
 		totalReadingTimeSeconds: sessionStats?.totalSeconds ?? 0,
 		currentStreak: streak,
 		monthlyBreakdown

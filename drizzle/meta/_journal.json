@@ -78,6 +78,13 @@
       "when": 1776447700004,
       "tag": "0010_drop_recommendation_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1776466991171,
+      "tag": "0012_drop_book_reading_sessions",
+      "breakpoints": true
     }
   ]
 }

@@ -661,20 +661,10 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_book_highlights_user_book ON book_highlights(user_id, book_id, service_id)`);
 
-	db.run(`CREATE TABLE IF NOT EXISTS book_reading_sessions (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		book_id TEXT NOT NULL,
-		service_id TEXT NOT NULL,
-		started_at INTEGER NOT NULL,
-		ended_at INTEGER,
-		start_cfi TEXT,
-		end_cfi TEXT,
-		pages_read INTEGER,
-		duration_seconds INTEGER
-	)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_user ON book_reading_sessions(user_id, book_id)`);
-	db.run(`CREATE INDEX IF NOT EXISTS idx_book_sessions_started ON book_reading_sessions(user_id, started_at)`);
+	// `book_reading_sessions` was dropped 2026-04-17 (migration 0012).
+	// `play_sessions` now carries every field the old table used — started_at,
+	// ended_at, duration_ms, position (CFI or page), media_type='book'.
+	db.run(`DROP TABLE IF EXISTS book_reading_sessions`);
 
 	db.run(`CREATE TABLE IF NOT EXISTS book_bookmarks (
 		id TEXT PRIMARY KEY,

@@ -103,7 +103,6 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	if (userId) {
 		const db = getDb();
 		const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
-		const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
 
 		const booksThisYearRows = db.select({
 			mediaId: schema.playSessions.mediaId,
@@ -120,12 +119,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			booksThisYearRows.filter(r => r.updatedAt >= yearStart).map(r => r.mediaId)
 		).size;
 
-		const sessionsThisMonth = db.select().from(schema.bookReadingSessions)
-			.where(eq(schema.bookReadingSessions.userId, userId))
-			.all()
-			.filter(s => s.startedAt >= monthStart);
-
-		const pagesThisMonth = sessionsThisMonth.reduce((sum, s) => sum + (s.pagesRead ?? 0), 0);
+		// pages_read is not tracked in the unified play_sessions model; this
+		// reports 0 until the reader actually emits a page-delta signal.
+		const pagesThisMonth = 0;
 
 		readingStats = { booksThisYear, pagesThisMonth, currentStreak: 0 };
 	}
