@@ -357,10 +357,12 @@ export function getPresence(userId: string) {
 // CANONICAL: single source for ghost mode.
 // Ghost mode lives in the `user_presence.ghost_mode` column. This function
 // is the only writer; reads go through `getPresence()` / `isGhostMode()`.
-// Surfaced to the client via GET /api/auth/me and mutated by PUT
-// /api/auth/me/ghost. Client-side stores do NOT mirror this state — see
-// src/lib/stores/{authStore,socialStore}.svelte.ts for the deliberate
-// absence-of-field comments. Centralized 2026-04-17 (#34, codex-review/27).
+// Surfaced to the client via GET /api/auth/me. Client-side stores do NOT
+// mirror this state — see src/lib/stores/{authStore,socialStore}.svelte.ts
+// for the deliberate absence-of-field comments. The old PUT /api/auth/me/ghost
+// HTTP endpoint was removed in #33 (no callers); any future client ghost UI
+// calls `updatePresence()` via a fresh, purpose-built endpoint.
+// Centralized 2026-04-17 (#34, codex-review/27); ghost endpoint retired #33.
 export function updatePresence(userId: string, updates: {
 	status?: string;
 	customStatus?: string | null;
