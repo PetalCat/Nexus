@@ -151,7 +151,9 @@ export const load: PageServerLoad = async () => {
 	const overseerrConfigs = getEnabledConfigs().filter((c) => c.type === 'overseerr');
 
 	const [sessionsResult, requestsResult] = await Promise.allSettled([
-		// Live sessions from every configured media server (short cache — 10s)
+		// Live sessions from every configured media server (short cache — 10s).
+		// "Live" here means any adapter-polled session carrying a NowPlayingItem,
+		// including paused ones. The admin UI splits playing vs paused.
 		withCache('admin-sessions', 10_000, async () => {
 			const [jfSets, plexSets] = await Promise.all([
 				Promise.allSettled(jellyfinConfigs.map(fetchJellyfinSessions)),
@@ -178,28 +180,48 @@ export const load: PageServerLoad = async () => {
 	]);
 
 	// ── Overview metrics ─────────────────────────────────────────────────
+	//
+	// Two truth sources here — keep them separate:
+	//   • `sessions` (above) is adapter-polled; reflects what is happening RIGHT NOW.
+	//   • `play_sessions` is a rollup table mutated in place by the session-poller
+	//     — one row per session, `ended_at` fills in only once the session stops.
+	//
+	// Historically these two were conflated; this split is documented in
+	// docs/superpowers/specs/2026-04-17-surface-drift-fix-plan.md (#18).
 	const db = getRawDb();
 	const onlineUsers = getConnectedUserCount();
 	const totalUsers = (db.prepare(`SELECT COUNT(*) as count FROM users`).get() as any)?.count ?? 0;
 
-	// Play time today
-	const todayStart = new Date();
-	todayStart.setHours(0, 0, 0, 0);
+	// Play time today — sum only the portion of each session that actually
+	// overlaps today's window, so cross-midnight sessions aren't double-counted
+	// against either day.
+	const todayStartDate = new Date();
+	todayStartDate.setHours(0, 0, 0, 0);
+	const todayStart = todayStartDate.getTime();
+	const tomorrowStart = todayStart + 24 * 60 * 60 * 1000;
+	const now = Date.now();
 	const playTimeToday = (db.prepare(`
-		SELECT COALESCE(SUM(duration_ms), 0) as total
+		SELECT COALESCE(SUM(
+			MIN(COALESCE(ended_at, ?), ?) - MAX(started_at, ?)
+		), 0) AS total
 		FROM play_sessions
-		WHERE started_at >= ?
-	`).get(todayStart.getTime()) as any)?.total ?? 0;
+		WHERE COALESCE(ended_at, ?) >= ? AND started_at < ?
+	`).get(now, tomorrowStart, todayStart, now, todayStart, tomorrowStart) as any)?.total ?? 0;
 
-	// Recent play sessions (last 10)
+	// Recent sessions rollup — one row per session. `ended_at` is NULL while the
+	// session is still in flight, so we use COALESCE(ended_at, updated_at) as the
+	// "last we heard from this session" timestamp. Never `started_at` alone, which
+	// was the historical bug (completed sessions reported their start time as the
+	// stop time).
 	const recentEvents = db.prepare(`
 		SELECT ps.user_id, u.display_name as userName,
 		       CASE WHEN ps.ended_at IS NOT NULL THEN 'play_stop' ELSE 'play_start' END as eventType,
-		       ps.media_title as mediaTitle, ps.media_type as mediaType, ps.started_at as timestamp,
+		       ps.media_title as mediaTitle, ps.media_type as mediaType,
+		       COALESCE(ps.ended_at, ps.updated_at) as timestamp,
 		       ps.duration_ms as playDurationMs
 		FROM play_sessions ps
 		LEFT JOIN users u ON u.id = ps.user_id
-		ORDER BY ps.started_at DESC
+		ORDER BY COALESCE(ps.ended_at, ps.updated_at) DESC
 		LIMIT 10
 	`).all() as any[];
 
