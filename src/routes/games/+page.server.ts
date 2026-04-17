@@ -2,6 +2,8 @@ import { getLibraryItems, getConfigsForMediaType } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import { getPlatforms } from '$lib/adapters/romm';
 import { getUserCredentialForService } from '$lib/server/auth';
+import { getDb, schema } from '$lib/db';
+import { and, eq, desc } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -39,6 +41,42 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			romIds: c.roms ?? []
 		}));
 	} catch { /* ignore */ }
+
+	// Enrich items with per-user session state (same pattern as books). RomM's
+	// `userStatus` stays as an advisory hint but Continue Playing is driven by
+	// play_sessions now.
+	if (userId) {
+		const db = getDb();
+		const gameSessions = db.select({
+			mediaId: schema.playSessions.mediaId,
+			serviceId: schema.playSessions.serviceId,
+			updatedAt: schema.playSessions.updatedAt,
+			endedAt: schema.playSessions.endedAt,
+			completed: schema.playSessions.completed
+		})
+			.from(schema.playSessions)
+			.where(and(
+				eq(schema.playSessions.userId, userId),
+				eq(schema.playSessions.mediaType, 'game')
+			))
+			.orderBy(desc(schema.playSessions.updatedAt))
+			.all();
+		const latestBySource = new Map<string, typeof gameSessions[number]>();
+		for (const row of gameSessions) {
+			const key = `${row.serviceId}:${row.mediaId}`;
+			if (!latestBySource.has(key)) latestBySource.set(key, row);
+		}
+		for (const item of libraryResult.items) {
+			const s = latestBySource.get(`${item.serviceId}:${item.sourceId}`);
+			if (!s) continue;
+			item.metadata = {
+				...(item.metadata ?? {}),
+				lastPlayedAtMs: s.updatedAt,
+				sessionOpen: s.endedAt == null,
+				sessionCompleted: !!s.completed
+			};
+		}
+	}
 
 	return {
 		items: libraryResult.items,
