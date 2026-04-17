@@ -41,7 +41,25 @@
 	let sessionStart = $state(0);
 	let playSeconds = $state(0);
 	let playTimerInterval: ReturnType<typeof setInterval> | null = null;
+	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 	let gameReady = $state(false);
+
+	// Fire a start/heartbeat/stop event to the unified play_sessions writer.
+	// On 'stop' we use sendBeacon so the call survives page unload.
+	function postGameProgress(event: 'start' | 'heartbeat' | 'stop') {
+		const url = `/api/games/${item.sourceId}/progress?serviceId=${encodeURIComponent(data.serviceId)}`;
+		const payload = JSON.stringify({ event, title: item.title, playSeconds });
+		if (event === 'stop' && typeof navigator !== 'undefined' && 'sendBeacon' in navigator) {
+			navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+			return;
+		}
+		fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: payload,
+			keepalive: event === 'stop'
+		}).catch(() => { /* silent — progress reporting is best-effort */ });
+	}
 
 	// Quick resume banner
 	let showResumeBanner = $state(false);
@@ -386,6 +404,10 @@
 					playTimerInterval = setInterval(() => {
 						playSeconds = Math.floor((Date.now() - sessionStart) / 1000);
 					}, 1000);
+					postGameProgress('start');
+					heartbeatInterval = setInterval(() => {
+						if (gameReady) postGameProgress('heartbeat');
+					}, 30_000);
 					// Show resume banner instead of auto-loading silently
 					setTimeout(() => {
 						const latestState = sortEntries(stateList, 'state')[0];
@@ -435,10 +457,11 @@
 			}
 		}
 
-		// Auto-save on page exit
+		// Auto-save on page exit + close the play_sessions row
 		function handleBeforeUnload() {
 			if (gameReady) {
 				emulatorFrame?.contentWindow?.postMessage({ type: 'ejs:requestSaveState' }, '*');
+				postGameProgress('stop');
 			}
 		}
 
@@ -450,9 +473,11 @@
 			window.removeEventListener('message', handleMessage);
 			window.removeEventListener('keydown', handleKeydown);
 			window.removeEventListener('beforeunload', handleBeforeUnload);
+			if (gameReady) postGameProgress('stop');
 			if (toastTimeout) clearTimeout(toastTimeout);
 			if (undoTimeout) clearTimeout(undoTimeout);
 			if (playTimerInterval) clearInterval(playTimerInterval);
+			if (heartbeatInterval) clearInterval(heartbeatInterval);
 		};
 	});
 

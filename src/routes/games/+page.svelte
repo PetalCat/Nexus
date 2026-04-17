@@ -147,8 +147,23 @@
 		goto(`/games${qs ? '?' + qs : ''}`, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
+	// Continue Playing is driven by play_sessions (`sessionOpen` from the
+	// server loader) with RomM's `userStatus` as a tiebreaker for games the
+	// user hasn't launched via Nexus yet.
 	const inProgress = $derived(
-		data.items.filter((i: UnifiedMedia) => i.metadata?.userStatus === 'playing' || (i.progress && i.progress > 0 && i.progress < 1))
+		data.items
+			.filter((i: UnifiedMedia) => {
+				const meta = (i.metadata ?? {}) as Record<string, unknown>;
+				if (meta.sessionOpen === true && meta.sessionCompleted !== true) return true;
+				if (meta.lastPlayedAtMs && meta.sessionCompleted !== true) return true;
+				if (meta.userStatus === 'playing') return true;
+				return !!(i.progress && i.progress > 0 && i.progress < 1);
+			})
+			.sort((a: UnifiedMedia, b: UnifiedMedia) => {
+				const aMs = ((a.metadata ?? {}) as any).lastPlayedAtMs ?? 0;
+				const bMs = ((b.metadata ?? {}) as any).lastPlayedAtMs ?? 0;
+				return bMs - aMs;
+			})
 	);
 
 	const filtered = $derived.by(() => {
