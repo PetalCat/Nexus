@@ -471,7 +471,30 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		item.metadata = { ...item.metadata, quality };
 	}
 
+	// ── Post-play data: next item + skip markers (Jellyfin-only this cycle) ──
+	// Non-Jellyfin sources get null/[] and the player hides the up-next card
+	// and skip buttons accordingly. See plan §4 and the locked decisions.
+	let nextItem: import('$lib/adapters/player-markers').NextItemData | null = null;
+	let skipMarkers: import('$lib/adapters/player-markers').SkipMarkerData[] = [];
+	if (
+		resolvedServiceType === 'jellyfin' &&
+		(item.type === 'episode' || item.type === 'movie')
+	) {
+		try {
+			if (adapter.getNextItem) {
+				nextItem = await adapter.getNextItem(config, params.id, userCred);
+			}
+		} catch { /* silent */ }
+		try {
+			if (adapter.getSkipMarkers) {
+				skipMarkers = await adapter.getSkipMarkers(config, params.id, userCred);
+			}
+		} catch { /* silent */ }
+	}
+
 	return {
+		nextItem,
+		skipMarkers,
 		item,
 		serviceType: resolvedServiceType,
 		serviceId,

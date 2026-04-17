@@ -10,6 +10,8 @@
 	import QualityMenu from './QualityMenu.svelte';
 	import AudioMenu from './AudioMenu.svelte';
 	import SubtitleMenu from './SubtitleMenu.svelte';
+	import PostPlayCard from './PostPlayCard.svelte';
+	import SkipButton from './SkipButton.svelte';
 
 	interface Props {
 		session: PlaybackSession;
@@ -976,7 +978,23 @@
 		</div>
 	{/if}
 
-	<!-- Post-play / skip overlays rendered in commit 3 (issue #19). -->
+	<!-- Skip intro/credits/recap pill (issue #19) — floats above controls.
+	     Gated on activeSkipMarker so non-Jellyfin sources (skipMarkers=[])
+	     never render anything. -->
+	{#if hasStarted && !ps.error && activeSkipMarker}
+		<SkipButton marker={activeSkipMarker} onclick={onClickSkipMarker} />
+	{/if}
+
+	<!-- Post-play up-next card (issue #19). Gated on nextItem being present;
+	     the caller is responsible for passing null for non-Jellyfin sources. -->
+	{#if hasStarted && !ps.error && postPlayVisible && nextItem}
+		<PostPlayCard
+			{nextItem}
+			countdown={postPlayCountdown}
+			onplaynext={() => { dismissPostPlay(); if (nextItem) onplaynext?.(nextItem); }}
+			ondismiss={() => { dismissPostPlay(); oncomplete?.(); }}
+		/>
+	{/if}
 </div>
 
 <style>

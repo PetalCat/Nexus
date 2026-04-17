@@ -143,6 +143,23 @@ export interface ServiceAdapter {
 	/** Items the user is currently in progress on */
 	getContinueWatching?(config: ServiceConfig, userCred?: UserCredential): Promise<UnifiedMedia[]>;
 
+	/**
+	 * The "next" item after the given one — next episode of a show, next
+	 * movie in a collection, etc. Used by the player's post-play up-next
+	 * card (#19). Return `null` when there's nothing to play next.
+	 *
+	 * Adapters without a native concept of "next" should not implement this;
+	 * the player gates its up-next UI on absence.
+	 */
+	getNextItem?(config: ServiceConfig, sourceId: string, userCred?: UserCredential): Promise<import('./player-markers').NextItemData | null>;
+
+	/**
+	 * Skip markers (intro/credits/recap ranges) for the given item.
+	 * Used by the player's floating Skip button (#19). Return empty array
+	 * when none are known.
+	 */
+	getSkipMarkers?(config: ServiceConfig, sourceId: string, userCred?: UserCredential): Promise<import('./player-markers').SkipMarkerData[]>;
+
 	/** Recently added items */
 	getRecentlyAdded?(config: ServiceConfig, userCred?: UserCredential): Promise<UnifiedMedia[]>;
 
