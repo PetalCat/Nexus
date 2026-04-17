@@ -1,3 +1,5 @@
+<!-- CANONICAL: the data-wired MediaCard. Do not re-create a second MediaCard.
+     If new visual variants are needed, extend this component via props. -->
 <script lang="ts">
 	import type { UnifiedMedia } from '$lib/adapters/types';
 	import { goto } from '$app/navigation';
