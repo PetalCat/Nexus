@@ -36,6 +36,13 @@
       "when": 1776385137546,
       "tag": "0004_worthless_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1776447600000,
+      "tag": "0005_encrypt_stored_password",
+      "breakpoints": true
     }
   ]
 }
