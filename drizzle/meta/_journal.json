@@ -43,6 +43,27 @@
       "when": 1776447600000,
       "tag": "0005_encrypt_stored_password",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776447700000,
+      "tag": "0006_play_sessions_canonical",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1776447700001,
+      "tag": "0007_backfill_activity_to_play_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1776447700002,
+      "tag": "0008_drop_activity_table",
+      "breakpoints": true
     }
   ]
 }

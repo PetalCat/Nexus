@@ -160,17 +160,9 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		cached_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
 
-	db.run(`CREATE TABLE IF NOT EXISTS activity (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id TEXT,
-		media_id TEXT NOT NULL,
-		service_id TEXT NOT NULL,
-		type TEXT NOT NULL,
-		progress REAL NOT NULL DEFAULT 0,
-		position_ticks INTEGER,
-		completed INTEGER NOT NULL DEFAULT 0,
-		last_activity TEXT NOT NULL DEFAULT (datetime('now'))
-	)`);
+	// Legacy `activity` table removed 2026-04-17; play_sessions is the canonical
+	// source for progress/history. Any pre-existing rows were backfilled in
+	// migration 0007 before the DROP in 0008.
 
 	db.run(`CREATE TABLE IF NOT EXISTS requests (
 		id TEXT PRIMARY KEY,

@@ -8,12 +8,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const db = getDb();
 
 	// Total completed books
-	const completedBooks = db.select({ count: sql<number>`count(*)` })
-		.from(schema.activity)
+	const completedBooks = db.select({ count: sql<number>`count(distinct ${schema.playSessions.mediaId})` })
+		.from(schema.playSessions)
 		.where(and(
-			eq(schema.activity.userId, locals.user.id),
-			eq(schema.activity.type, 'read'),
-			eq(schema.activity.completed, true)
+			eq(schema.playSessions.userId, locals.user.id),
+			eq(schema.playSessions.mediaType, 'book'),
+			eq(schema.playSessions.completed, 1)
 		))
 		.get()?.count ?? 0;
 

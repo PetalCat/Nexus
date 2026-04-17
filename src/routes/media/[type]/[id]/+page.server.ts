@@ -280,25 +280,24 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	) {
 		try {
 			const { getDb } = await import('$lib/db');
-			const { activity } = await import('$lib/db/schema');
+			const { playSessions } = await import('$lib/db/schema');
 			const { eq, and, desc, inArray } = await import('drizzle-orm');
 			const db = getDb();
 			const mediaIds = Array.from(new Set([params.id, item.sourceId].filter((v): v is string => !!v)));
-			const record = db.select().from(activity)
+			const record = db.select().from(playSessions)
 				.where(
 					and(
-						eq(activity.userId, userId),
-						eq(activity.serviceId, serviceId),
-						inArray(activity.mediaId, mediaIds),
-						eq(activity.type, 'watch')
+						eq(playSessions.userId, userId),
+						eq(playSessions.serviceId, serviceId),
+						inArray(playSessions.mediaId, mediaIds)
 					)
 				)
-				.orderBy(desc(activity.lastActivity))
+				.orderBy(desc(playSessions.updatedAt))
 				.get();
-			if (record && !record.completed && record.progress > 0) {
-				item.progress = Math.max(item.progress ?? 0, record.progress);
-				if (!item.duration && record.positionTicks && record.progress > 0) {
-					item.duration = record.positionTicks / 10_000_000 / record.progress;
+			if (record && !record.completed && (record.progress ?? 0) > 0) {
+				item.progress = Math.max(item.progress ?? 0, record.progress ?? 0);
+				if (!item.duration && record.positionTicks && (record.progress ?? 0) > 0) {
+					item.duration = record.positionTicks / 10_000_000 / (record.progress ?? 1);
 				}
 			}
 		} catch { /* silent */ }
@@ -411,16 +410,22 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		if (userId) {
 			try {
 				const { getDb } = await import('$lib/db');
-				const { activity } = await import('$lib/db/schema');
-				const { eq, and } = await import('drizzle-orm');
+				const { playSessions } = await import('$lib/db/schema');
+				const { eq, and, desc } = await import('drizzle-orm');
 				const db = getDb();
-				const record = db.select().from(activity)
-					.where(and(eq(activity.userId, userId), eq(activity.mediaId, params.id), eq(activity.serviceId, serviceId)))
+				const record = db.select().from(playSessions)
+					.where(and(
+						eq(playSessions.userId, userId),
+						eq(playSessions.mediaId, params.id),
+						eq(playSessions.serviceId, serviceId)
+					))
+					.orderBy(desc(playSessions.updatedAt))
 					.get();
-				if (record && !record.completed && record.progress > 0 && record.progress < 0.9) {
-					item.progress = record.progress;
+				const progress = record?.progress ?? 0;
+				if (record && !record.completed && progress > 0 && progress < 0.9) {
+					item.progress = progress;
 					if (record.positionTicks) {
-						item.duration = record.positionTicks / 10_000_000 / (record.progress || 1);
+						item.duration = record.positionTicks / 10_000_000 / (progress || 1);
 					}
 				}
 			} catch { /* silent */ }

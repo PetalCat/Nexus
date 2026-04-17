@@ -283,24 +283,12 @@ export function emitMediaAction(input: MediaActionInput): void {
 }
 
 // ---------------------------------------------------------------------------
-// Play session helpers (used by poller + progress endpoints)
+// Play session helpers — moved to src/lib/server/play-sessions.ts as part of
+// the 2026-04-17 data-model unification. Re-exported here for callers that
+// haven't been updated yet.
 // ---------------------------------------------------------------------------
 
-/** Find an open (not ended) session by session_key. */
-export function findOpenSessionByKey(sessionKey: string) {
-	const db = getRawDb();
-	return db.prepare(
-		`SELECT * FROM play_sessions WHERE session_key = ? AND ended_at IS NULL`
-	).get(sessionKey) as any | undefined;
-}
-
-/** Find an open session for a user + media combination. */
-export function findOpenSession(userId: string, mediaId: string, serviceId: string) {
-	const db = getRawDb();
-	return db.prepare(
-		`SELECT * FROM play_sessions WHERE user_id = ? AND media_id = ? AND service_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`
-	).get(userId, mediaId, serviceId) as any | undefined;
-}
+export { findOpenSession, findOpenSessionByKey } from './play-sessions';
 
 // ---------------------------------------------------------------------------
 // Interaction event ingestion
