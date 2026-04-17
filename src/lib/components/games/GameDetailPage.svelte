@@ -16,7 +16,8 @@
 	import { MEDIA_TYPE_CONFIG } from '$lib/types/media-ui';
 	import ActionButton from '$lib/components/media/ActionButton.svelte';
 	import MediaBadge from '$lib/components/media/MediaBadge.svelte';
-	import MediaCard from '$lib/components/media/MediaCard.svelte';
+	import MediaCard from '$lib/components/MediaCard.svelte';
+	import type { UnifiedMedia as AdapterMedia } from '$lib/adapters/types';
 	import FriendsWatchedRow from '$lib/components/social/FriendsWatchedRow.svelte';
 	import ShareMenu from '$lib/components/social/ShareMenu.svelte';
 	import SessionPanel from '$lib/components/social/SessionPanel.svelte';
@@ -350,7 +351,7 @@
 								>
 									{#each relatedGames as related, i (related.id)}
 										<a href="/games/{related.id}" class="nexus-stagger-item flex-shrink-0" style="animation-delay: {Math.min(i * 40, 600)}ms" data-sveltekit-preload-data>
-											<MediaCard media={related} size="md" showProgress forceAspect="portrait" />
+											<MediaCard item={related as unknown as AdapterMedia} size="md" />
 										</a>
 									{/each}
 								</div>

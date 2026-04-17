@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { ChevronLeft, ChevronRight } from 'lucide-svelte';
 	import type { UnifiedMedia } from '$lib/types/media-ui';
-	import MediaCard from './MediaCard.svelte';
+	import type { UnifiedMedia as AdapterMedia } from '$lib/adapters/types';
+	import MediaCard from '$lib/components/MediaCard.svelte';
 
 	interface Props {
 		title: string;
@@ -13,11 +14,11 @@
 		onitemclick?: (media: UnifiedMedia) => void;
 	}
 
-	let { title, items, showProgress = false, showBadge = true, cardSize = 'md', forceAspect = null, onitemclick }: Props = $props();
-
-	// Auto-detect: if items have mixed types, force portrait for uniform height
-	const hasMixedTypes = $derived(new Set(items.map((i) => i.type)).size > 1);
-	const resolvedAspect = $derived(forceAspect ?? (hasMixedTypes ? 'portrait' : null));
+	// Props kept for backward API compat — only `cardSize` is threaded through
+	// to the canonical MediaCard. `showProgress`, `showBadge`, `forceAspect`,
+	// and `onitemclick` are no-ops after the consolidation on #31.
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let { title, items, cardSize = 'md' }: Props = $props();
 
 	let scrollEl: HTMLDivElement | undefined = $state();
 	let canScrollLeft = $state(false);
@@ -88,7 +89,7 @@
 				class="flex gap-3 overflow-x-auto px-2 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 			>
 				{#each items as media (media.id)}
-					<MediaCard {media} size={cardSize} {showProgress} {showBadge} forceAspect={resolvedAspect} onclick={onitemclick ? () => onitemclick(media) : undefined} />
+					<MediaCard item={media as unknown as AdapterMedia} size={cardSize === 'xl' ? 'lg' : cardSize} />
 				{/each}
 			</div>
 
