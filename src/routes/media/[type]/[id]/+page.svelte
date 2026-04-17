@@ -774,6 +774,7 @@
 			skipMarkers={(data as any).skipMarkers ?? []}
 			onplaynext={handlePlayNext}
 			autoplayNext={(data as any).playbackPrefs?.autoplayNext ?? false}
+			playbackRate={(data as any).playbackPrefs?.playbackRate ?? 1}
 		/>
 		{/key}
 	{:else if isPlayable && !isAudioType && (showPlayer || autoplay) && !playbackSession}
@@ -975,6 +976,7 @@
 											onqualitychange={handleQualityChange}
 											onaudiochange={handleAudioChange}
 											onsubtitlechange={handleSubtitleChange}
+											playbackRate={(data as any).playbackPrefs?.playbackRate ?? 1}
 										/>
 									{:else}
 										<div class="flex items-center justify-center h-24 rounded-lg" style="background: rgba(255,255,255,0.03)">
@@ -1872,6 +1874,7 @@
 					onqualitychange={handleQualityChange}
 					onaudiochange={handleAudioChange}
 					onsubtitlechange={handleSubtitleChange}
+					playbackRate={(data as any).playbackPrefs?.playbackRate ?? 1}
 				/>
 				{/key}
 			{:else}

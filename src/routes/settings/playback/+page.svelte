@@ -27,6 +27,28 @@
 		}
 	}
 
+	// ── Autoplay next preference (issue #20) ──────────────────
+	let autoplayNext = $state((data as any).autoplayNext ?? false);
+	let autoplayNextSaving = $state(false);
+
+	async function saveAutoplayNext(value: boolean) {
+		autoplayNextSaving = true;
+		try {
+			const res = await fetch('/api/user/settings', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ key: 'autoplayNext', value: String(value) })
+			});
+			if (!res.ok) throw new Error('Failed to save');
+			await invalidateAll();
+		} catch {
+			toast.error('Failed to save autoplay-next preference');
+			autoplayNext = !value;
+		} finally {
+			autoplayNextSaving = false;
+		}
+	}
+
 	// ── Playback speed state ──────────────────────────────────
 	type SpeedRule = { id?: number; scope: string; scopeValue: string | null; scopeName: string | null; speed: number };
 	let speedRules = $state<SpeedRule[]>([]);
@@ -76,7 +98,13 @@
 	}
 
 	// ── SponsorBlock preferences state ─────────────────────────
-	type SBAction = 'skip' | 'mute' | 'ask' | 'show' | 'off';
+	// Per 2026-04-17 player alignment plan (#20): only 'skip' and 'off'
+	// are honored by the player this cycle. 'mute' would need an audio-
+	// ducking path on the <video> element, 'ask' would need a blocking
+	// modal, and 'show' (showOnTimeline) needs scrub-bar segment
+	// rendering — none of which exist yet. Rather than lie to the user,
+	// we remove those controls entirely until an implementation lands.
+	type SBAction = 'skip' | 'off';
 	type SBCategory = 'sponsor' | 'selfpromo' | 'interaction' | 'intro' | 'outro' | 'preview' | 'music_offtopic' | 'filler' | 'poi_highlight' | 'chapter';
 	const SB_CATEGORIES: { key: SBCategory; label: string; color: string; desc: string }[] = [
 		{ key: 'sponsor', label: 'Sponsor', color: '#00d400', desc: 'Paid promotion, sponsorship' },
@@ -92,9 +120,6 @@
 	];
 	const SB_ACTIONS: { value: SBAction; label: string }[] = [
 		{ value: 'skip', label: 'Auto-Skip' },
-		{ value: 'mute', label: 'Mute' },
-		{ value: 'ask', label: 'Ask' },
-		{ value: 'show', label: 'Show on Timeline' },
 		{ value: 'off', label: 'Off' }
 	];
 
@@ -102,13 +127,20 @@
 	let sbCategorySettings = $state<Record<string, SBAction>>({
 		sponsor: 'skip', selfpromo: 'skip', interaction: 'skip',
 		intro: 'off', outro: 'off', preview: 'off',
-		music_offtopic: 'off', filler: 'off', poi_highlight: 'show', chapter: 'off'
+		music_offtopic: 'off', filler: 'off', poi_highlight: 'off', chapter: 'off'
 	});
-	let sbShowOnTimeline = $state(true);
 	let sbShowSkipNotice = $state(true);
 	let sbSkipNoticeDuration = $state(3000);
 	let sbLoading = $state(false);
 	let sbSaving = $state(false);
+
+	/** Coerce any non-honored action stored upstream to a safe value.
+	 *  We don't remove removed-action rows from the DB — the API can still
+	 *  accept them — but the UI only exposes skip/off, so we normalize
+	 *  anything else to 'off' for display purposes. */
+	function normalizeAction(value: string): SBAction {
+		return value === 'skip' ? 'skip' : 'off';
+	}
 
 	async function loadSBPrefs() {
 		sbLoading = true;
@@ -117,10 +149,13 @@
 			if (res.ok) {
 				const data = await res.json();
 				sbEnabled = data.enabled;
-				sbCategorySettings = data.categorySettings;
-				sbShowOnTimeline = data.showOnTimeline;
-				sbShowSkipNotice = data.showSkipNotice;
-				sbSkipNoticeDuration = data.skipNoticeDuration;
+				const cs: Record<string, SBAction> = {};
+				for (const k of Object.keys(data.categorySettings ?? {})) {
+					cs[k] = normalizeAction(data.categorySettings[k]);
+				}
+				sbCategorySettings = { ...sbCategorySettings, ...cs };
+				sbShowSkipNotice = data.showSkipNotice ?? sbShowSkipNotice;
+				sbSkipNoticeDuration = data.skipNoticeDuration ?? sbSkipNoticeDuration;
 			}
 		} catch { toast.error('Failed to load SponsorBlock preferences'); }
 		finally { sbLoading = false; }
@@ -135,7 +170,10 @@
 				body: JSON.stringify({
 					enabled: sbEnabled,
 					categorySettings: sbCategorySettings,
-					showOnTimeline: sbShowOnTimeline,
+					// showOnTimeline removed from UI (no scrub-bar impl this
+					// cycle); pass false so any persisted true value stops
+					// implying a behavior we don't ship.
+					showOnTimeline: false,
 					showSkipNotice: sbShowSkipNotice,
 					skipNoticeDuration: sbSkipNoticeDuration
 				})
@@ -151,20 +189,41 @@
 	});
 </script>
 
-<!-- Autoplay Trailers -->
+<!-- Playback Behavior -->
 <section class="mb-8">
-	<div class="flex items-center justify-between mb-1">
-		<h2 class="text-display text-base font-semibold">Autoplay Trailers</h2>
-		<button
-			class="relative h-6 w-11 rounded-full transition-colors {autoplayTrailers ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'} disabled:opacity-50"
-			onclick={() => { autoplayTrailers = !autoplayTrailers; saveAutoplayTrailers(autoplayTrailers); }}
-			aria-label="Toggle autoplay trailers"
-			disabled={autoplaySaving}
-		>
-			<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {autoplayTrailers ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
-		</button>
+	<h2 class="text-display mb-3 text-base font-semibold">Playback Behavior</h2>
+
+	<div class="space-y-3">
+		<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+			<div class="pr-4">
+				<p class="text-sm font-medium text-[var(--color-display)]">Autoplay Trailers</p>
+				<p class="mt-0.5 text-xs text-[var(--color-muted)]">Automatically play trailers in the hero section on movie and show pages. Defaults to off on mobile devices.</p>
+			</div>
+			<button
+				class="relative h-6 w-11 flex-shrink-0 rounded-full transition-colors {autoplayTrailers ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'} disabled:opacity-50"
+				onclick={() => { autoplayTrailers = !autoplayTrailers; saveAutoplayTrailers(autoplayTrailers); }}
+				aria-label="Toggle autoplay trailers"
+				disabled={autoplaySaving}
+			>
+				<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {autoplayTrailers ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+			</button>
+		</div>
+
+		<div class="flex items-center justify-between rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-4">
+			<div class="pr-4">
+				<p class="text-sm font-medium text-[var(--color-display)]">Autoplay Next Episode</p>
+				<p class="mt-0.5 text-xs text-[var(--color-muted)]">When an episode ends, start the next one after a 10 second countdown. You can cancel from the up-next card.</p>
+			</div>
+			<button
+				class="relative h-6 w-11 flex-shrink-0 rounded-full transition-colors {autoplayNext ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'} disabled:opacity-50"
+				onclick={() => { autoplayNext = !autoplayNext; saveAutoplayNext(autoplayNext); }}
+				aria-label="Toggle autoplay next episode"
+				disabled={autoplayNextSaving}
+			>
+				<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {autoplayNext ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
+			</button>
+		</div>
 	</div>
-	<p class="text-body-muted text-xs">Automatically play trailers in the hero section on movie and show pages. Defaults to off on mobile devices.</p>
 </section>
 
 <!-- Playback Speed Rules -->
@@ -298,19 +357,6 @@
 		<!-- Display options -->
 		<div class="rounded-lg border border-[rgba(240,235,227,0.06)] bg-[var(--color-surface)] p-5 space-y-4">
 			<h3 class="text-sm font-medium text-[var(--color-display)]">Display Options</h3>
-
-			<div class="flex items-center justify-between">
-				<div>
-					<p class="text-sm text-[var(--color-display)]">Show segments on timeline</p>
-					<p class="text-xs text-[var(--color-muted)]">Colour-coded bars on the player scrub bar</p>
-				</div>
-				<button
-					class="relative h-6 w-11 rounded-full transition-colors {sbShowOnTimeline ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-raised)]'}"
-					onclick={() => { sbShowOnTimeline = !sbShowOnTimeline; saveSBPrefs(); }} aria-label="Toggle show segments on timeline"
-				>
-					<span class="absolute top-0.5 h-5 w-5 rounded-full bg-cream shadow transition-transform {sbShowOnTimeline ? 'translate-x-[22px]' : 'translate-x-0.5'}"></span>
-				</button>
-			</div>
 
 			<div class="flex items-center justify-between">
 				<div>
