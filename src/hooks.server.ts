@@ -19,18 +19,21 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// can't short-circuit around it any more.
 	const isAllowlisted = NO_AUTH_PATHS.some((p) => path.startsWith(p));
 
-	// Rate limiting — skip health endpoint and image proxy to avoid interfering
-	// with uptime checks / page loads. Also skip allowlisted paths to preserve
-	// the prior bypass behavior.
-	if (
-		!isAllowlisted &&
-		!path.startsWith('/api/health') &&
-		!path.startsWith('/api/media/image')
-	) {
+	// Rate limiting. Auth endpoints ALWAYS hit the tight 10/min bucket — being
+	// on NO_AUTH_PATHS means "bypass auth gate," not "bypass rate limit" (#44).
+	// Other allowlisted paths and health/image-proxy endpoints skip the limiter
+	// to avoid interfering with uptime checks / page loads.
+	const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
+		(p) => path.startsWith(p)
+	);
+	const shouldRateLimit =
+		isAuthEndpoint ||
+		(!isAllowlisted &&
+			!path.startsWith('/api/health') &&
+			!path.startsWith('/api/media/image'));
+
+	if (shouldRateLimit) {
 		const clientIp = getClientIp(event);
-		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
-			(p) => path.startsWith(p)
-		);
 		const limit = isAuthEndpoint ? 10 : 300;
 		const window = 60_000; // 1 minute
 
