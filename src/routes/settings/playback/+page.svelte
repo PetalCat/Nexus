@@ -101,9 +101,10 @@
 	// Per 2026-04-17 player alignment plan (#20): only 'skip' and 'off'
 	// are honored by the player this cycle. 'mute' would need an audio-
 	// ducking path on the <video> element, 'ask' would need a blocking
-	// modal, and 'show' (showOnTimeline) needs scrub-bar segment
-	// rendering — none of which exist yet. Rather than lie to the user,
-	// we remove those controls entirely until an implementation lands.
+	// modal, and 'show' (scrub-bar segments) needs a renderer — none of
+	// which exist yet. Rather than lie to the user, we remove those
+	// controls entirely until an implementation lands. The stored
+	// showOnTimeline field was dropped entirely in migration 0011 (#34).
 	type SBAction = 'skip' | 'off';
 	type SBCategory = 'sponsor' | 'selfpromo' | 'interaction' | 'intro' | 'outro' | 'preview' | 'music_offtopic' | 'filler' | 'poi_highlight' | 'chapter';
 	const SB_CATEGORIES: { key: SBCategory; label: string; color: string; desc: string }[] = [
@@ -170,10 +171,8 @@
 				body: JSON.stringify({
 					enabled: sbEnabled,
 					categorySettings: sbCategorySettings,
-					// showOnTimeline removed from UI (no scrub-bar impl this
-					// cycle); pass false so any persisted true value stops
-					// implying a behavior we don't ship.
-					showOnTimeline: false,
+					// showOnTimeline entirely removed 2026-04-17 — schema,
+					// API, and UI all dropped it together (wire-or-remove).
 					showSkipNotice: sbShowSkipNotice,
 					skipNoticeDuration: sbSkipNoticeDuration
 				})

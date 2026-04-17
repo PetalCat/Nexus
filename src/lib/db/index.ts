@@ -742,7 +742,7 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		user_id TEXT NOT NULL UNIQUE,
 		enabled INTEGER NOT NULL DEFAULT 1,
 		category_settings TEXT NOT NULL DEFAULT '{"sponsor":"skip","selfpromo":"skip","interaction":"skip","intro":"off","outro":"off","preview":"off","music_offtopic":"off","filler":"off","poi_highlight":"show","chapter":"off"}',
-		show_on_timeline INTEGER NOT NULL DEFAULT 1,
+		-- show_on_timeline removed 2026-04-17 (migration 0011); no UI, no consumer.
 		show_skip_notice INTEGER NOT NULL DEFAULT 1,
 		skip_notice_duration INTEGER NOT NULL DEFAULT 3000,
 		updated_at INTEGER NOT NULL
