@@ -8,7 +8,7 @@
 	import ChannelCard from '$lib/components/video/ChannelCard.svelte';
 	import VideoComments from '$lib/components/video/VideoComments.svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
-	import { formatViews, formatCount, formatDuration as formatVideoDuration, toVideoCardMedia } from '$lib/utils/video-format';
+	import { formatViews, formatCount, formatDuration as formatVideoDuration } from '$lib/utils/video-format';
 	import HltbDisplay from '$lib/components/games/HltbDisplay.svelte';
 	import AchievementProgress from '$lib/components/games/AchievementProgress.svelte';
 	import AchievementCard from '$lib/components/games/AchievementCard.svelte';
@@ -2029,7 +2029,7 @@
 				<div class="flex flex-col gap-2">
 					{#each allRecommendedVideos as rec}
 						<VideoCard
-							video={toVideoCardMedia(rec)}
+							video={rec}
 							layout="list"
 							onclick={() => goto(`/media/video/${rec.sourceId ?? rec.id}?service=${data.serviceId}`)}
 							onchannelclick={() => {

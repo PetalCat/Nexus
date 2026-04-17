@@ -5,7 +5,7 @@
 	import { PlaySquare, TrendingUp, Rss, Search, X, Users, History, ListVideo, ChevronRight } from 'lucide-svelte';
 	import VideoCard from '$lib/components/video/VideoCard.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
-	import { formatCount, toVideoCardMedia } from '$lib/utils/video-format';
+	import { formatCount } from '$lib/utils/video-format';
 	import SignInCard from '$lib/components/account-linking/SignInCard.svelte';
 	import StaleCredentialBanner from '$lib/components/account-linking/StaleCredentialBanner.svelte';
 
@@ -427,7 +427,7 @@
 					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{#each searchResults as item (item.id)}
 							<VideoCard
-								video={toVideoCardMedia(item)}
+								video={item}
 								layout="grid"
 								onclick={() => handleVideoClick(item)}
 								onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
@@ -495,7 +495,7 @@
 							{#each feed.slice(0, 16) as item (item.id)}
 								<div class="w-[280px] flex-shrink-0">
 									<VideoCard
-										video={toVideoCardMedia(item)}
+										video={item}
 										layout="grid"
 										onclick={() => handleVideoClick(item)}
 										onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
@@ -525,7 +525,7 @@
 					<div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
 						{#each data.trending.slice(0, 2) as item (item.id)}
 							<VideoCard
-								video={toVideoCardMedia(item)}
+								video={item}
 								layout="grid"
 								onclick={() => handleVideoClick(item)}
 								onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
@@ -539,7 +539,7 @@
 					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{#each data.trending.slice(2, trendingLimit) as item (item.id)}
 							<VideoCard
-								video={toVideoCardMedia(item)}
+								video={item}
 								layout="grid"
 								onclick={() => handleVideoClick(item)}
 								onchannelclick={() => goto(`/videos/channel/${item.metadata?.authorId}`)}
