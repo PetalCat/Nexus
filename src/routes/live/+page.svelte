@@ -75,13 +75,15 @@
 		return Math.max(0, (diffMs / 60_000) * PIXELS_PER_MINUTE);
 	});
 
-	// Map channels to their guide programs
+	// Map channels to their guide programs. Keyed by composite `channel.id`
+	// (`${serviceId}:${sourceId}`) so channels from different servers don't
+	// collide (HDHomeRun-style integer channel IDs are not globally unique).
 	const channelGuide = $derived.by(() => {
 		if (!data.guide) return new SvelteMap<string, GuideProgram[]>();
 		const map = new SvelteMap<string, GuideProgram[]>();
 		for (const channel of data.channels) {
-			const programs: GuideProgram[] = data.guide[channel.sourceId] ?? [];
-			map.set(channel.sourceId, programs);
+			const programs: GuideProgram[] = data.guide[channel.id] ?? [];
+			map.set(channel.id, programs);
 		}
 		return map;
 	});
@@ -127,8 +129,10 @@
 	}
 
 	function getStreamUrl(channel: UnifiedMedia): string {
-		if (data.serviceId) {
-			return `/api/stream/${data.serviceId}/${channel.sourceId}/stream`;
+		// Use the channel's own serviceId so multi-server setups route to the
+		// correct Jellyfin instance.
+		if (channel.serviceId && channel.sourceId) {
+			return `/api/stream/${channel.serviceId}/${channel.sourceId}/stream`;
 		}
 		return channel.actionUrl ?? '#';
 	}
@@ -321,7 +325,7 @@
 				<!-- Program rows -->
 				<div class="program-rows" style="width:{totalMinutes * PIXELS_PER_MINUTE}px">
 					{#each filtered as channel (channel.id)}
-						{@const programs = channelGuide.get(channel.sourceId) ?? []}
+						{@const programs = channelGuide.get(channel.id) ?? []}
 						<div class="program-row">
 							{#each programs as program (program.startDate + program.title)}
 								{@const airing = isCurrentlyAiring(program)}

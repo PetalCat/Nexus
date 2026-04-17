@@ -2,6 +2,7 @@ import type { ServiceAdapter } from './base';
 import type { ExternalUser, NexusSession, ServiceConfig, ServiceHealth, SyncItem, UnifiedMedia, UnifiedSearchResult, UserCredential } from './types';
 import { AdapterAuthError } from './errors';
 import { heightToResolution, channelsToLabel } from '../server/analytics';
+import { buildCompositeId } from '../shared/ids';
 
 // ---------------------------------------------------------------------------
 // Auth & fetch
@@ -864,7 +865,7 @@ export const jellyfinAdapter: ServiceAdapter = {
 			return (data.Items ?? []).map((ch: Record<string, unknown>) => {
 				const cp = ch.CurrentProgram as Record<string, unknown> | undefined;
 				return {
-					id: `${ch.Id}:${config.id}`,
+					id: buildCompositeId(config.id, ch.Id as string),
 					sourceId: ch.Id as string,
 					serviceId: config.id,
 					serviceType: 'jellyfin',

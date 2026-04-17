@@ -3,6 +3,7 @@ export type MediaType = 'movie' | 'show' | 'episode' | 'book' | 'game' | 'music'
 export type MediaStatus = 'available' | 'requested' | 'downloading' | 'missing' | 'continuing' | 'completed';
 
 export interface UnifiedMedia {
+	/** Composite ID: `${serviceId}:${sourceId}` — see `$lib/shared/ids`. */
 	id: string;
 	sourceId: string;
 	serviceId: string;
