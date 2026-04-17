@@ -2,9 +2,20 @@
 // for information about these interfaces
 declare global {
 	namespace App {
-		// interface Error {}
+		interface Error {
+			message: string;
+			nexusReason?: string;
+		}
 		interface Locals {
-			user?: { id: string; username: string; displayName: string; avatar: string | null; isAdmin: boolean };
+			user?: {
+				id: string;
+				username: string;
+				displayName: string;
+				avatar: string | null;
+				isAdmin: boolean;
+				status: 'active' | 'pending';
+				forcePasswordReset: boolean;
+			};
 		}
 		// interface PageData {}
 		// interface PageState {}

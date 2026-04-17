@@ -35,6 +35,9 @@ importers:
       hls.js:
         specifier: ^1.6.15
         version: 1.6.15
+      lru-cache:
+        specifier: ^11.3.5
+        version: 11.3.5
       lucide-svelte:
         specifier: 0.469.0
         version: 0.469.0(svelte@5.53.6)
@@ -1513,6 +1516,10 @@ packages:
   locate-character@3.0.0:
     resolution: {integrity: sha512-SW13ws7BjaeJ6p7Q6CO2nchbYEc3X3J6WrmTTDto7yMPqVSZTUyY5Tjbid+Ab8gLnATtygYtiDIJGQRRn2ZOiA==}
 
+  lru-cache@11.3.5:
+    resolution: {integrity: sha512-NxVFwLAnrd9i7KUBxC4DrUhmgjzOs+1Qm50D3oF1/oL+r1NpZ4gA7xvG0/zJ8evR7zIKn4vLf7qTNduWFtCrRw==}
+    engines: {node: 20 || >=22}
+
   lucide-svelte@0.469.0:
     resolution: {integrity: sha512-PMIJ8jrFqVUsXJz4d1yfAQplaGhNOahwwkzbunha8DhpiD73xqX24n8dE1dPpUk3vcrdWVsHc1y/liHHotOnGQ==}
     peerDependencies:
@@ -2977,6 +2984,8 @@ snapshots:
       lie: 3.1.1
 
   locate-character@3.0.0: {}
+
+  lru-cache@11.3.5: {}
 
   lucide-svelte@0.469.0(svelte@5.53.6):
     dependencies:
