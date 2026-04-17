@@ -61,7 +61,7 @@
 			{#each filtered as collection, i (collection.id)}
 				{@const movieCount = (collection.metadata?.movieCount as number) ?? 0}
 				<a
-					href="/collections/{collection.sourceId}"
+					href="/library/catalogs/{collection.sourceId}"
 					class="group relative overflow-hidden rounded-xl border border-[rgba(240,235,227,0.04)] bg-[var(--color-surface)] transition-all duration-300 hover:border-[rgba(240,235,227,0.1)] hover:shadow-lg hover:shadow-black/20"
 					style="animation: stagger-reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: {i * 40}ms; opacity: 0;"
 					aria-label="{collection.title}, {movieCount} movie{movieCount === 1 ? '' : 's'}"

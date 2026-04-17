@@ -59,6 +59,14 @@ const NO_AUTH_PATHS = ['/login', '/setup', '/invite', '/register', '/pending-app
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
+	// 2026-04-17: `/collections` renamed to `/library/catalogs` to
+	// disambiguate adapter-sourced catalogs from user/social collections.
+	// Preserve bookmarks with a 301.
+	if (path === '/collections' || path.startsWith('/collections/')) {
+		const target = '/library/catalogs' + path.slice('/collections'.length);
+		throw redirect(301, target + (event.url.search ?? ''));
+	}
+
 	// Always allow pre-auth paths through without session checks
 	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
 		return resolve(event);

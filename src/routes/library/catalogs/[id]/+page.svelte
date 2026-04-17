@@ -26,7 +26,7 @@
 		<p class="text-lg font-semibold text-[var(--color-cream)]">Collection not found</p>
 		<p class="mt-1 text-sm text-[var(--color-muted)]">This collection may have been removed or is unavailable.</p>
 		<a
-			href="/collections"
+			href="/library/catalogs"
 			class="mt-5 flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)]/10 px-4 py-2 text-sm font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20"
 		>
 			<ArrowLeft size={14} strokeWidth={2} />
@@ -59,7 +59,7 @@
 
 			<div class="relative flex min-h-[260px] flex-col justify-end px-3 pb-6 pt-16 sm:px-4 lg:px-6">
 				<a
-					href="/collections"
+					href="/library/catalogs"
 					class="mb-4 flex w-fit items-center gap-1.5 rounded-lg bg-black/40 px-3 py-1.5 text-xs font-medium text-[var(--color-cream)]/70 backdrop-blur-sm transition-colors hover:text-[var(--color-cream)]"
 					aria-label="Back to collections"
 				>

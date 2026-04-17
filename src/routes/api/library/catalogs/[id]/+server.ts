@@ -4,7 +4,8 @@ import { getEnabledConfigs } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
-// GET /api/collections/:id — single collection detail
+// GET /api/library/catalogs/:id — single adapter-sourced catalog detail
+// (renamed 2026-04-17 from /api/collections/:id).
 export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
