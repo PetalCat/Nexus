@@ -143,21 +143,9 @@ export const inviteLinks = sqliteTable('invite_links', {
 		.default(sql`(strftime('%s','now') * 1000)`)
 });
 
-// User activity / watch progress
-export const activity = sqliteTable('activity', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	userId: text('user_id'), // nullable for legacy; new rows should always set this
-	mediaId: text('media_id').notNull(),
-	serviceId: text('service_id').notNull(),
-	type: text('type').notNull(), // 'watch' | 'read' | 'play' | 'listen'
-	progress: real('progress').notNull().default(0), // 0-1 float
-	positionTicks: integer('position_ticks'), // for Jellyfin compat
-	position: text('position'), // CFI (EPUB) or page number (PDF)
-	completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
-	lastActivity: text('last_activity')
-		.notNull()
-		.default(sql`(datetime('now'))`)
-});
+// NOTE: the legacy `activity` table was removed on 2026-04-17. `play_sessions`
+// is now the single source of truth for progress/history/resume across every
+// media type. See migrations 0006-0008 for the backfill + drop.
 
 // Requests (Overseerr sync)
 export const requests = sqliteTable('requests', {
@@ -210,7 +198,17 @@ export const sessions = sqliteTable('sessions', {
 	index('idx_sessions_user').on(table.userId),
 ]);
 
-// ── Play Sessions (replaces media_events) ────────────────────────────
+// ── Play Sessions (canonical progress/temporal truth for every media type) ──
+//
+// Since 2026-04-17 this table is the ONLY write target for progress across
+// movies, shows, books, games, music, and video. The legacy `activity` table
+// was dropped in migrations 0006-0008.
+//
+// `position` (text) and `positionTicks` (int) carry engine-specific resume
+// tokens — EPUB CFI + page for books, Jellyfin positionTicks for movies. A
+// session is "open" when `ended_at IS NULL`; the progress writers upsert by
+// (`session_key`) OR (`user_id`,`media_id`,`service_id`) to keep a single
+// open row per item.
 export const playSessions = sqliteTable('play_sessions', {
 	id: text('id').primaryKey(),
 	sessionKey: text('session_key').unique(),
@@ -230,6 +228,12 @@ export const playSessions = sqliteTable('play_sessions', {
 	mediaDurationMs: integer('media_duration_ms'),
 	progress: real('progress'),
 	completed: integer('completed').default(0),
+	// Engine-specific resume token. EPUB CFI, PDF page number (stringified),
+	// or any adapter resume key that isn't a clean 0-1 float.
+	position: text('position'),
+	// Jellyfin-compat 100ns ticks. Derivable from `progress * mediaDurationMs`
+	// but stored directly for round-trip fidelity with the Jellyfin report API.
+	positionTicks: integer('position_ticks'),
 	deviceName: text('device_name'),
 	clientName: text('client_name'),
 	metadata: text('metadata'),
@@ -241,6 +245,8 @@ export const playSessions = sqliteTable('play_sessions', {
 	// (no user_id context). Existing idx_ps_user_media requires user_id as first
 	// key so it didn't help here — this is additive.
 	index('idx_ps_media').on(table.mediaId),
+	// Continue-watching / recent history queries order by (user_id, updated_at DESC).
+	index('idx_ps_user_updated').on(table.userId, table.updatedAt),
 ]);
 
 export type PlaySession = typeof playSessions.$inferSelect;
@@ -301,7 +307,6 @@ export type Service = typeof services.$inferSelect;
 export type NewService = typeof services.$inferInsert;
 export type MediaItem = typeof mediaItems.$inferSelect;
 export type NewMediaItem = typeof mediaItems.$inferInsert;
-export type Activity = typeof activity.$inferSelect;
 export type Request = typeof requests.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;

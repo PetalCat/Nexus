@@ -8,12 +8,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const db = getDb();
 	const userId = locals.user.id;
 
-	const booksFinished = db.select({ count: sql<number>`count(*)` })
-		.from(schema.activity)
+	const booksFinished = db.select({ count: sql<number>`count(distinct ${schema.playSessions.mediaId})` })
+		.from(schema.playSessions)
 		.where(and(
-			eq(schema.activity.userId, userId),
-			eq(schema.activity.type, 'read'),
-			eq(schema.activity.completed, true)
+			eq(schema.playSessions.userId, userId),
+			eq(schema.playSessions.mediaType, 'book'),
+			eq(schema.playSessions.completed, 1)
 		))
 		.get();
 

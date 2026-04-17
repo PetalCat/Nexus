@@ -27,12 +27,14 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	const db = getDb();
 
-	const activityRow = db.select().from(schema.activity)
+	const sessionRow = db.select().from(schema.playSessions)
 		.where(and(
-			eq(schema.activity.userId, userId),
-			eq(schema.activity.mediaId, params.id),
-			eq(schema.activity.type, 'read')
+			eq(schema.playSessions.userId, userId),
+			eq(schema.playSessions.mediaId, params.id),
+			eq(schema.playSessions.serviceId, calibreConfig.id),
+			eq(schema.playSessions.mediaType, 'book')
 		))
+		.orderBy(desc(schema.playSessions.updatedAt))
 		.get();
 
 	const bookmarks = db.select().from(schema.bookBookmarks)
@@ -52,9 +54,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		))
 		.all();
 
-	// CFI is stored in the progress endpoint's metadata — we don't have a metadata column on activity,
-	// so we fetch it from the progress API pattern. For now, use the activity row if it exists.
-	const savedPosition: string | undefined = activityRow?.position ?? undefined;
+	// Resume position (EPUB CFI or PDF page) lives in play_sessions.position.
+	const savedPosition: string | undefined = sessionRow?.position ?? undefined;
 
 	// Determine format to read — default to EPUB, allow ?format=pdf etc
 	const requestedFormat = (url.searchParams.get('format') ?? 'epub').toLowerCase();
@@ -71,7 +72,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		format,
 		availableFormats: availableFormats.map(f => f.toLowerCase()),
 		savedPosition,
-		progress: activityRow?.progress ?? 0,
+		progress: sessionRow?.progress ?? 0,
 		bookmarks,
 		highlights
 	};

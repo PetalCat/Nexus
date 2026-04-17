@@ -232,23 +232,22 @@ async function aggregateContinueWatching(configs: ServiceConfig[], userId?: stri
 
 	if (!userId || items.length > 0) return items;
 
-	// Fallback for cases where upstream resume APIs lag: build from local watch activity.
+	// Fallback for cases where upstream resume APIs lag: build from local play_sessions.
 	const db = getDb();
 	const recent = db
 		.select({
-			mediaId: schema.activity.mediaId,
-			serviceId: schema.activity.serviceId,
-			progress: schema.activity.progress
+			mediaId: schema.playSessions.mediaId,
+			serviceId: schema.playSessions.serviceId,
+			progress: schema.playSessions.progress
 		})
-		.from(schema.activity)
+		.from(schema.playSessions)
 		.where(
 			and(
-				eq(schema.activity.userId, userId),
-				eq(schema.activity.type, 'watch'),
-				eq(schema.activity.completed, false)
+				eq(schema.playSessions.userId, userId),
+				eq(schema.playSessions.completed, 0)
 			)
 		)
-		.orderBy(desc(schema.activity.lastActivity))
+		.orderBy(desc(schema.playSessions.updatedAt))
 		.limit(25)
 		.all();
 

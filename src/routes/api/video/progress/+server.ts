@@ -1,16 +1,18 @@
 import { json } from '@sveltejs/kit';
-import { getDb } from '$lib/db';
-import { activity } from '$lib/db/schema';
-import { eq, and } from 'drizzle-orm';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { broadcastToFriends } from '$lib/server/ws';
 import { getFriendIds } from '$lib/server/social';
+import {
+	upsertPlaySession,
+	getLatestSession
+} from '$lib/server/play-sessions';
 import type { RequestHandler } from './$types';
 
 /**
- * Video playback progress tracking for Invidious.
+ * Video playback progress tracking for Invidious. Writes to the canonical
+ * `play_sessions` table.
  *
  * POST — report play state (start, progress, pause, stop)
  * GET  — get current progress for a video
@@ -25,47 +27,42 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json({ error: 'Invalid JSON' }, { status: 400 });
 	}
 
-	const { videoId, positionSeconds, durationSeconds, isPaused, isStopped, isStart, title } = body;
+	const { videoId, positionSeconds, durationSeconds, isStopped, isStart, title } = body;
 	if (!videoId) return json({ error: 'Missing videoId' }, { status: 400 });
 
 	const userId = locals.user.id;
-	const db = getDb();
-	const progress = durationSeconds > 0 ? Math.min(positionSeconds / durationSeconds, 1) : 0;
+	const progress =
+		typeof durationSeconds === 'number' && durationSeconds > 0
+			? Math.min(positionSeconds / durationSeconds, 1)
+			: null;
 	const positionTicks = Math.round((positionSeconds ?? 0) * 10_000_000);
+	const mediaDurationMs =
+		typeof durationSeconds === 'number' && durationSeconds > 0
+			? Math.round(durationSeconds * 1000)
+			: null;
 
 	// Find Invidious service
 	const invConfig = getConfigsForMediaType('video')[0];
 	const serviceId = invConfig?.id ?? 'invidious';
+	const serviceType = invConfig?.type ?? 'invidious';
 
-	// Upsert activity record
-	const existing = db.select().from(activity)
-		.where(and(eq(activity.userId, userId), eq(activity.mediaId, videoId), eq(activity.serviceId, serviceId)))
-		.get();
+	const isComplete = progress != null && progress >= 0.9;
 
-	const isComplete = progress >= 0.9;
-
-	if (existing) {
-		db.update(activity)
-			.set({
-				progress,
-				positionTicks,
-				completed: isComplete,
-				lastActivity: new Date().toISOString()
-			})
-			.where(eq(activity.id, existing.id))
-			.run();
-	} else {
-		db.insert(activity).values({
-			userId,
-			mediaId: videoId,
-			serviceId,
-			type: 'watch',
-			progress,
-			positionTicks,
-			completed: isComplete,
-			lastActivity: new Date().toISOString()
-		}).run();
-	}
+	upsertPlaySession({
+		userId,
+		serviceId,
+		serviceType,
+		mediaId: videoId,
+		mediaType: 'video',
+		mediaTitle: title ?? null,
+		sessionKey: `invidious:${videoId}:${userId}`,
+		progress,
+		positionTicks,
+		mediaDurationMs,
+		source: 'invidious-progress',
+		stopped: isStopped === true,
+		completed: isComplete
+	});
 
 	// Broadcast activity to friends on start/stop
 	if (isStart || isStopped) {
@@ -99,16 +96,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const invConfig = getConfigsForMediaType('video')[0];
 	const serviceId = invConfig?.id ?? 'invidious';
 
-	const db = getDb();
-	const record = db.select().from(activity)
-		.where(and(eq(activity.userId, locals.user.id), eq(activity.mediaId, videoId), eq(activity.serviceId, serviceId)))
-		.get();
+	const record = getLatestSession(locals.user.id, serviceId, videoId);
 
 	if (!record) return json({ progress: 0, positionSeconds: 0, completed: false });
 
 	return json({
-		progress: record.progress,
-		positionSeconds: record.positionTicks ? record.positionTicks / 10_000_000 : 0,
-		completed: record.completed
+		progress: record.progress ?? 0,
+		positionSeconds: record.position_ticks ? record.position_ticks / 10_000_000 : 0,
+		completed: !!record.completed
 	});
 };

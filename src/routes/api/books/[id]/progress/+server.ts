@@ -1,93 +1,104 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getDb, getRawDb, schema } from '$lib/db';
-import { eq, and } from 'drizzle-orm';
+import { getRawDb } from '$lib/db';
 import { getConfigsForMediaType } from '$lib/server/services';
-import { findOpenSession } from '$lib/server/analytics';
-import { randomBytes } from 'crypto';
+import {
+	getLatestSession,
+	upsertPlaySession,
+	findOpenSession
+} from '$lib/server/play-sessions';
+import { randomBytes } from 'node:crypto';
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+/**
+ * Book reader progress endpoint.
+ *
+ * Writes ONLY to `play_sessions` (current state: progress, resume position,
+ * completion) and — on session close — appends a granular
+ * `book_reading_sessions` row for stats.
+ *
+ * The old `activity` table branch was removed on 2026-04-17 along with the
+ * table itself.
+ */
+
+export const GET: RequestHandler = async ({ params, locals, url }) => {
 	if (!locals.user) throw error(401);
-	const db = getDb();
-	const row = db.select().from(schema.activity)
-		.where(and(
-			eq(schema.activity.userId, locals.user.id),
-			eq(schema.activity.mediaId, params.id),
-			eq(schema.activity.type, 'read')
-		))
-		.get();
-	return json(row ?? null);
+	const serviceId =
+		url.searchParams.get('serviceId') ?? getConfigsForMediaType('book')[0]?.id ?? '';
+	const row = getLatestSession(locals.user.id, serviceId, params.id);
+	if (!row) return json(null);
+	return json({
+		id: row.id,
+		userId: row.user_id,
+		mediaId: row.media_id,
+		serviceId: row.service_id,
+		progress: row.progress,
+		position: row.position,
+		completed: !!row.completed,
+		startedAt: row.started_at,
+		endedAt: row.ended_at,
+		updatedAt: row.updated_at
+	});
 };
 
 export const PUT: RequestHandler = async ({ params, locals, request }) => {
 	if (!locals.user) throw error(401);
-	const { progress, cfi, page, serviceId } = await request.json();
+	const { progress, cfi, page, serviceId, ended } = await request.json();
 	if (typeof progress !== 'number') throw error(400, 'progress required');
 
-	const db = getDb();
 	const svcId = serviceId ?? getConfigsForMediaType('book')[0]?.id ?? '';
-
-	const existing = db.select().from(schema.activity)
-		.where(and(
-			eq(schema.activity.userId, locals.user.id),
-			eq(schema.activity.mediaId, params.id),
-			eq(schema.activity.type, 'read')
-		))
-		.get();
-
-	const now = new Date().toISOString();
-	if (existing) {
-		db.update(schema.activity)
-			.set({ progress, completed: progress >= 1, lastActivity: now, position: cfi ?? page?.toString() ?? null })
-			.where(eq(schema.activity.id, existing.id))
-			.run();
-	} else {
-		db.insert(schema.activity)
-			.values({
-				userId: locals.user.id,
-				mediaId: params.id,
-				serviceId: svcId,
-				type: 'read',
-				progress,
-				completed: progress >= 1,
-				lastActivity: now,
-				position: cfi ?? page?.toString() ?? null
-			})
-			.run();
-	}
-
-	// Upsert book play session
 	const userId = locals.user.id;
 	const bookId = params.id;
-	const nowMs = Date.now();
-	const TWO_HOURS = 2 * 60 * 60 * 1000;
+	const position = cfi ?? (page != null ? String(page) : null);
 
-	try {
-		const raw = getRawDb();
-		const open = findOpenSession(userId, bookId, svcId);
+	// Snapshot the open session BEFORE upserting — so if this call closes it
+	// we can write a matching book_reading_sessions row with the right bounds.
+	const beforeOpen = findOpenSession(userId, svcId, bookId);
 
-		if (open && (nowMs - (open.updated_at ?? open.started_at)) < TWO_HOURS) {
-			// Update existing session
-			const elapsed = nowMs - (open.updated_at ?? open.started_at);
+	const row = upsertPlaySession({
+		userId,
+		serviceId: svcId,
+		serviceType: 'calibre',
+		mediaId: bookId,
+		mediaType: 'book',
+		sessionKey: `reader:${svcId}:${bookId}:${userId}`,
+		progress,
+		position,
+		source: 'reader',
+		stopped: ended === true,
+		completed: progress >= 1
+	});
+
+	// Detail-row for book stats. Closed when either:
+	//   - caller sent `{ ended: true }`, OR
+	//   - the upsert naturally terminated the session (progress >= 0.9 / stopped).
+	const didClose = !!row.ended_at && !!beforeOpen && !beforeOpen.ended_at;
+	if (didClose && beforeOpen) {
+		try {
+			const raw = getRawDb();
+			const durationSeconds = Math.max(
+				0,
+				Math.round(((row.ended_at ?? Date.now()) - beforeOpen.started_at) / 1000)
+			);
 			raw.prepare(
-				`UPDATE play_sessions SET duration_ms = duration_ms + ?, progress = ?, updated_at = ? WHERE id = ?`
-			).run(elapsed, progress, nowMs, open.id);
-		} else {
-			if (open) {
-				// Close stale session
-				raw.prepare(
-					`UPDATE play_sessions SET ended_at = ?, completed = ? WHERE id = ?`
-				).run(open.updated_at ?? nowMs, open.progress >= 1.0 ? 1 : 0, open.id);
-			}
-			// Create new session
-			const id = randomBytes(16).toString('hex');
-			raw.prepare(
-				`INSERT INTO play_sessions (id, user_id, service_id, service_type, media_id, media_type, progress, duration_ms, started_at, updated_at, source, created_at)
-				 VALUES (?, ?, ?, 'calibre', ?, 'book', ?, 0, ?, ?, 'reader', ?)`
-			).run(id, userId, svcId, bookId, progress, nowMs, nowMs, nowMs);
+				`INSERT INTO book_reading_sessions
+				   (id, user_id, book_id, service_id, started_at, ended_at,
+				    start_cfi, end_cfi, pages_read, duration_seconds)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			).run(
+				randomBytes(16).toString('hex'),
+				userId,
+				bookId,
+				svcId,
+				beforeOpen.started_at,
+				row.ended_at ?? Date.now(),
+				beforeOpen.position ?? null,
+				position,
+				null,
+				durationSeconds
+			);
+		} catch (e) {
+			console.error('[books/progress] book_reading_sessions insert failed:', e);
 		}
-	} catch (e) {
-		console.error('[books/progress] Session write failed:', e);
 	}
 
 	return json({ ok: true });

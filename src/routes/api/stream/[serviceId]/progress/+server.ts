@@ -2,13 +2,12 @@ import { getServiceConfig } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { invalidatePrefix } from '$lib/server/cache';
-import { getDb } from '$lib/db';
-import { activity } from '$lib/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { upsertPlaySession } from '$lib/server/play-sessions';
 import type { RequestHandler } from './$types';
 
 /**
- * Progress reporting endpoint — syncs playback position back to Jellyfin.
+ * Progress reporting endpoint — syncs playback position back to Jellyfin and
+ * records a canonical `play_sessions` row for Nexus-side resume/history.
  *
  * POST /api/stream/{serviceId}/progress
  * Body: { itemId, positionTicks, isPaused, isStopped?, isMuted?, volumeLevel? }
@@ -40,8 +39,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	if (!itemId) return new Response('Missing itemId', { status: 400 });
 
 	// Resolve userId
-	let userId = userCred?.externalUserId ?? '';
-	if (!userId && token) {
+	let externalUserId = userCred?.externalUserId ?? '';
+	if (!externalUserId && token) {
 		try {
 			const meRes = await fetch(`${config.url}/Users/Me`, {
 				headers: {
@@ -52,11 +51,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			});
 			if (meRes.ok) {
 				const me = await meRes.json();
-				userId = me?.Id ?? '';
+				externalUserId = me?.Id ?? '';
 			}
 		} catch { /* ignore */ }
 	}
-	if (!userId && config.apiKey) {
+	if (!externalUserId && config.apiKey) {
 		try {
 			const usersRes = await fetch(`${config.url}/Users`, {
 				headers: { 'X-Emby-Token': config.apiKey },
@@ -66,7 +65,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				const users = await usersRes.json();
 				const list = Array.isArray(users) ? users : (users.Items ?? []);
 				const admin = list.find((u: any) => u.Policy?.IsAdministrator);
-				userId = (admin ?? list[0])?.Id ?? '';
+				externalUserId = (admin ?? list[0])?.Id ?? '';
 			}
 		} catch { /* ignore */ }
 	}
@@ -89,49 +88,27 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	};
 
 	try {
-		// Keep a local activity record as a resume fallback for Nexus.
+		// Canonical Nexus-side record for resume/history/insights.
 		if (locals.user?.id) {
-			const db = getDb();
-			const progress = body.durationTicks && body.durationTicks > 0
-				? Math.max(0, Math.min((positionTicks ?? 0) / body.durationTicks, 1))
-				: 0;
-			const isComplete = progress >= 0.9;
-			const existing = db
-				.select()
-				.from(activity)
-				.where(
-					and(
-						eq(activity.userId, locals.user.id),
-						eq(activity.mediaId, itemId),
-						eq(activity.serviceId, serviceId)
-					)
-				)
-				.get();
-
-			if (existing) {
-				db.update(activity)
-					.set({
-						progress,
-						positionTicks: positionTicks ?? 0,
-						completed: isComplete,
-						lastActivity: new Date().toISOString()
-					})
-					.where(eq(activity.id, existing.id))
-					.run();
-			} else {
-				db.insert(activity)
-					.values({
-						userId: locals.user.id,
-						mediaId: itemId,
-						serviceId,
-						type: 'watch',
-						progress,
-						positionTicks: positionTicks ?? 0,
-						completed: isComplete,
-						lastActivity: new Date().toISOString()
-					})
-					.run();
-			}
+			const durationTicks = typeof body.durationTicks === 'number' ? body.durationTicks : 0;
+			const progress = durationTicks > 0
+				? Math.max(0, Math.min((positionTicks ?? 0) / durationTicks, 1))
+				: null;
+			const mediaDurationMs = durationTicks > 0 ? Math.round(durationTicks / 10_000) : null;
+			upsertPlaySession({
+				userId: locals.user.id,
+				serviceId,
+				serviceType: config.type,
+				mediaId: String(itemId),
+				mediaType: 'movie', // overwritten via metadata when the adapter knows better
+				sessionKey: `${config.type}:${serviceId}:${itemId}:${locals.user.id}`,
+				progress,
+				positionTicks: typeof positionTicks === 'number' ? positionTicks : null,
+				mediaDurationMs,
+				source: config.type === 'plex' ? 'plex-progress' : 'jellyfin-progress',
+				stopped: isStopped === true,
+				completed: progress != null && progress >= 0.9
+			});
 		}
 
 		if (isStopped) {

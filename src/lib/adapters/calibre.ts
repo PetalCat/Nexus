@@ -162,13 +162,12 @@ export const calibreAdapter: ServiceAdapter = {
 	},
 
 	async getContinueWatching(config, userCred): Promise<UnifiedMedia[]> {
+		// Per 2026-04-17 data-model unification, per-user reading state comes from
+		// `play_sessions` not the adapter. Emit items with `progress` undefined;
+		// callers join against play_sessions to compute resume progress.
 		try {
 			const feed = await opdsFetch(config, '/opds/unreadbooks', userCred);
-			return feed.entries.slice(0, 10).map((entry) => {
-				const item = opdsEntryToUnifiedMedia(config, entry);
-				item.progress = 0.05; // nominal "started" — Calibre-Web has no per-page progress
-				return item;
-			});
+			return feed.entries.slice(0, 10).map((entry) => opdsEntryToUnifiedMedia(config, entry));
 		} catch {
 			return [];
 		}

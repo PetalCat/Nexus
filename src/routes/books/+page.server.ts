@@ -2,7 +2,7 @@ import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
 import { getDb, schema } from '$lib/db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import type { UnifiedMedia } from '$lib/adapters/types';
 
@@ -45,6 +45,40 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		case 'added': items.sort((a, b) => (parseInt(b.sourceId) || 0) - (parseInt(a.sourceId) || 0)); break;
 	}
 
+	// Enrich with per-user reading state from play_sessions (join-on-read).
+	// Adapters no longer emit `readStatus`/`progress` for books — that's Nexus
+	// state, not Calibre state.
+	if (userId) {
+		const db = getDb();
+		const calibreServiceId = calibreConfig.id;
+		const sessionRows = db.select({
+			mediaId: schema.playSessions.mediaId,
+			progress: schema.playSessions.progress,
+			completed: schema.playSessions.completed
+		})
+			.from(schema.playSessions)
+			.where(and(
+				eq(schema.playSessions.userId, userId),
+				eq(schema.playSessions.mediaType, 'book'),
+				eq(schema.playSessions.serviceId, calibreServiceId)
+			))
+			.all();
+		const bySource = new Map<string, { progress: number; completed: boolean }>();
+		for (const row of sessionRows) {
+			const prev = bySource.get(row.mediaId);
+			const next = { progress: row.progress ?? 0, completed: !!row.completed };
+			if (!prev || next.progress > prev.progress || (next.completed && !prev.completed)) {
+				bySource.set(row.mediaId, next);
+			}
+		}
+		for (const book of items) {
+			const s = bySource.get(book.sourceId);
+			if (!s) continue;
+			book.progress = s.progress;
+			book.metadata = { ...(book.metadata ?? {}), readStatus: s.completed };
+		}
+	}
+
 	// Filter
 	let filtered = items;
 	if (category) filtered = filtered.filter(i => i.genres?.includes(category));
@@ -71,15 +105,20 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
 		const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
 
-		const booksThisYear = db.select().from(schema.activity)
+		const booksThisYearRows = db.select({
+			mediaId: schema.playSessions.mediaId,
+			updatedAt: schema.playSessions.updatedAt
+		})
+			.from(schema.playSessions)
 			.where(and(
-				eq(schema.activity.userId, userId),
-				eq(schema.activity.type, 'read'),
-				eq(schema.activity.completed, true)
+				eq(schema.playSessions.userId, userId),
+				eq(schema.playSessions.mediaType, 'book'),
+				eq(schema.playSessions.completed, 1)
 			))
-			.all()
-			.filter(a => new Date(a.lastActivity).getTime() >= yearStart)
-			.length;
+			.all();
+		const booksThisYear = new Set(
+			booksThisYearRows.filter(r => r.updatedAt >= yearStart).map(r => r.mediaId)
+		).size;
 
 		const sessionsThisMonth = db.select().from(schema.bookReadingSessions)
 			.where(eq(schema.bookReadingSessions.userId, userId))
