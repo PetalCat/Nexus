@@ -12,14 +12,14 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const userId = locals.user?.id;
 	const configs = getConfigsForMediaType('video');
-	const hasInvidious = configs.length > 0;
+	const hasVideoProvider = configs.length > 0;
 	const category = (url.searchParams.get('category') as 'music' | 'gaming' | 'news' | 'movies') || undefined;
 
 	let trending: UnifiedMedia[] = [];
 	let hasLinkedAccount = false;
 	let invidiousSummary: AccountServiceSummary | null = null;
 
-	if (hasInvidious && configs[0]) {
+	if (hasVideoProvider && configs[0]) {
 		const config = configs[0];
 		const cred = userId ? getUserCredentialForService(userId, config.id) ?? undefined : undefined;
 		hasLinkedAccount = !!cred?.accessToken;
@@ -58,14 +58,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				}
 			});
 
-			return { trending, subscriptionFeed, hasInvidious, hasLinkedAccount, category, invidiousSummary };
+			return { trending, subscriptionFeed, hasVideoProvider, hasLinkedAccount, category, invidiousSummary };
 		}
 	}
 
 	return {
 		trending,
 		subscriptionFeed: Promise.resolve([] as UnifiedMedia[]),
-		hasInvidious,
+		hasVideoProvider,
 		hasLinkedAccount,
 		category,
 		invidiousSummary

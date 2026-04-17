@@ -1,13 +1,14 @@
 /**
- * /welcome — non-admin first-run flow.
+ * /welcome — per-user first-run flow (admin AND non-admin).
  *
  * Runs automatically once per user after they log in, if their users row
  * has welcomeCompletedAt = NULL. Walks them through linking their personal
  * credentials on every registered user-linkable service the admin has set
- * up. Admin users never see this page — they go through /setup instead.
+ * up. As of 2026-04-17 (#24), admins also pass through /welcome exactly
+ * once — global install state (/setup) and per-user state (/welcome) are
+ * now orthogonal. Admins can re-enter via ?force=1 from settings.
  *
- * See docs/superpowers/specs/2026-04-14-service-account-umbrella-design.md
- * section "Onboarding narratives" for the design rationale.
+ * See docs/superpowers/specs/2026-04-17-surface-drift-fix-plan.md §5.
  */
 
 import { redirect } from '@sveltejs/kit';
@@ -27,16 +28,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const db = getDb();
 	const force = url.searchParams.get('force') === '1';
 	const row = db
-		.select({ welcomeCompletedAt: schema.users.welcomeCompletedAt, isAdmin: schema.users.isAdmin })
+		.select({ welcomeCompletedAt: schema.users.welcomeCompletedAt })
 		.from(schema.users)
 		.where(eq(schema.users.id, locals.user.id))
 		.get();
 
 	if (!row) throw redirect(303, '/login');
-	if (row.isAdmin) {
-		// Admins go through /setup, not /welcome — redirect them home.
-		throw redirect(303, '/');
-	}
 	if (row.welcomeCompletedAt && !force) {
 		throw redirect(303, '/');
 	}

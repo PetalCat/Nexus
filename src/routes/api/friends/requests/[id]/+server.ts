@@ -4,13 +4,19 @@ import { broadcastToUser } from '$lib/server/ws';
 import { createNotification } from '$lib/server/notifications';
 import type { RequestHandler } from './$types';
 
-// PUT /api/friends/requests/:id — accept or decline
-// Body: { action: 'accept' | 'decline' }
-export const PUT: RequestHandler = async ({ params, request, locals }) => {
+// PATCH /api/friends/requests/:id — accept or decline a friend request.
+// Body: { action: 'accept' | 'decline' | 'reject' }
+// PUT remains wired to the same handler for back-compat with any external
+// tooling; the in-app UI sends PATCH.
+const handle: RequestHandler = async ({ params, request, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-	const { action } = await request.json();
-	if (action !== 'accept' && action !== 'decline') {
+	const body = (await request.json().catch(() => ({}))) as { action?: string };
+	const rawAction = body.action;
+	// 'reject' is treated as an alias of 'decline' for UI compatibility.
+	const action =
+		rawAction === 'accept' ? 'accept' : rawAction === 'decline' || rawAction === 'reject' ? 'decline' : null;
+	if (!action) {
 		return json({ error: 'Invalid action' }, { status: 400 });
 	}
 
@@ -53,3 +59,6 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 		return json({ ok: true, action: 'declined' });
 	}
 };
+
+export const PATCH: RequestHandler = handle;
+export const PUT: RequestHandler = handle;
