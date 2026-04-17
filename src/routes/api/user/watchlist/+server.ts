@@ -2,11 +2,13 @@ import { json, error } from '@sveltejs/kit';
 import { getUserWatchlist, addToWatchlist, removeFromWatchlist, reorderWatchlist } from '$lib/server/social';
 import type { RequestHandler } from './$types';
 
-// GET: List user's watchlist
-export const GET: RequestHandler = async ({ locals, url }) => {
+// GET: List user's watchlist. Always scoped to the authenticated caller —
+// there is no legitimate non-admin cross-user read, so the `?userId=` param
+// was removed (was an IDOR: any logged-in user could read any other user's
+// watchlist). Admin tooling should go through a separate admin-guarded route.
+export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) throw error(401);
-	const userId = url.searchParams.get('userId') ?? locals.user.id;
-	const items = getUserWatchlist(userId);
+	const items = getUserWatchlist(locals.user.id);
 	return json(items);
 };
 
