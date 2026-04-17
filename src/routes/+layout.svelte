@@ -175,7 +175,7 @@
 			bind:collapsed={sidebarCollapsed}
 			bind:mobileOpen
 			{pendingRequests}
-			unseenShares={0}
+			unseenShares={data.unseenShares ?? 0}
 			isAdmin={data.user?.isAdmin ?? false}
 		/>
 

@@ -2,6 +2,7 @@ import { registry } from '$lib/adapters/registry';
 import { getEnabledConfigs, needsAutoLink, autoLinkJellyfinServices } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
 import { getUnreadCount } from '$lib/server/notifications';
+import { getUnseenShareCount } from '$lib/server/social';
 import { getDb, schema } from '$lib/db';
 import { eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
@@ -16,8 +17,12 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 
 	// Notifications count is a fast sync DB query — safe to await
 	let unreadNotifications = 0;
+	let unseenShares = 0;
 	if (locals.user) {
 		unreadNotifications = getUnreadCount(locals.user.id);
+		// Unseen-share count is a fast sync COUNT(*) — needed by NavSidebar on every page,
+		// so we lift it to the root layout (was previously only loaded under /library/*).
+		unseenShares = getUnseenShareCount(locals.user.id);
 	}
 
 	// Autoplay trailers preference — defaults to true (desktop overrides to false on mobile client-side)
@@ -64,6 +69,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	return {
 		user: locals.user ?? null,
 		unreadNotifications,
+		unseenShares,
 		autoplayTrailers,
 		autoplayNext,
 		// Streamed — never blocks page navigation
