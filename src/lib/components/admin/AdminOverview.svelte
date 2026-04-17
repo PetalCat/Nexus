@@ -101,51 +101,92 @@
 		return `${mins}m`;
 	}
 
+	// Event types emitted by the recent-sessions query:
+	//   play_start — session is still in flight (no ended_at)
+	//   play_stop  — session has a concrete ended_at
+	// A separate 'complete' branch was historically defined here but never
+	// reached by the loader; removed alongside the timestamp fix.
 	function eventIcon(eventType: string) {
 		if (eventType === 'play_start') return { color: '#34d399', type: 'play' };
-		if (eventType === 'complete') return { color: '#34d399', type: 'check' };
 		return { color: '#64748b', type: 'stop' };
 	}
 
 	function eventLabel(eventType: string) {
 		if (eventType === 'play_start') return 'started watching';
-		if (eventType === 'complete') return 'completed';
 		return 'finished watching';
 	}
 
 	// ── derived stats ─────────────────────────────────────────────────────────
+	//
+	// Two truth sources live on this page:
+	//   • `data.sessions` is adapter-polled — Live Now: what is actually playing
+	//     right this moment.
+	//   • `data.recentEvents` / `data.playTimeToday` are rollups from the
+	//     `play_sessions` table — historical, session-completion truth.
+	// Don't conflate them; they answer different questions.
 
 	const activeSessions = $derived(data.sessions.length);
+	const playingCount = $derived(
+		data.sessions.filter((s: JellyfinSession) => !s.PlayState?.IsPaused).length
+	);
+	const pausedCount = $derived(activeSessions - playingCount);
 	const pendingCount = $derived(data.requests.filter((r: any) => r.status === 'pending').length);
 	const onlineCount = $derived(health.filter((h: any) => h.online).length);
 	const totalServices = $derived(health.length);
 </script>
 
 <!-- ── Stat Cards ──────────────────────────────────────────────────────── -->
+<!--
+	Two truth sources live here:
+	  * "Live now" = polled directly from each media server right now.
+	  * "Play Time Today" / Recent Activity = rollup from the play_sessions table.
+	Never conflate them.
+-->
 <div class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-	<!-- Active Streams -->
-	<div class="relative overflow-hidden rounded-2xl p-4" style="background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15)">
-		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: #34d399">{activeSessions}</div>
-		<div class="text-[10px] font-medium text-[var(--color-muted)]">Active Streams</div>
-		{#if activeSessions > 0}
+	<!-- Live now (polled) -->
+	<div
+		class="relative overflow-hidden rounded-2xl p-4"
+		style="background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.15)"
+		title="Sessions reported right now by every configured media server (polled every ~10s). Excludes completed sessions."
+	>
+		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: #34d399">{playingCount}</div>
+		<div class="text-[10px] font-medium text-[var(--color-muted)]">Live now</div>
+		{#if pausedCount > 0}
+			<div class="mt-0.5 text-[10px] text-[var(--color-muted)] opacity-70">
+				{playingCount} playing · {pausedCount} paused
+			</div>
+		{/if}
+		{#if playingCount > 0}
 			<div class="absolute right-3 top-3 h-2 w-2 animate-pulse rounded-full bg-[#34d399]"></div>
 		{/if}
 	</div>
 
 	<!-- Online Users -->
-	<div class="overflow-hidden rounded-2xl p-4" style="background: rgba(96,165,250,0.06); border: 1px solid rgba(96,165,250,0.15)">
+	<div
+		class="overflow-hidden rounded-2xl p-4"
+		style="background: rgba(96,165,250,0.06); border: 1px solid rgba(96,165,250,0.15)"
+		title="Users with an active Nexus web socket connection right now."
+	>
 		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: #60a5fa">{data.onlineUsers}</div>
 		<div class="text-[10px] font-medium text-[var(--color-muted)]">Online Users</div>
 	</div>
 
 	<!-- Pending Requests -->
-	<div class="overflow-hidden rounded-2xl p-4" style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15)">
+	<div
+		class="overflow-hidden rounded-2xl p-4"
+		style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15)"
+		title="Requests in the request-provider queue awaiting approval."
+	>
 		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: #f59e0b">{pendingCount}</div>
 		<div class="text-[10px] font-medium text-[var(--color-muted)]">Pending Requests</div>
 	</div>
 
 	<!-- Services Online -->
-	<div class="overflow-hidden rounded-2xl p-4" style="background: rgba(96,165,250,0.06); border: 1px solid rgba(96,165,250,0.15)">
+	<div
+		class="overflow-hidden rounded-2xl p-4"
+		style="background: rgba(96,165,250,0.06); border: 1px solid rgba(96,165,250,0.15)"
+		title="Configured services currently reachable by the health probe."
+	>
 		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: #60a5fa">
 			{onlineCount}<span class="text-sm font-medium opacity-50">/{totalServices}</span>
 		</div>
@@ -153,13 +194,21 @@
 	</div>
 
 	<!-- Play Time Today -->
-	<div class="overflow-hidden rounded-2xl p-4" style="background: rgba(124,108,248,0.06); border: 1px solid rgba(124,108,248,0.15)">
+	<div
+		class="overflow-hidden rounded-2xl p-4"
+		style="background: rgba(124,108,248,0.06); border: 1px solid rgba(124,108,248,0.15)"
+		title="Sum of session intervals overlapping today's local window, clipped to midnight boundaries. Cross-midnight sessions contribute only the portion inside today."
+	>
 		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: var(--color-accent)">{formatMs(data.playTimeToday)}</div>
 		<div class="text-[10px] font-medium text-[var(--color-muted)]">Play Time Today</div>
 	</div>
 
 	<!-- Total Users -->
-	<div class="overflow-hidden rounded-2xl p-4" style="background: rgba(var(--color-steel-rgb, 100,180,180),0.06); border: 1px solid rgba(var(--color-steel-rgb, 100,180,180),0.15)">
+	<div
+		class="overflow-hidden rounded-2xl p-4"
+		style="background: rgba(var(--color-steel-rgb, 100,180,180),0.06); border: 1px solid rgba(var(--color-steel-rgb, 100,180,180),0.15)"
+		title="All users registered in the local Nexus database (enabled + disabled)."
+	>
 		<div class="mb-1 text-2xl font-bold tabular-nums" style="color: var(--color-steel)">{data.totalUsers}</div>
 		<div class="text-[10px] font-medium text-[var(--color-muted)]">Total Users</div>
 	</div>
@@ -167,9 +216,9 @@
 
 <!-- ── Live Streams ───────────────────────────────────────────────────── -->
 <section class="mb-8">
-	<div class="mb-4 flex items-center gap-2">
+	<div class="mb-4 flex items-center gap-2" title="Adapter-polled: sessions each media server reports right now. Separate from the Recent Activity feed below, which is a rollup of completed sessions.">
 		<h2 class="text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Live Now</h2>
-		{#if activeSessions > 0}
+		{#if playingCount > 0}
 			<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-[#34d399]"></span>
 		{/if}
 	</div>
@@ -290,7 +339,10 @@
 <!-- ── Recent Activity ────────────────────────────────────────────────── -->
 {#if data.recentEvents && data.recentEvents.length > 0}
 	<section class="mb-8">
-		<h2 class="mb-4 text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]">Recent Activity</h2>
+		<h2
+			class="mb-4 text-display text-sm font-semibold uppercase tracking-widest text-[var(--color-muted)]"
+			title="Recent session rollup from play_sessions. Sorted by COALESCE(ended_at, updated_at) — ‘finished watching’ rows use ended_at; still-open sessions use their last update. Separate truth from Live Now."
+		>Recent Activity</h2>
 
 		<div class="flex flex-col divide-y" style="border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; divide-color: rgba(255,255,255,0.06)">
 			{#each data.recentEvents as event, i (i)}
@@ -300,10 +352,6 @@
 					{#if icon.type === 'play'}
 						<svg width="14" height="14" viewBox="0 0 14 14" fill={icon.color} class="flex-shrink-0">
 							<path d="M4 2.5l7 4.5-7 4.5V2.5z"/>
-						</svg>
-					{:else if icon.type === 'check'}
-						<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={icon.color} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0">
-							<path d="M3.5 7.5l2.5 2.5 4.5-5"/>
 						</svg>
 					{:else}
 						<svg width="14" height="14" viewBox="0 0 14 14" fill={icon.color} class="flex-shrink-0">
