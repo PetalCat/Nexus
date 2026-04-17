@@ -85,20 +85,29 @@ export function resolveRedirect(
 
 	// 4. Logged-in users:
 	if (user) {
-		// 4a. Force password reset — lock to /reset-password.
-		if (user.forcePasswordReset) {
-			if (!path.startsWith('/reset-password') && !path.startsWith('/api/auth/logout')) {
-				return { location: '/reset-password', status: 303 };
-			}
+		// API routes skip onboarding/lock redirects — they get JSON 403s
+		// instead (see the API gate in hooks.server.ts). Returning null here
+		// keeps API calls from being redirected mid-request.
+		if (path.startsWith('/api')) {
 			return null;
 		}
 
+		// 4a. Force password reset — lock to /reset-password.
+		if (
+			user.forcePasswordReset &&
+			!path.startsWith('/reset-password') &&
+			!path.startsWith('/api/auth/logout')
+		) {
+			return { location: '/reset-password', status: 303 };
+		}
+
 		// 4b. Pending approval — lock to /pending-approval.
-		if (user.status === 'pending') {
-			if (!path.startsWith('/pending-approval') && !path.startsWith('/api/auth/logout')) {
-				return { location: '/pending-approval', status: 303 };
-			}
-			return null;
+		if (
+			user.status === 'pending' &&
+			!path.startsWith('/pending-approval') &&
+			!path.startsWith('/api/auth/logout')
+		) {
+			return { location: '/pending-approval', status: 303 };
 		}
 
 		// 4c. Welcome flow (first-run per-user, orthogonal to /setup).

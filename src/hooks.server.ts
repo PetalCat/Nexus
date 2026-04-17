@@ -1,31 +1,27 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
-import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
+import { COOKIE_NAME, validateSession } from '$lib/server/auth';
 import { boot } from '$lib/server/boot';
-import { NO_AUTH_PATHS } from '$lib/server/redirects';
+import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
 
 // All server-startup concerns (crypto validation, pollers, schedulers, stream
 // proxy, watchdog, lifecycle) are orchestrated in `$lib/server/boot`. Keep
-// hooks.server.ts focused on per-request middleware.
+// hooks.server.ts focused on per-request middleware: rate limiting, session
+// loading, redirect dispatch, API gates, and security headers.
 boot();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
-	// 2026-04-17: `/collections` renamed to `/library/catalogs` to
-	// disambiguate adapter-sourced catalogs from user/social collections.
-	// Preserve bookmarks with a 301.
-	if (path === '/collections' || path.startsWith('/collections/')) {
-		const target = '/library/catalogs' + path.slice('/collections'.length);
-		throw redirect(301, target + (event.url.search ?? ''));
-	}
-
-	// Always allow pre-auth paths through without session checks
+	// Allowlisted pre-auth paths bypass the rest of the middleware entirely.
+	// (Session, redirect resolver, and the API state gate all short-circuit on
+	// these paths too, but returning early keeps the hot-path short.)
 	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
 		return resolve(event);
 	}
 
-	// Rate limiting — skip health endpoint and image proxy to avoid interfering with uptime checks / page loads
+	// Rate limiting — skip health endpoint and image proxy to avoid interfering
+	// with uptime checks / page loads.
 	if (!path.startsWith('/api/health') && !path.startsWith('/api/media/image')) {
 		const clientIp = getClientIp(event);
 		const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
@@ -42,110 +38,66 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	// First-run: no users yet → must set up an account
-	const userCount = getUserCount();
-	if (userCount === 0) {
-		throw redirect(303, '/setup');
-	}
-
-	// Validate session cookie
+	// Populate event.locals.user from the session cookie — this is the session
+	// hook's job and stays here. Redirect rules and API gates both read from it.
 	const token = event.cookies.get(COOKIE_NAME);
 	const user = validateSession(token);
-
 	if (user) {
-		// Attach user to event locals for use in load functions & API routes
 		event.locals.user = {
 			id: user.id,
 			username: user.username,
 			displayName: user.displayName,
 			avatar: user.avatar ?? null,
 			isAdmin: user.isAdmin,
-			status: (user.status === 'pending' ? 'pending' : 'active'),
+			status: user.status === 'pending' ? 'pending' : 'active',
 			forcePasswordReset: !!user.forcePasswordReset
 		};
-
-		// API routes: let endpoints handle their own auth, BUT enforce the
-		// pending/forcePasswordReset gates globally before any endpoint runs.
-		// (issue #7 — previously API routes only saw `!locals.user` checks and
-		// silently accepted pending or password-locked accounts.)
-		//
-		// Allowlist: `/api/auth/*` endpoints must still be reachable so users
-		// can log out and go through the reset-password flow. Everything else
-		// under `/api/` gets the gate.
-		if (path.startsWith('/api')) {
-			const isAuthApi = path.startsWith('/api/auth');
-			if (!isAuthApi && user.forcePasswordReset) {
-				return new Response(
-					JSON.stringify({ message: 'Password reset required', nexusReason: 'password-reset-required' }),
-					{
-						status: 403,
-						headers: {
-							'Content-Type': 'application/json',
-							'X-Nexus-Reason': 'password-reset-required'
-						}
-					}
-				);
-			}
-			if (!isAuthApi && user.status === 'pending') {
-				return new Response(
-					JSON.stringify({ message: 'Account pending approval', nexusReason: 'pending-approval' }),
-					{
-						status: 403,
-						headers: {
-							'Content-Type': 'application/json',
-							'X-Nexus-Reason': 'pending-approval'
-						}
-					}
-				);
-			}
-			return resolve(event);
-		}
-
-		// Force password reset — lock user to /reset-password
-		if (user.forcePasswordReset) {
-			if (!path.startsWith('/reset-password') && !path.startsWith('/api/auth/logout')) {
-				throw redirect(303, '/reset-password');
-			}
-		}
-
-		// Pending approval — lock user to /pending-approval
-		if (user.status === 'pending') {
-			if (!path.startsWith('/pending-approval') && !path.startsWith('/api/auth/logout')) {
-				throw redirect(303, '/pending-approval');
-			}
-		}
-
-		// First-run welcome flow. 2026-04-17 (#24): admins also pass through
-		// /welcome exactly once — global install state (/setup) and per-user
-		// state (/welcome) are now orthogonal. The flag is set to an ISO
-		// timestamp when the user finishes the wizard via actions.complete —
-		// null means they've never seen it.
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const welcomeCompletedAt = (user as any).welcomeCompletedAt as string | null | undefined;
-		if (
-			!welcomeCompletedAt &&
-			!path.startsWith('/welcome') &&
-			!path.startsWith('/setup') &&
-			!path.startsWith('/login') &&
-			!path.startsWith('/logout') &&
-			!path.startsWith('/api/auth/logout') &&
-			!path.startsWith('/reset-password') &&
-			!path.startsWith('/_app') &&
-			path !== '/favicon.ico'
-		) {
-			throw redirect(303, '/welcome');
-		}
 	}
 
-	// API routes: let each endpoint decide how to handle missing auth
-	if (path.startsWith('/api')) {
-		return resolve(event);
+	// Delegate onboarding/auth/legacy-URL redirects to the canonical resolver.
+	const target = resolveRedirect(user, path, event.url.search ?? '');
+	if (target) {
+		throw redirect(target.status, target.location);
 	}
 
-	// Page routes: redirect unauthenticated users to login
-	if (!user) {
-		const next = encodeURIComponent(path + event.url.search);
-		throw redirect(303, `/login?next=${next}`);
+	// API state gate: for logged-in users, enforce pending/forcePasswordReset
+	// before any /api/* endpoint runs. Non-auth `/api/*` routes have already
+	// been cleared by the resolver (which returns null for /api/*). We still
+	// need to gate the pending/locked states here because the resolver does
+	// not redirect /api/* — it leaves the gate to hooks, where we respond with
+	// a structured 403 instead of redirecting an API call. (#7)
+	if (user && path.startsWith('/api')) {
+		const isAuthApi = path.startsWith('/api/auth');
+		if (!isAuthApi && user.forcePasswordReset) {
+			return new Response(
+				JSON.stringify({
+					message: 'Password reset required',
+					nexusReason: 'password-reset-required'
+				}),
+				{
+					status: 403,
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Nexus-Reason': 'password-reset-required'
+					}
+				}
+			);
+		}
+		if (!isAuthApi && user.status === 'pending') {
+			return new Response(
+				JSON.stringify({
+					message: 'Account pending approval',
+					nexusReason: 'pending-approval'
+				}),
+				{
+					status: 403,
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Nexus-Reason': 'pending-approval'
+					}
+				}
+			);
+		}
 	}
 
 	const response = await resolve(event);
