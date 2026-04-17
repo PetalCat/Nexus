@@ -10,6 +10,7 @@ import type {
 	UnifiedSearchResult,
 	UserCredential
 } from './types';
+import { proxyImageUrl } from '$lib/image-proxy';
 
 // ---------------------------------------------------------------------------
 // Auth & fetch
@@ -67,11 +68,12 @@ function mediaType(plexType: string): UnifiedMedia['type'] {
 	}
 }
 
-function imageUrl(config: ServiceConfig, path: string | undefined, userCred?: UserCredential): string | undefined {
+function imageUrl(config: ServiceConfig, path: string | undefined, _userCred?: UserCredential): string | undefined {
 	if (!path) return undefined;
-	const token = userCred?.accessToken ?? config.apiKey ?? '';
-	const base = config.url.replace(/\/+$/, '');
-	return `${base}${path}?X-Plex-Token=${token}`;
+	// Route through the Nexus image proxy so the browser never sees the Plex
+	// origin or X-Plex-Token. The proxy uses `getImageHeaders` to forward the
+	// X-Plex-Token server-side. Mirrors Jellyfin's `proxyPath` behavior.
+	return proxyImageUrl(`${config.url.replace(/\/+$/, '')}${path}`, config.id);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,12 +99,31 @@ function normalize(config: ServiceConfig, item: any, userCred?: UserCredential):
 		}
 	}
 
-	// Stream URL from Media array
+	// Stream URL — route through Nexus so the browser never sees X-Plex-Token.
+	// Only set for playable leaf types.
 	let streamUrl: string | undefined;
-	if (item.Media?.[0]?.Part?.[0]?.key) {
-		const token = userCred?.accessToken ?? config.apiKey ?? '';
-		const base = config.url.replace(/\/+$/, '');
-		streamUrl = `${base}${item.Media[0].Part[0].key}?X-Plex-Token=${token}`;
+	if (['movie', 'episode', 'track'].includes(item.type) && item.ratingKey) {
+		streamUrl = `/api/stream/${config.id}/${item.ratingKey}`;
+	}
+
+	// Plex `Guid` array carries external IDs (tmdb://, imdb://, tvdb://) —
+	// used downstream for Bazarr/Overseerr/etc. cross-service resolution.
+	const providerIds: Record<string, string> = {};
+	let tmdbId: string | null = null;
+	let imdbId: string | null = null;
+	if (Array.isArray(item.Guid)) {
+		for (const g of item.Guid) {
+			const id = String(g.id ?? '');
+			if (id.startsWith('tmdb://')) {
+				tmdbId = id.slice('tmdb://'.length);
+				providerIds.Tmdb = tmdbId;
+			} else if (id.startsWith('imdb://')) {
+				imdbId = id.slice('imdb://'.length);
+				providerIds.Imdb = imdbId;
+			} else if (id.startsWith('tvdb://')) {
+				providerIds.Tvdb = id.slice('tvdb://'.length);
+			}
+		}
 	}
 
 	return {
@@ -119,19 +140,29 @@ function normalize(config: ServiceConfig, item: any, userCred?: UserCredential):
 		year: item.year,
 		rating: item.rating,
 		genres: item.Genre?.map((g: { tag: string }) => g.tag) ?? [],
+		studios: item.Studio ? [item.Studio] : [],
 		duration: item.duration ? Math.round(item.duration / 1000) : undefined,
 		status: 'available',
 		progress,
 		metadata: {
 			plexRatingKey: item.ratingKey,
 			cast,
+			seriesId: item.grandparentRatingKey ? String(item.grandparentRatingKey) : undefined,
 			seriesName: item.grandparentTitle,
 			seasonNumber: item.parentIndex,
 			episodeNumber: item.index,
 			episodeTitle: item.type === 'episode' ? item.title : undefined,
 			contentRating: item.contentRating,
+			officialRating: item.contentRating,
+			criticRating: item.rating,
+			taglines: item.tagline ? [item.tagline] : [],
+			tmdbId,
+			imdbId,
+			providerIds,
 			// Music-specific
 			artist: item.grandparentTitle ?? item.parentTitle,
+			artistId: item.grandparentRatingKey ? String(item.grandparentRatingKey) : undefined,
+			albumId: item.parentRatingKey ? String(item.parentRatingKey) : undefined,
 			albumName: item.parentTitle,
 			trackNumber: item.index
 		},
@@ -368,6 +399,149 @@ export const plexAdapter: ServiceAdapter = {
 			);
 			const items = data?.MediaContainer?.Metadata ?? [];
 			return items.map((i: unknown) => normalize(config, i, userCred));
+		} catch {
+			return [];
+		}
+	},
+
+	/**
+	 * Plex "trending" analog — on-deck (i.e. next up) for the authenticated user.
+	 * Mirrors the Jellyfin `getTrending` which returns Next-Up items, falling back
+	 * to server-side recommendations when Next-Up is empty.
+	 */
+	async getTrending(config, userCred?): Promise<UnifiedMedia[]> {
+		if (!userCred?.accessToken && !config.apiKey) return [];
+		try {
+			const data = await plexFetch(config, '/library/onDeck', undefined, userCred);
+			const items = data?.MediaContainer?.Metadata ?? [];
+			return items.map((i: unknown) => normalize(config, i, userCred));
+		} catch {
+			return [];
+		}
+	},
+
+	/** Fetch all episodes for a given season of a show */
+	async getSeasonEpisodes(config, seriesId, seasonNumber, userCred?): Promise<UnifiedMedia[]> {
+		try {
+			// Plex: seasons are children of the series, and episodes are children
+			// of the season. We need to resolve the correct season's ratingKey.
+			const seasonsData = await plexFetch(
+				config,
+				`/library/metadata/${seriesId}/children`,
+				undefined,
+				userCred
+			);
+			const seasons = seasonsData?.MediaContainer?.Metadata ?? [];
+			const season = seasons.find((s: any) => Number(s.index) === Number(seasonNumber));
+			if (!season?.ratingKey) return [];
+			const epsData = await plexFetch(
+				config,
+				`/library/metadata/${season.ratingKey}/children`,
+				undefined,
+				userCred
+			);
+			const episodes = epsData?.MediaContainer?.Metadata ?? [];
+			return episodes.map((i: unknown) => normalize(config, i, userCred));
+		} catch {
+			return [];
+		}
+	},
+
+	/** Seasons / sub-items. Currently supports 'season'. */
+	async getSubItems(config, parentId, type, _opts, userCred) {
+		if (type !== 'season') return { items: [], total: 0 };
+		try {
+			const data = await plexFetch(
+				config,
+				`/library/metadata/${parentId}/children`,
+				undefined,
+				userCred
+			);
+			const seasons = data?.MediaContainer?.Metadata ?? [];
+			// Shape matches the JellyfinSeason type so media/[type]/[id] can render it.
+			const items = seasons
+				.filter((s: any) => s.type === 'season')
+				.map((s: any) => ({
+					id: String(s.ratingKey),
+					name: s.title ?? `Season ${s.index ?? 0}`,
+					seasonNumber: Number(s.index ?? 0),
+					episodeCount: Number(s.leafCount ?? 0),
+					imageUrl: s.thumb ? imageUrl(config, s.thumb, userCred) : undefined,
+					unplayedCount: Number(s.leafCount ?? 0) - Number(s.viewedLeafCount ?? 0)
+				}));
+			return { items: items as unknown as UnifiedMedia[], total: items.length };
+		} catch {
+			return { items: [], total: 0 };
+		}
+	},
+
+	/**
+	 * List all users on this Plex server (owner + shared-home/friends).
+	 * Requires the server's admin X-Plex-Token. Uses plex.tv to enumerate
+	 * users who have access, since there's no /Users equivalent on the local
+	 * server itself.
+	 */
+	async getUsers(config): Promise<ExternalUser[]> {
+		const token = config.apiKey ?? '';
+		if (!token) return [];
+		try {
+			// 1. Owner account
+			const owner: ExternalUser[] = [];
+			try {
+				const meRes = await fetch('https://plex.tv/api/v2/user', {
+					headers: {
+						'X-Plex-Token': token,
+						'X-Plex-Client-Identifier': 'nexus',
+						'X-Plex-Product': 'Nexus',
+						Accept: 'application/json'
+					},
+					signal: AbortSignal.timeout(8000)
+				});
+				if (meRes.ok) {
+					const me = await meRes.json();
+					owner.push({
+						externalId: String(me.id ?? ''),
+						username: me.username ?? me.title ?? 'owner',
+						isAdmin: true,
+						serviceType: 'plex'
+					});
+				}
+			} catch { /* swallow */ }
+
+			// 2. Shared users from /api/v2/home/users
+			const shared: ExternalUser[] = [];
+			try {
+				const homeRes = await fetch('https://plex.tv/api/v2/home/users', {
+					headers: {
+						'X-Plex-Token': token,
+						'X-Plex-Client-Identifier': 'nexus',
+						'X-Plex-Product': 'Nexus',
+						Accept: 'application/json'
+					},
+					signal: AbortSignal.timeout(8000)
+				});
+				if (homeRes.ok) {
+					const data = await homeRes.json();
+					// Shape varies by API version — either { users: [] } or an array directly.
+					const list = Array.isArray(data) ? data : (data?.users ?? []);
+					for (const u of list) {
+						shared.push({
+							externalId: String(u.id ?? ''),
+							username: u.username ?? u.title ?? '',
+							isAdmin: !!u.admin,
+							serviceType: 'plex'
+						});
+					}
+				}
+			} catch { /* swallow */ }
+
+			// De-duplicate by externalId — owner may also appear in home users.
+			const seen = new Set<string>();
+			return [...owner, ...shared].filter((u) => {
+				if (!u.externalId || seen.has(u.externalId)) return false;
+				seen.add(u.externalId);
+				return true;
+			});
 		} catch {
 			return [];
 		}
