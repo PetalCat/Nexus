@@ -2,14 +2,12 @@ import { redirect, type Handle } from '@sveltejs/kit';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
 import { COOKIE_NAME, getUserCount, validateSession } from '$lib/server/auth';
 import { boot } from '$lib/server/boot';
+import { NO_AUTH_PATHS } from '$lib/server/redirects';
 
 // All server-startup concerns (crypto validation, pollers, schedulers, stream
 // proxy, watchdog, lifecycle) are orchestrated in `$lib/server/boot`. Keep
 // hooks.server.ts focused on per-request middleware.
 boot();
-
-/** Paths that never require auth (login/setup flows) */
-const NO_AUTH_PATHS = ['/login', '/setup', '/invite', '/register', '/pending-approval', '/reset-password', '/api/ingest/webhook'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
