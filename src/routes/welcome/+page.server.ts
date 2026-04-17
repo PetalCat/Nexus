@@ -21,10 +21,15 @@ import type { AccountServiceSummary } from '$lib/components/account-linking/type
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
+	// resolveRedirect already guarantees locals.user is set before we get here
+	// (no-session on /welcome → /login is handled in src/lib/server/redirects.ts).
+	// We narrow for TypeScript and as a belt-and-braces fallback.
 	if (!locals.user) throw redirect(303, '/login');
 
 	// Already completed? Allow force re-run via ?force=1 so users can re-enter
-	// the flow from Settings → Linked accounts → "Run onboarding again".
+	// the flow from Settings → Linked accounts → "Run onboarding again". This
+	// stays in the route because it reads welcome_completed_at fresh from the
+	// DB — the resolver only has the cached-at-session-load flag.
 	const db = getDb();
 	const force = url.searchParams.get('force') === '1';
 	const row = db

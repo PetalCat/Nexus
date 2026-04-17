@@ -1,23 +1,45 @@
-// CANONICAL: single source for route redirect rules.
+// CANONICAL: single source for route redirect + onboarding-lifecycle rules.
 //
-// Onboarding, auth, and legacy-URL redirects used to live inline in
-// hooks.server.ts alongside rate-limiting, session loading, and header
-// hardening. Consolidating them here keeps the precedence order readable
-// and makes it obvious which paths are allowlisted vs gated.
+// Onboarding, auth, and legacy-URL redirects used to live inline across
+// hooks.server.ts AND each entry-point route's +page.server.ts (/setup,
+// /welcome, /register, /invite, /pending-approval — issue #32). Each surface
+// had its own bespoke guard and they drifted. Consolidating the rules here
+// keeps the full state machine auditable in ONE place.
+//
+// State-machine inputs:
+//   user:     App.Locals['user'] | RedirectUser | null  (session presence + status)
+//   path:     the request pathname
+//   search:   query string (for building ?next=)
+//   settings: registration_enabled, registration_requires_approval, onboarding_complete
+//             (read via getSetting() — the KV table in app_settings)
+//   userCount: global install state — 0 means fresh install (→ /setup)
 //
 // Precedence (top wins):
 //   1. Legacy URL rewrites (e.g. /collections → /library/catalogs).
-//   2. NO_AUTH_PATHS allowlist (login/setup/invite/register/etc).
-//   3. First-run redirect: no users at all → /setup.
-//   4. For logged-in users:
-//        a. forcePasswordReset → /reset-password (locked),
-//        b. status='pending'   → /pending-approval (locked),
-//        c. !welcomeCompletedAt → /welcome (onboarding).
-//   5. For logged-out users on non-API paths → /login?next=<path>.
+//   2. First-run: no users yet AND path ≠ /setup → /setup.
+//   3. Per-entry-point lifecycle gates (before NO_AUTH_PATHS short-circuit):
+//        /setup              users exist + no session → /login
+//                            onboarding complete + session → /
+//        /register           registration disabled → /login
+//                            logged-in → /
+//        /invite             logged-in → /
+//        /pending-approval   no user → /login
+//                            user.status !== 'pending' → /
+//        /welcome            no user → /login
+//   4. NO_AUTH_PATHS allowlist — path short-circuits (null).
+//   5. Logged-in lifecycle locks (in order):
+//        forcePasswordReset → /reset-password
+//        status='pending'   → /pending-approval
+//        !welcomeCompletedAt → /welcome
+//   6. Logged-out on non-API → /login?next=<path>.
 //
 // Returning `null` means "no redirect; let the request through".
+//
+// Route files SHOULD NOT duplicate these gates — they live here. A route
+// may still throw redirect() for form-submit success paths (e.g. the setup
+// wizard advancing a step), but NOT for lifecycle checks.
 
-import { getUserCount } from '$lib/server/auth';
+import { getSetting, getUserCount } from '$lib/server/auth';
 
 /**
  * Minimal user shape the resolver needs. Matches the fields read off
@@ -34,8 +56,8 @@ export interface RedirectUser {
 /**
  * Paths that never require auth. Kept as a static list so the security
  * surface is auditable in one place. Anything starting with one of these
- * prefixes short-circuits the redirect chain and the rate limiter's
- * auth-endpoint tier still applies from hooks.server.ts.
+ * prefixes short-circuits the redirect chain AFTER lifecycle gates have run.
+ * Rate limiting still applies from hooks.server.ts.
  */
 export const NO_AUTH_PATHS = [
 	'/login',
@@ -55,17 +77,32 @@ export interface RedirectTarget {
 }
 
 /**
+ * Optional injection points — default to the live DB helpers, but tests
+ * (and any future callers that already have settings loaded) can pass
+ * overrides to avoid hitting the DB.
+ */
+export interface ResolveRedirectOptions {
+	getUserCount?: () => number;
+	getSetting?: (key: string) => string | null;
+}
+
+/**
  * Resolves the redirect (if any) for a given request.
  *
  * @param user The authenticated user, or null if no valid session.
  * @param path The pathname (no query).
  * @param search The query string, including the leading `?` (or empty).
+ * @param opts Optional DB-access overrides (tests).
  */
 export function resolveRedirect(
 	user: RedirectUser | null,
 	path: string,
-	search: string = ''
+	search: string = '',
+	opts: ResolveRedirectOptions = {}
 ): RedirectTarget | null {
+	const readUserCount = opts.getUserCount ?? getUserCount;
+	const readSetting = opts.getSetting ?? getSetting;
+
 	// 1. Legacy rewrite: /collections → /library/catalogs (2026-04-17).
 	//    Disambiguates adapter-sourced catalogs from user/social collections.
 	if (path === '/collections' || path.startsWith('/collections/')) {
@@ -73,17 +110,85 @@ export function resolveRedirect(
 		return { location: target + (search ?? ''), status: 301 };
 	}
 
-	// 2. Allowlisted paths short-circuit — never redirect.
+	// 2. First-run global: no users yet → /setup (everything else bounces there).
+	if (readUserCount() === 0) {
+		if (!path.startsWith('/setup')) {
+			return { location: '/setup', status: 303 };
+		}
+		return null;
+	}
+
+	// 3. Per-entry-point lifecycle gates. These run BEFORE the NO_AUTH_PATHS
+	//    short-circuit so the 5 onboarding surfaces (/setup, /register, /invite,
+	//    /pending-approval, /welcome) are gated consistently from one place.
+
+	// 3a. /setup — post first-run it is the mid-wizard screen for the admin.
+	//     Users-exist + no session → bounce to /login. Finished wizard + session → home.
+	if (path === '/setup' || path.startsWith('/setup/')) {
+		if (!user) {
+			return { location: '/login', status: 303 };
+		}
+		if (readSetting('onboarding_complete') === 'true') {
+			return { location: '/', status: 303 };
+		}
+		return null;
+	}
+
+	// 3b. /register — gated by app_settings.registration_enabled. Already-
+	//     logged-in users bounce home (registering a second account makes
+	//     no sense from a signed-in session).
+	if (path === '/register' || path.startsWith('/register/')) {
+		if (user) {
+			return { location: '/', status: 303 };
+		}
+		if (readSetting('registration_enabled') !== 'true') {
+			return { location: '/login', status: 303 };
+		}
+		return null;
+	}
+
+	// 3c. /invite — token-bearing URL. Logged-in users bounce home; anonymous
+	//     users always get through (the page itself validates the code and
+	//     renders "invalid/expired" if the token is bad).
+	if (path === '/invite' || path.startsWith('/invite/')) {
+		if (user) {
+			return { location: '/', status: 303 };
+		}
+		return null;
+	}
+
+	// 3d. /pending-approval — must be a logged-in user with status='pending'.
+	//     Anonymous users → /login; approved users → / (they no longer belong
+	//     here). This is the inverse of rule 5b below; keeping both lets the
+	//     resolver be a true bidirectional state machine.
+	if (path === '/pending-approval' || path.startsWith('/pending-approval/')) {
+		if (!user) {
+			return { location: '/login', status: 303 };
+		}
+		if (user.status !== 'pending') {
+			return { location: '/', status: 303 };
+		}
+		return null;
+	}
+
+	// 3e. /welcome — per-user first-run wizard. Anonymous users → /login.
+	//     The already-completed + !?force=1 check stays in the route itself,
+	//     because it needs to read welcome_completed_at from the DB fresh and
+	//     the resolver already has a general "welcome for incomplete users"
+	//     rule in step 5c.
+	if (path === '/welcome' || path.startsWith('/welcome/')) {
+		if (!user) {
+			return { location: '/login', status: 303 };
+		}
+		return null;
+	}
+
+	// 4. Other allowlisted paths short-circuit — never redirect.
 	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
 		return null;
 	}
 
-	// 3. First-run: no users yet → setup.
-	if (getUserCount() === 0) {
-		return { location: '/setup', status: 303 };
-	}
-
-	// 4. Logged-in users:
+	// 5. Logged-in users on gated paths:
 	if (user) {
 		// API routes skip onboarding/lock redirects — they get JSON 403s
 		// instead (see the API gate in hooks.server.ts). Returning null here
@@ -92,7 +197,7 @@ export function resolveRedirect(
 			return null;
 		}
 
-		// 4a. Force password reset — lock to /reset-password.
+		// 5a. Force password reset — lock to /reset-password.
 		if (
 			user.forcePasswordReset &&
 			!path.startsWith('/reset-password') &&
@@ -101,7 +206,7 @@ export function resolveRedirect(
 			return { location: '/reset-password', status: 303 };
 		}
 
-		// 4b. Pending approval — lock to /pending-approval.
+		// 5b. Pending approval — lock to /pending-approval.
 		if (
 			user.status === 'pending' &&
 			!path.startsWith('/pending-approval') &&
@@ -110,7 +215,7 @@ export function resolveRedirect(
 			return { location: '/pending-approval', status: 303 };
 		}
 
-		// 4c. Welcome flow (first-run per-user, orthogonal to /setup).
+		// 5c. Welcome flow (first-run per-user, orthogonal to /setup).
 		const welcomeCompletedAt = user.welcomeCompletedAt;
 		if (
 			!welcomeCompletedAt &&
@@ -129,7 +234,7 @@ export function resolveRedirect(
 		return null;
 	}
 
-	// 5. Unauthenticated: API routes let the endpoint decide; page routes
+	// 6. Unauthenticated: API routes let the endpoint decide; page routes
 	//    redirect to /login with the current URL captured in `next`.
 	if (path.startsWith('/api')) {
 		return null;
