@@ -1,8 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { getUnseenShareCount } from '$lib/server/social';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, url, parent }) => {
 	if (!locals.user) throw redirect(302, '/login');
 
 	// Redirect /library to /library/watchlist
@@ -10,6 +9,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		throw redirect(302, '/library/watchlist');
 	}
 
-	const unseenShares = getUnseenShareCount(locals.user.id);
+	// unseenShares now lives on the root layout so the badge renders everywhere;
+	// re-expose via parent() for any child routes that still read data.unseenShares.
+	const { unseenShares } = await parent();
 	return { unseenShares };
 };
