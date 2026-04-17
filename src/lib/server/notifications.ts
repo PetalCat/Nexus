@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { and, eq, desc, sql } from 'drizzle-orm';
+import { and, eq, desc, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { broadcastToUser } from './ws';
 
@@ -78,20 +78,23 @@ export function getNotifications(userId: string, opts?: { limit?: number; offset
 		.offset(offset)
 		.all();
 
-	// Enrich with actor display name
-	return rows.map((row) => {
-		let actorName: string | null = null;
-		if (row.actorId) {
-			const actor = db.select({ displayName: schema.users.displayName })
-				.from(schema.users).where(eq(schema.users.id, row.actorId)).get();
-			actorName = actor?.displayName ?? null;
-		}
-		return {
-			...row,
-			metadata: row.metadata ? JSON.parse(row.metadata) : null,
-			actorName
-		};
-	});
+	// Batch-resolve actor display names (was 1 query per row).
+	const actorIds = Array.from(new Set(rows.map((r) => r.actorId).filter((v): v is string => !!v)));
+	const actorNames = new Map<string, string>();
+	if (actorIds.length > 0) {
+		const actors = db
+			.select({ id: schema.users.id, displayName: schema.users.displayName })
+			.from(schema.users)
+			.where(inArray(schema.users.id, actorIds))
+			.all();
+		for (const a of actors) actorNames.set(a.id, a.displayName);
+	}
+
+	return rows.map((row) => ({
+		...row,
+		metadata: row.metadata ? JSON.parse(row.metadata) : null,
+		actorName: row.actorId ? actorNames.get(row.actorId) ?? null : null
+	}));
 }
 
 /** Count unread notifications */

@@ -112,7 +112,17 @@ export const collaborativeProvider: RecommendationProvider = {
 		if (!neighbors || neighbors.length === 0) return [];
 
 		const targetWatched = getWatchedSet(ctx.userId);
-		const results: ScoredRecommendation[] = [];
+
+		// First pass: collect candidate (item, similarity) pairs across all neighbors.
+		type Candidate = {
+			media_id: string;
+			media_type: string;
+			media_title: string | null;
+			media_year: number | null;
+			media_genres: string | null;
+			similarity: number;
+		};
+		const candidates: Candidate[] = [];
 		const seen = new Set<string>();
 
 		for (const neighbor of neighbors) {
@@ -143,47 +153,65 @@ export const collaborativeProvider: RecommendationProvider = {
 				try { genres = item.media_genres ? JSON.parse(item.media_genres) : []; } catch { /* */ }
 				if (ctx.profile.genreBans?.some((ban) => genres.includes(ban))) continue;
 
-				const cached = raw.prepare(
-					`SELECT * FROM media_items WHERE source_id = ? LIMIT 1`
-				).get(item.media_id) as any;
-
-				const score = neighbor.similarity * 0.8;
-
-				results.push({
-					item: cached
-						? {
-								id: cached.id,
-								sourceId: cached.source_id,
-								serviceId: cached.service_id,
-								serviceType: 'jellyfin',
-								type: cached.type,
-								title: cached.title,
-								description: cached.description ?? undefined,
-								poster: cached.poster ?? undefined,
-								backdrop: cached.backdrop ?? undefined,
-								year: cached.year ?? undefined,
-								rating: cached.rating ?? undefined,
-								genres: cached.genres ? JSON.parse(cached.genres) : genres,
-								duration: cached.duration ?? undefined,
-								status: cached.status as any
-						  }
-						: {
-								id: `${item.media_id}:collab`,
-								sourceId: item.media_id,
-								serviceId: '',
-								serviceType: 'unknown',
-								type: item.media_type as any,
-								title: item.media_title ?? 'Unknown',
-								year: item.media_year ?? undefined,
-								genres
-						  },
-					score,
-					confidence: Math.min(neighbor.similarity, 1),
-					provider: 'collaborative',
-					reason: `Popular with viewers who share your taste`,
-					reasonType: 'similar_users'
-				});
+				candidates.push({ ...item, similarity: neighbor.similarity });
 			}
+		}
+
+		// Batch media_items lookup across all candidates (was 1 query per candidate).
+		const cachedMap = new Map<string, any>();
+		if (candidates.length > 0) {
+			const ids = candidates.map((c) => c.media_id);
+			const placeholders = ids.map(() => '?').join(',');
+			const rows = raw.prepare(
+				`SELECT * FROM media_items WHERE source_id IN (${placeholders})`
+			).all(...ids) as any[];
+			for (const row of rows) {
+				if (!cachedMap.has(row.source_id)) cachedMap.set(row.source_id, row);
+			}
+		}
+
+		const results: ScoredRecommendation[] = [];
+		for (const item of candidates) {
+			let genres: string[] = [];
+			try { genres = item.media_genres ? JSON.parse(item.media_genres) : []; } catch { /* */ }
+
+			const cached = cachedMap.get(item.media_id);
+			const score = item.similarity * 0.8;
+
+			results.push({
+				item: cached
+					? {
+							id: cached.id,
+							sourceId: cached.source_id,
+							serviceId: cached.service_id,
+							serviceType: 'jellyfin',
+							type: cached.type,
+							title: cached.title,
+							description: cached.description ?? undefined,
+							poster: cached.poster ?? undefined,
+							backdrop: cached.backdrop ?? undefined,
+							year: cached.year ?? undefined,
+							rating: cached.rating ?? undefined,
+							genres: cached.genres ? JSON.parse(cached.genres) : genres,
+							duration: cached.duration ?? undefined,
+							status: cached.status as any
+					  }
+					: {
+							id: `${item.media_id}:collab`,
+							sourceId: item.media_id,
+							serviceId: '',
+							serviceType: 'unknown',
+							type: item.media_type as any,
+							title: item.media_title ?? 'Unknown',
+							year: item.media_year ?? undefined,
+							genres
+					  },
+				score,
+				confidence: Math.min(item.similarity, 1),
+				provider: 'collaborative',
+				reason: `Popular with viewers who share your taste`,
+				reasonType: 'similar_users'
+			});
 		}
 
 		return results.sort((a, b) => b.score - a.score).slice(0, ctx.limit);

@@ -60,16 +60,24 @@ export function getCollectionActivity(
 		.offset(offset)
 		.all();
 
+	if (entries.length === 0) return [];
+
+	// Batch user lookup (was 1 per entry).
+	const userIds = Array.from(new Set(entries.map((e) => e.userId)));
+	const users = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, userIds))
+		.all();
+	const userMap = new Map(users.map((u) => [u.id, u]));
+
 	return entries.map((e) => {
-		const user = db
-			.select({
-				username: schema.users.username,
-				displayName: schema.users.displayName,
-				avatar: schema.users.avatar
-			})
-			.from(schema.users)
-			.where(eq(schema.users.id, e.userId))
-			.get();
+		const user = userMap.get(e.userId);
 		return {
 			...e,
 			username: user?.username,
@@ -125,43 +133,62 @@ export function getRecentCollectionUpdates(
 		}
 	}
 
+	const orderedEntries = Array.from(byCollection.entries()).slice(0, limit);
+	if (orderedEntries.length === 0) return [];
+
+	const neededColIds = orderedEntries.map(([id]) => id);
+	const neededUserIds = Array.from(new Set(orderedEntries.map(([, a]) => a.userId)));
+
+	// Batch: collections, users, posters (was 3 queries per entry).
+	const collectionRows = db
+		.select()
+		.from(schema.collections)
+		.where(inArray(schema.collections.id, neededColIds))
+		.all();
+	const collectionMap = new Map(collectionRows.map((c) => [c.id, c]));
+
+	const userRows = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, neededUserIds))
+		.all();
+	const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+	const posterRows = db
+		.select({
+			collectionId: schema.collectionItems.collectionId,
+			mediaPoster: schema.collectionItems.mediaPoster,
+			position: schema.collectionItems.position
+		})
+		.from(schema.collectionItems)
+		.where(inArray(schema.collectionItems.collectionId, neededColIds))
+		.orderBy(schema.collectionItems.collectionId, schema.collectionItems.position)
+		.all();
+	const posterMap = new Map<string, string[]>();
+	for (const row of posterRows) {
+		if (!row.mediaPoster) continue;
+		const arr = posterMap.get(row.collectionId) ?? [];
+		if (arr.length < 4) {
+			arr.push(row.mediaPoster);
+			posterMap.set(row.collectionId, arr);
+		}
+	}
+
 	const results: Array<{
 		collectionId: string;
 		collectionName: string;
 		latestActivity: ActivityEntry;
 		posters: string[];
 	}> = [];
-
-	for (const [colId, activity] of byCollection) {
-		if (results.length >= limit) break;
-
-		const collection = db
-			.select()
-			.from(schema.collections)
-			.where(eq(schema.collections.id, colId))
-			.get();
+	for (const [colId, activity] of orderedEntries) {
+		const collection = collectionMap.get(colId);
 		if (!collection) continue;
-
-		const user = db
-			.select({
-				username: schema.users.username,
-				displayName: schema.users.displayName,
-				avatar: schema.users.avatar
-			})
-			.from(schema.users)
-			.where(eq(schema.users.id, activity.userId))
-			.get();
-
-		const posters = db
-			.select({ mediaPoster: schema.collectionItems.mediaPoster })
-			.from(schema.collectionItems)
-			.where(eq(schema.collectionItems.collectionId, colId))
-			.orderBy(schema.collectionItems.position)
-			.limit(4)
-			.all()
-			.map((p) => p.mediaPoster)
-			.filter(Boolean) as string[];
-
+		const user = userMap.get(activity.userId);
 		results.push({
 			collectionId: colId,
 			collectionName: collection.name,
@@ -171,7 +198,7 @@ export function getRecentCollectionUpdates(
 				displayName: user?.displayName,
 				avatar: user?.avatar ?? null
 			},
-			posters
+			posters: posterMap.get(colId) ?? []
 		});
 	}
 

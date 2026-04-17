@@ -1,5 +1,5 @@
 import { getDb, getRawDb, schema } from '../db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Known event types — extend these as new services/features are added.
@@ -154,13 +154,27 @@ export function getPollerPlugins() {
 /**
  * Resolve a Nexus userId from an external service user ID.
  * Useful in webhooks/pollers where you only have the service's user ID.
+ *
+ * When `serviceId` is known (the common case in pollers/webhooks), pass it —
+ * lookups can then hit idx_user_service_creds_ext (SEARCH) instead of scanning
+ * every credential row. Omitting it falls back to the external_user_id-only
+ * path, which is rare and tolerated as a legacy escape hatch.
  */
-export function resolveNexusUserId(externalUserId: string): string | null {
+export function resolveNexusUserId(
+	externalUserId: string,
+	serviceId?: string
+): string | null {
 	const db = getDb();
+	const where = serviceId
+		? and(
+				eq(schema.userServiceCredentials.serviceId, serviceId),
+				eq(schema.userServiceCredentials.externalUserId, externalUserId)
+			)
+		: eq(schema.userServiceCredentials.externalUserId, externalUserId);
 	const cred = db
 		.select()
 		.from(schema.userServiceCredentials)
-		.where(eq(schema.userServiceCredentials.externalUserId, externalUserId))
+		.where(where)
 		.get();
 	return cred?.userId ?? null;
 }

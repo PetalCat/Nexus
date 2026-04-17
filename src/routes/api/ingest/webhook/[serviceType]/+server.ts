@@ -47,11 +47,11 @@ registerWebhookHandler('jellyfin', async (request) => {
 	const item = body.Item ?? body;
 	if (!jellyfinUserId || !item?.Id) return { ok: true, skipped: true };
 
-	const nexusUserId = resolveNexusUserId(jellyfinUserId);
-	if (!nexusUserId) return { ok: true, skipped: true };
-
 	const configs = getEnabledConfigs().filter((c) => c.type === 'jellyfin');
 	const serviceId = configs[0]?.id ?? 'unknown';
+
+	const nexusUserId = resolveNexusUserId(jellyfinUserId, serviceId);
+	if (!nexusUserId) return { ok: true, skipped: true };
 
 	const session = body.Session ?? {};
 	const transcodingInfo = session.TranscodingInfo ?? {};

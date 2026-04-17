@@ -776,6 +776,30 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_rec_feedback_user ON recommendation_feedback(user_id, created_at DESC)`);
 	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rec_feedback_unique ON recommendation_feedback(user_id, media_id)`);
+
+	// ── Hot-path indexes (added 2026-04-16 during query audit) ─────────
+	// Mirrors drizzle/0004; kept here so legacy installs without a migration
+	// journal (Case 3 in bootstrapSchema) also pick these up at boot.
+	db.run(`CREATE INDEX IF NOT EXISTS idx_media_items_source ON media_items(source_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_media_items_type_cached ON media_items(type, cached_at)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_media_items_service ON media_items(service_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_media ON play_sessions(media_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_service_creds_ext ON user_service_credentials(service_id, external_user_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_service_creds_service ON user_service_credentials(service_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_user_ratings_media ON user_ratings(media_id, service_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_watch_sessions_host ON watch_sessions(host_id, status)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_collections_creator ON collections(creator_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_collection_members_user ON collection_members(user_id)`);
+	// session_participants had a table-level UNIQUE(session_id, user_id) in the legacy
+	// CREATE above but Drizzle-managed installs never got that constraint — add it as
+	// a named unique index so both paths converge.
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_session_participants_unique ON session_participants(session_id, user_id)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_members_unique ON collection_members(collection_id, user_id)`);
+	// stats_rollups upsert targets (user_id, period, media_type) but legacy/Drizzle
+	// tables lacked the matching UNIQUE constraint, so every rebuild threw
+	// "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_stats_rollups_unique ON stats_rollups(user_id, period, media_type)`);
 }
 
 export { schema };

@@ -105,6 +105,20 @@ export const socialProvider: RecommendationProvider = {
 			media_genres: string | null;
 		}>;
 
+		// Batch media_items lookups for the whole friendLiked set (was N queries).
+		const friendLikedIds = friendLiked.map((i) => i.media_id);
+		const cachedMap = new Map<string, any>();
+		if (friendLikedIds.length > 0) {
+			const mediaPlaceholders = friendLikedIds.map(() => '?').join(',');
+			const cachedRows = raw.prepare(
+				`SELECT * FROM media_items WHERE source_id IN (${mediaPlaceholders})`
+			).all(...friendLikedIds) as any[];
+			// First row per source_id wins (matches LIMIT 1 behavior).
+			for (const row of cachedRows) {
+				if (!cachedMap.has(row.source_id)) cachedMap.set(row.source_id, row);
+			}
+		}
+
 		for (const item of friendLiked) {
 			if (consumed.has(item.media_id) || ctx.excludeIds.has(item.media_id) || seen.has(item.media_id)) continue;
 			seen.add(item.media_id);
@@ -113,9 +127,7 @@ export const socialProvider: RecommendationProvider = {
 			try { genres = item.media_genres ? JSON.parse(item.media_genres) : []; } catch { /* */ }
 			if (ctx.profile.genreBans?.some((ban) => genres.includes(ban))) continue;
 
-			const cached = raw.prepare(
-				`SELECT * FROM media_items WHERE source_id = ? LIMIT 1`
-			).get(item.media_id) as any;
+			const cached = cachedMap.get(item.media_id);
 
 			results.push({
 				item: cached

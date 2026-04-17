@@ -78,13 +78,37 @@ export function getFriends(userId: string): FriendWithPresence[] {
 		)
 		.all();
 
+	if (rows.length === 0) return [];
+
+	// Batch-load users + presence (was 2N queries, now 2 total).
+	const friendIds = rows.map((r) => (r.userId === userId ? r.friendId : r.userId));
+
+	const users = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, friendIds))
+		.all();
+	const userMap = new Map(users.map((u) => [u.id, u]));
+
+	const presences = db
+		.select()
+		.from(schema.userPresence)
+		.where(inArray(schema.userPresence.userId, friendIds))
+		.all();
+	const presenceMap = new Map(presences.map((p) => [p.userId, p]));
+
 	const friends: FriendWithPresence[] = [];
 	for (const row of rows) {
 		const friendId = row.userId === userId ? row.friendId : row.userId;
-		const user = db.select().from(schema.users).where(eq(schema.users.id, friendId)).get();
+		const user = userMap.get(friendId);
 		if (!user) continue;
 
-		const presence = db.select().from(schema.userPresence).where(eq(schema.userPresence.userId, friendId)).get();
+		const presence = presenceMap.get(friendId);
 		const isGhost = presence?.ghostMode === 1;
 
 		friends.push({
@@ -134,10 +158,25 @@ export function getPendingRequests(userId: string): FriendRequest[] {
 		)
 		.all();
 
+	if (rows.length === 0) return [];
+
+	// Batch-load both sides in a single query (was 2N, now 1).
+	const userIds = Array.from(new Set(rows.flatMap((r) => [r.userId, r.friendId])));
+	const users = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, userIds))
+		.all();
+	const userMap = new Map(users.map((u) => [u.id, u]));
+
 	const result: FriendRequest[] = [];
 	for (const row of rows) {
-		const fromUser = db.select().from(schema.users).where(eq(schema.users.id, row.userId)).get();
-		const toUser = db.select().from(schema.users).where(eq(schema.users.id, row.friendId)).get();
+		const fromUser = userMap.get(row.userId);
+		const toUser = userMap.get(row.friendId);
 		if (!fromUser || !toUser) continue;
 
 		result.push({
@@ -407,10 +446,24 @@ export function getSharedItems(userId: string, opts?: { limit?: number; offset?:
 		.offset(offset)
 		.all();
 
-	// Enrich with sender info
+	if (items.length === 0) return [];
+
+	// Batch sender lookup (was 1 query per item).
+	const senderIds = Array.from(new Set(items.map((i) => i.fromUserId)));
+	const senders = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, senderIds))
+		.all();
+	const senderMap = new Map(senders.map((s) => [s.id, s]));
+
 	return items.map((item) => {
-		const sender = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, item.fromUserId)).get();
+		const sender = senderMap.get(item.fromUserId);
 		return { ...item, fromUsername: sender?.username, fromDisplayName: sender?.displayName, fromAvatar: sender?.avatar ?? null };
 	});
 }
@@ -468,11 +521,29 @@ export function getFriendActivity(userId: string, opts?: { limit?: number; offse
 		`SELECT * FROM play_sessions WHERE ${conds.join(' AND ')} ORDER BY started_at DESC LIMIT ? OFFSET ?`
 	).all(...sqlParams) as any[];
 
-	// Enrich with user info
+	if (events.length === 0) return [];
+
+	// Batch user lookup (was 1 per event).
+	const eventUserIds = Array.from(
+		new Set(events.map((e: any) => (e.user_id ?? e.userId) as string).filter(Boolean))
+	);
+	const users = eventUserIds.length > 0
+		? db
+			.select({
+				id: schema.users.id,
+				username: schema.users.username,
+				displayName: schema.users.displayName,
+				avatar: schema.users.avatar
+			})
+			.from(schema.users)
+			.where(inArray(schema.users.id, eventUserIds))
+			.all()
+		: [];
+	const userMap = new Map(users.map((u) => [u.id, u]));
+
 	return events.map((e: any) => {
 		const uid = e.user_id ?? e.userId;
-		const user = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, uid)).get();
+		const user = userMap.get(uid);
 		return { ...e, userId: uid, username: user?.username, displayName: user?.displayName, avatar: user?.avatar ?? null };
 	});
 }
@@ -574,10 +645,24 @@ export function getWatchSession(sessionId: string) {
 		.where(and(eq(schema.sessionParticipants.sessionId, sessionId), sql`left_at IS NULL`))
 		.all();
 
-	// Enrich participants
+	// Batch-enrich participants (was 1 query per participant).
+	const pUserIds = participants.map((p) => p.userId);
+	const pUsers = pUserIds.length > 0
+		? db
+			.select({
+				id: schema.users.id,
+				username: schema.users.username,
+				displayName: schema.users.displayName,
+				avatar: schema.users.avatar
+			})
+			.from(schema.users)
+			.where(inArray(schema.users.id, pUserIds))
+			.all()
+		: [];
+	const pUserMap = new Map(pUsers.map((u) => [u.id, u]));
+
 	const enriched = participants.map((p) => {
-		const user = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, p.userId)).get();
+		const user = pUserMap.get(p.userId);
 		return { ...p, username: user?.username, displayName: user?.displayName, avatar: user?.avatar ?? null };
 	});
 
@@ -602,14 +687,44 @@ export function getActiveSessions(userId: string) {
 		.orderBy(desc(schema.watchSessions.createdAt))
 		.all();
 
+	if (sessions.length === 0) return [];
+
+	// Batch participant counts in a single GROUP BY (was 1 query per session).
+	const sessionIds = sessions.map((s) => s.id);
+	const raw = getRawDb();
+	const countPlaceholders = sessionIds.map(() => '?').join(',');
+	const countRows = raw.prepare(
+		`SELECT session_id, COUNT(*) as n FROM session_participants
+		 WHERE session_id IN (${countPlaceholders}) AND left_at IS NULL
+		 GROUP BY session_id`
+	).all(...sessionIds) as Array<{ session_id: string; n: number }>;
+	const countMap = new Map(countRows.map((r) => [r.session_id, r.n]));
+
+	// Batch host lookups (was 1 query per session).
+	const hostIds = Array.from(new Set(sessions.map((s) => s.hostId)));
+	const hosts = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, hostIds))
+		.all();
+	const hostMap = new Map(hosts.map((h) => [h.id, h]));
+
 	return sessions.map((s) => {
-		const pCount = db.get<{ n: number }>(
-			sql`SELECT COUNT(*) as n FROM session_participants WHERE session_id = ${s.id} AND left_at IS NULL`
-		);
-		const host = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, s.hostId)).get();
+		const host = hostMap.get(s.hostId);
 		const invitedIds: string[] = s.invitedIds ? JSON.parse(s.invitedIds) : [];
-		return { ...s, participantCount: pCount?.n ?? 0, hostUsername: host?.username, hostDisplayName: host?.displayName, hostAvatar: host?.avatar ?? null, invitedIds };
+		return {
+			...s,
+			participantCount: countMap.get(s.id) ?? 0,
+			hostUsername: host?.username,
+			hostDisplayName: host?.displayName,
+			hostAvatar: host?.avatar ?? null,
+			invitedIds
+		};
 	});
 }
 
@@ -713,9 +828,24 @@ export function getSessionMessages(sessionId: string, opts?: { limit?: number; b
 		.limit(limit)
 		.all();
 
+	if (messages.length === 0) return [];
+
+	// Batch user lookup (was 1 per message).
+	const mUserIds = Array.from(new Set(messages.map((m) => m.userId)));
+	const mUsers = db
+		.select({
+			id: schema.users.id,
+			username: schema.users.username,
+			displayName: schema.users.displayName,
+			avatar: schema.users.avatar
+		})
+		.from(schema.users)
+		.where(inArray(schema.users.id, mUserIds))
+		.all();
+	const mUserMap = new Map(mUsers.map((u) => [u.id, u]));
+
 	return messages.reverse().map((m) => {
-		const user = db.select({ username: schema.users.username, displayName: schema.users.displayName, avatar: schema.users.avatar })
-			.from(schema.users).where(eq(schema.users.id, m.userId)).get();
+		const user = mUserMap.get(m.userId);
 		return { ...m, username: user?.username, displayName: user?.displayName, avatar: user?.avatar ?? null };
 	});
 }
@@ -785,16 +915,31 @@ export function getCollection(collectionId: string, requestingUserId: string) {
 		.orderBy(schema.collectionItems.position)
 		.all();
 
-	const members = db
+	const memberRows = db
 		.select()
 		.from(schema.collectionMembers)
 		.where(eq(schema.collectionMembers.collectionId, collectionId))
-		.all()
-		.map((m) => {
-			const user = db.select({ username: schema.users.username, displayName: schema.users.displayName })
-				.from(schema.users).where(eq(schema.users.id, m.userId)).get();
-			return { ...m, username: user?.username, displayName: user?.displayName };
-		});
+		.all();
+
+	// Batch user lookup (was 1 per member).
+	const memberUserIds = memberRows.map((m) => m.userId);
+	const memberUsers = memberUserIds.length > 0
+		? db
+			.select({
+				id: schema.users.id,
+				username: schema.users.username,
+				displayName: schema.users.displayName
+			})
+			.from(schema.users)
+			.where(inArray(schema.users.id, memberUserIds))
+			.all()
+		: [];
+	const memberUserMap = new Map(memberUsers.map((u) => [u.id, u]));
+
+	const members = memberRows.map((m) => {
+		const user = memberUserMap.get(m.userId);
+		return { ...m, username: user?.username, displayName: user?.displayName };
+	});
 
 	return { ...collection, items, members, userRole: member?.role ?? null };
 }
@@ -817,24 +962,47 @@ export function getUserCollections(userId: string) {
 		.orderBy(desc(schema.collections.updatedAt))
 		.all();
 
+	// Batch counts + posters (was 3 queries per collection, now 3 total).
+	const raw = getRawDb();
+	const cidPlaceholders = collectionIds.map(() => '?').join(',');
+
+	const itemCountRows = raw.prepare(
+		`SELECT collection_id, COUNT(*) as n FROM collection_items
+		 WHERE collection_id IN (${cidPlaceholders}) GROUP BY collection_id`
+	).all(...collectionIds) as Array<{ collection_id: string; n: number }>;
+	const itemCountMap = new Map(itemCountRows.map((r) => [r.collection_id, r.n]));
+
+	const memberCountRows = raw.prepare(
+		`SELECT collection_id, COUNT(*) as n FROM collection_members
+		 WHERE collection_id IN (${cidPlaceholders}) GROUP BY collection_id`
+	).all(...collectionIds) as Array<{ collection_id: string; n: number }>;
+	const memberCountMap = new Map(memberCountRows.map((r) => [r.collection_id, r.n]));
+
+	// Fetch all posters in one query, then keep up to 4 per collection ordered by position.
+	const posterRows = raw.prepare(
+		`SELECT collection_id, media_poster, position FROM collection_items
+		 WHERE collection_id IN (${cidPlaceholders}) AND media_poster IS NOT NULL
+		 ORDER BY collection_id, position`
+	).all(...collectionIds) as Array<{ collection_id: string; media_poster: string | null; position: number }>;
+	const posterMap = new Map<string, string[]>();
+	for (const row of posterRows) {
+		if (!row.media_poster) continue;
+		const arr = posterMap.get(row.collection_id) ?? [];
+		if (arr.length < 4) {
+			arr.push(row.media_poster);
+			posterMap.set(row.collection_id, arr);
+		}
+	}
+
 	return collections.map((c) => {
-		const itemCount = db.get<{ n: number }>(
-			sql`SELECT COUNT(*) as n FROM collection_items WHERE collection_id = ${c.id}`
-		);
-		const memberCount = db.get<{ n: number }>(
-			sql`SELECT COUNT(*) as n FROM collection_members WHERE collection_id = ${c.id}`
-		);
-		const posters = db
-			.select({ mediaPoster: schema.collectionItems.mediaPoster })
-			.from(schema.collectionItems)
-			.where(eq(schema.collectionItems.collectionId, c.id))
-			.orderBy(schema.collectionItems.position)
-			.limit(4)
-			.all()
-			.map(p => p.mediaPoster)
-			.filter(Boolean);
 		const role = memberships.find((m) => m.collectionId === c.id)?.role;
-		return { ...c, itemCount: itemCount?.n ?? 0, memberCount: memberCount?.n ?? 0, posters, userRole: role };
+		return {
+			...c,
+			itemCount: itemCountMap.get(c.id) ?? 0,
+			memberCount: memberCountMap.get(c.id) ?? 0,
+			posters: posterMap.get(c.id) ?? [],
+			userRole: role
+		};
 	});
 }
 

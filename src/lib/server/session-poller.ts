@@ -126,7 +126,7 @@ function processAdapterSessions(
 		seenKeys.add(key);
 
 		// Resolve Nexus user ID from the external user ID
-		const nexusUserId = ns.userId ? resolveNexusUserId(ns.userId) : null;
+		const nexusUserId = ns.userId ? resolveNexusUserId(ns.userId, serviceId) : null;
 		if (!nexusUserId) continue;
 
 		// Track status changes for non-live sessions (e.g. game status transitions)
