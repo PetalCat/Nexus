@@ -394,21 +394,23 @@ export interface CalibreSeries {
 }
 
 export async function getCalibreSeries(config: ServiceConfig, userCred?: UserCredential): Promise<CalibreSeries[]> {
+	// IMPORTANT: do NOT swallow errors inside the withCache callback. Swallowing
+	// to `[]` would pollute the 5-minute cache with an empty result so a transient
+	// Calibre hiccup blacked out the library for 5 minutes after recovery.
+	// Let errors propagate — withCache never stores a rejected promise. Callers
+	// are expected to handle the throw at their level (usually via a ping-first
+	// status check; see routes/books/+page.server.ts).
 	return withCache(`calibre-series:${config.id}`, 300_000, async () => {
-		try {
-			const entries = await fetchAllBooks(config, userCred);
-			const map = new Map<string, UnifiedMedia[]>();
-			for (const entry of entries) {
-				if (!entry.series) continue;
-				const item = opdsEntryToUnifiedMedia(config, entry);
-				const existing = map.get(entry.series) ?? [];
-				existing.push(item);
-				map.set(entry.series, existing);
-			}
-			return Array.from(map.entries()).map(([name, books]) => ({ name, books }));
-		} catch {
-			return [];
+		const entries = await fetchAllBooks(config, userCred);
+		const map = new Map<string, UnifiedMedia[]>();
+		for (const entry of entries) {
+			if (!entry.series) continue;
+			const item = opdsEntryToUnifiedMedia(config, entry);
+			const existing = map.get(entry.series) ?? [];
+			existing.push(item);
+			map.set(entry.series, existing);
 		}
+		return Array.from(map.entries()).map(([name, books]) => ({ name, books }));
 	});
 }
 
@@ -418,40 +420,34 @@ export interface CalibreAuthor {
 }
 
 export async function getCalibreAuthors(config: ServiceConfig, userCred?: UserCredential): Promise<CalibreAuthor[]> {
+	// See getCalibreSeries — errors must propagate to avoid cache poisoning.
 	return withCache(`calibre-authors:${config.id}`, 300_000, async () => {
-		try {
-			const entries = await fetchAllBooks(config, userCred);
-			const map = new Map<string, number>();
-			for (const entry of entries) {
-				for (const author of entry.authors) {
-					const trimmed = author.trim();
-					if (trimmed) map.set(trimmed, (map.get(trimmed) ?? 0) + 1);
-				}
+		const entries = await fetchAllBooks(config, userCred);
+		const map = new Map<string, number>();
+		for (const entry of entries) {
+			for (const author of entry.authors) {
+				const trimmed = author.trim();
+				if (trimmed) map.set(trimmed, (map.get(trimmed) ?? 0) + 1);
 			}
-			return Array.from(map.entries())
-				.map(([name, bookCount]) => ({ name, bookCount }))
-				.sort((a, b) => b.bookCount - a.bookCount);
-		} catch {
-			return [];
 		}
+		return Array.from(map.entries())
+			.map(([name, bookCount]) => ({ name, bookCount }))
+			.sort((a, b) => b.bookCount - a.bookCount);
 	});
 }
 
 export async function getCalibreCategories(config: ServiceConfig, userCred?: UserCredential): Promise<string[]> {
+	// See getCalibreSeries — errors must propagate to avoid cache poisoning.
 	return withCache(`calibre-categories:${config.id}`, 300_000, async () => {
-		try {
-			const entries = await fetchAllBooks(config, userCred);
-			const tags = new Set<string>();
-			for (const entry of entries) {
-				for (const cat of entry.categories) {
-					const trimmed = cat.trim();
-					if (trimmed) tags.add(trimmed);
-				}
+		const entries = await fetchAllBooks(config, userCred);
+		const tags = new Set<string>();
+		for (const entry of entries) {
+			for (const cat of entry.categories) {
+				const trimmed = cat.trim();
+				if (trimmed) tags.add(trimmed);
 			}
-			return Array.from(tags).sort();
-		} catch {
-			return [];
 		}
+		return Array.from(tags).sort();
 	});
 }
 
@@ -571,12 +567,9 @@ export async function getAllBooks(
 	config: ServiceConfig,
 	userCred?: UserCredential
 ): Promise<UnifiedMedia[]> {
+	// See getCalibreSeries — errors must propagate to avoid cache poisoning.
 	return withCache(`calibre-allbooks:${config.id}`, 300_000, async () => {
-		try {
-			const entries = await fetchAllBooks(config, userCred);
-			return entries.map((e) => opdsEntryToUnifiedMedia(config, e));
-		} catch {
-			return [];
-		}
+		const entries = await fetchAllBooks(config, userCred);
+		return entries.map((e) => opdsEntryToUnifiedMedia(config, e));
 	});
 }
