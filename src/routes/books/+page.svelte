@@ -409,8 +409,8 @@
 									<MediaCard item={entry.item} />
 									{#if entry.item.metadata?.formats}
 										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
-											{#each (entry.item.metadata.formats as string[]).slice(0, 3) as fmt (fmt)}
-												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt}</span>
+											{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
+												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt.name}</span>
 											{/each}
 										</div>
 									{/if}
@@ -433,8 +433,8 @@
 									<MediaCard item={entry.item} />
 									{#if entry.item.metadata?.formats}
 										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
-											{#each (entry.item.metadata.formats as string[]).slice(0, 3) as fmt (fmt)}
-												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt}</span>
+											{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
+												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt.name}</span>
 											{/each}
 										</div>
 									{/if}
