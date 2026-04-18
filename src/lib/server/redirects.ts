@@ -6,26 +6,29 @@
 // had its own bespoke guard and they drifted. Consolidating the rules here
 // keeps the full state machine auditable in ONE place.
 //
+// Unification update (#24, 2026-04-17): the `/setup` route has been retired.
+// Fresh-install admin creation now happens at `/welcome` (same URL as the
+// per-user wizard), selected via the route's `needsAdminCreation` load flag.
+// Self-hosters see one URL from docker-compose-up through finished onboarding.
+//
 // State-machine inputs:
 //   user:     App.Locals['user'] | RedirectUser | null  (session presence + status)
 //   path:     the request pathname
 //   search:   query string (for building ?next=)
 //   settings: registration_enabled, registration_requires_approval, onboarding_complete
 //             (read via getSetting() — the KV table in app_settings)
-//   userCount: global install state — 0 means fresh install (→ /setup)
+//   userCount: global install state — 0 means fresh install (→ /welcome)
 //
 // Precedence (top wins):
 //   1. Legacy URL rewrites (e.g. /collections → /library/catalogs).
-//   2. First-run: no users yet AND path ≠ /setup → /setup.
+//   2. First-run: no users yet AND path ≠ /welcome → /welcome.
 //   3. Per-entry-point lifecycle gates (before NO_AUTH_PATHS short-circuit):
-//        /setup              users exist + no session → /login
-//                            onboarding complete + session → /
 //        /register           registration disabled → /login
 //                            logged-in → /
 //        /invite             logged-in → /
 //        /pending-approval   no user → /login
 //                            user.status !== 'pending' → /
-//        /welcome            no user → /login
+//        /welcome            no user (and userCount > 0) → /login
 //   4. NO_AUTH_PATHS allowlist — path short-circuits (null).
 //   5. Logged-in lifecycle locks (in order):
 //        forcePasswordReset → /reset-password
@@ -36,7 +39,7 @@
 // Returning `null` means "no redirect; let the request through".
 //
 // Route files SHOULD NOT duplicate these gates — they live here. A route
-// may still throw redirect() for form-submit success paths (e.g. the setup
+// may still throw redirect() for form-submit success paths (e.g. the welcome
 // wizard advancing a step), but NOT for lifecycle checks.
 
 import { getSetting, getUserCount } from '$lib/server/auth';
@@ -58,10 +61,15 @@ export interface RedirectUser {
  * surface is auditable in one place. Anything starting with one of these
  * prefixes short-circuits the redirect chain AFTER lifecycle gates have run.
  * Rate limiting still applies from hooks.server.ts.
+ *
+ * `/welcome` lives here because — post-#24 — it doubles as the fresh-install
+ * admin-create page, which must be reachable without a session when
+ * userCount===0. The route itself gates which mode it renders; the gating
+ * rules for the logged-in wizard phases live in rule 3e / 5c below.
  */
 export const NO_AUTH_PATHS = [
 	'/login',
-	'/setup',
+	'/welcome',
 	'/invite',
 	'/register',
 	'/pending-approval',
@@ -110,31 +118,21 @@ export function resolveRedirect(
 		return { location: target + (search ?? ''), status: 301 };
 	}
 
-	// 2. First-run global: no users yet → /setup (everything else bounces there).
+	// 2. First-run global: no users yet → /welcome (everything else bounces
+	//    there). The /welcome route renders the admin-create form when
+	//    userCount===0 && no session (see its `needsAdminCreation` branch).
 	if (readUserCount() === 0) {
-		if (!path.startsWith('/setup')) {
-			return { location: '/setup', status: 303 };
+		if (!path.startsWith('/welcome')) {
+			return { location: '/welcome', status: 303 };
 		}
 		return null;
 	}
 
 	// 3. Per-entry-point lifecycle gates. These run BEFORE the NO_AUTH_PATHS
-	//    short-circuit so the 5 onboarding surfaces (/setup, /register, /invite,
+	//    short-circuit so the 4 onboarding surfaces (/register, /invite,
 	//    /pending-approval, /welcome) are gated consistently from one place.
 
-	// 3a. /setup — post first-run it is the mid-wizard screen for the admin.
-	//     Users-exist + no session → bounce to /login. Finished wizard + session → home.
-	if (path === '/setup' || path.startsWith('/setup/')) {
-		if (!user) {
-			return { location: '/login', status: 303 };
-		}
-		if (readSetting('onboarding_complete') === 'true') {
-			return { location: '/', status: 303 };
-		}
-		return null;
-	}
-
-	// 3b. /register — gated by app_settings.registration_enabled. Already-
+	// 3a. /register — gated by app_settings.registration_enabled. Already-
 	//     logged-in users bounce home (registering a second account makes
 	//     no sense from a signed-in session).
 	if (path === '/register' || path.startsWith('/register/')) {
@@ -147,7 +145,7 @@ export function resolveRedirect(
 		return null;
 	}
 
-	// 3c. /invite — token-bearing URL. Logged-in users bounce home; anonymous
+	// 3b. /invite — token-bearing URL. Logged-in users bounce home; anonymous
 	//     users always get through (the page itself validates the code and
 	//     renders "invalid/expired" if the token is bad).
 	if (path === '/invite' || path.startsWith('/invite/')) {
@@ -157,7 +155,7 @@ export function resolveRedirect(
 		return null;
 	}
 
-	// 3d. /pending-approval — must be a logged-in user with status='pending'.
+	// 3c. /pending-approval — must be a logged-in user with status='pending'.
 	//     Anonymous users → /login; approved users → / (they no longer belong
 	//     here). This is the inverse of rule 5b below; keeping both lets the
 	//     resolver be a true bidirectional state machine.
@@ -171,8 +169,10 @@ export function resolveRedirect(
 		return null;
 	}
 
-	// 3e. /welcome — per-user first-run wizard. Anonymous users → /login.
-	//     The already-completed + !?force=1 check stays in the route itself,
+	// 3d. /welcome — per-user first-run wizard (and, when userCount===0 was
+	//     handled above in rule 2, the fresh-install admin-create form). Now
+	//     that users exist, anonymous visitors bounce to /login. The
+	//     already-completed + !?force=1 check stays in the route itself,
 	//     because it needs to read welcome_completed_at from the DB fresh and
 	//     the resolver already has a general "welcome for incomplete users"
 	//     rule in step 5c.
@@ -215,12 +215,12 @@ export function resolveRedirect(
 			return { location: '/pending-approval', status: 303 };
 		}
 
-		// 5c. Welcome flow (first-run per-user, orthogonal to /setup).
+		// 5c. Welcome flow (first-run per-user). /setup was folded into
+		//     /welcome in #24, so it no longer needs its own exemption.
 		const welcomeCompletedAt = user.welcomeCompletedAt;
 		if (
 			!welcomeCompletedAt &&
 			!path.startsWith('/welcome') &&
-			!path.startsWith('/setup') &&
 			!path.startsWith('/login') &&
 			!path.startsWith('/logout') &&
 			!path.startsWith('/api/auth/logout') &&

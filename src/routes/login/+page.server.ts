@@ -16,7 +16,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
-	if (getUserCount() === 0) throw redirect(303, '/setup');
+	if (getUserCount() === 0) throw redirect(303, '/welcome');
 	if (locals.user) throw redirect(303, url.searchParams.get('next') || '/');
 	const registrationEnabled = getSetting('registration_enabled') === 'true';
 

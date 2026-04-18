@@ -23,7 +23,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// on NO_AUTH_PATHS means "bypass auth gate," not "bypass rate limit" (#44).
 	// Other allowlisted paths and health/image-proxy endpoints skip the limiter
 	// to avoid interfering with uptime checks / page loads.
-	const isAuthEndpoint = ['/login', '/setup', '/register', '/api/auth'].some(
+	const isAuthEndpoint = ['/login', '/welcome', '/register', '/api/auth'].some(
 		(p) => path.startsWith(p)
 	);
 	const shouldRateLimit =
