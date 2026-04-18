@@ -19,22 +19,34 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// can't short-circuit around it any more.
 	const isAllowlisted = NO_AUTH_PATHS.some((p) => path.startsWith(p));
 
-	// Rate limiting. Auth endpoints ALWAYS hit the tight 10/min bucket — being
-	// on NO_AUTH_PATHS means "bypass auth gate," not "bypass rate limit" (#44).
-	// Other allowlisted paths and health/image-proxy endpoints skip the limiter
-	// to avoid interfering with uptime checks / page loads.
-	const isAuthEndpoint = ['/login', '/welcome', '/register', '/api/auth'].some(
-		(p) => path.startsWith(p)
+	// Rate limiting.
+	//
+	// The tight auth bucket (10/min) is meant to throttle credential-stuffing
+	// POSTs — login/register/password-reset attempts. Applying it to every
+	// hit on these paths also throttles GET page loads of /login and the
+	// /welcome wizard, which legitimately fire several times per minute
+	// during normal use (wizard form validations, page refreshes, image
+	// preloads on /login). That made tight setups behind a reverse proxy
+	// without X-Forwarded-For respect — where every client shares the
+	// 127.0.0.1 bucket — 429 on page navigation alone.
+	//
+	// Narrow the tight bucket to state-changing verbs on auth paths; GETs
+	// fall into the general 300/min bucket.
+	const isAuthPath = ['/login', '/welcome', '/register', '/api/auth'].some((p) =>
+		path.startsWith(p)
 	);
+	const isWriteMethod = event.request.method !== 'GET' && event.request.method !== 'HEAD';
+	const isAuthWrite = isAuthPath && isWriteMethod;
 	const shouldRateLimit =
-		isAuthEndpoint ||
-		(!isAllowlisted &&
-			!path.startsWith('/api/health') &&
-			!path.startsWith('/api/media/image'));
+		!process.env.NEXUS_DISABLE_RATE_LIMIT &&
+		(isAuthWrite ||
+			(!isAllowlisted &&
+				!path.startsWith('/api/health') &&
+				!path.startsWith('/api/media/image')));
 
 	if (shouldRateLimit) {
 		const clientIp = getClientIp(event);
-		const limit = isAuthEndpoint ? 10 : 300;
+		const limit = isAuthWrite ? 10 : 300;
 		const window = 60_000; // 1 minute
 
 		if (!checkRateLimit(clientIp, limit, window)) {
