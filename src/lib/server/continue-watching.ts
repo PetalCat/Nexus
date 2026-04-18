@@ -69,7 +69,10 @@ export async function getContinueWatching(
 			)
 		)
 		.orderBy(desc(schema.playSessions.updatedAt))
-		.limit(limit)
+		// Oversample so deduping by (serviceId, mediaId) below still yields
+		// `limit` unique rows even when a user has several in-progress sessions
+		// for the same title (e.g. binging a series). Codex-audit round 2 P2.
+		.limit(limit * 4)
 		.all();
 
 	if (rows.length === 0) return [];
@@ -79,13 +82,15 @@ export async function getContinueWatching(
 	const configs = opts.configs ?? [];
 	const seen = new Set<string>();
 
-	// Dedupe by mediaId+serviceId BEFORE resolving (cheap), preserving order.
+	// Dedupe by mediaId+serviceId BEFORE resolving (cheap), preserving order,
+	// then cap to the requested limit. Oversample above guarantees we reach
+	// `limit` unique items when available.
 	const uniqueRows = rows.filter((row) => {
 		const key = `${row.serviceId}:${row.mediaId}`;
 		if (seen.has(key)) return false;
 		seen.add(key);
 		return true;
-	});
+	}).slice(0, limit);
 
 	// Resolve items in parallel, but preserve DB order by index.
 	const resolved = await Promise.allSettled(
