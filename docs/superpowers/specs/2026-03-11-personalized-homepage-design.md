@@ -34,15 +34,28 @@ Continue Watching is the sole exception: always fetched live from Jellyfin since
 Rec Scheduler (every 60min)
   → reads recommendation_cache (already computed)
   → buildHomepageCache(userId)
-  → groups into hero + rows
+  → groups into hero + personalized rows (trending-*, friends, time-aware, recommended-*, genre:*)
   → stores in user_homepage_cache
 
 Page Load
-  → parallel: getContinueWatching(live) + getHomepageCache(cached)
-  → merge Continue Watching as row 0
-  → apply user's rowOrder
+  → parallel:
+      getContinueWatching(live)
+      getHomepageCache(cached)             — personalized rows
+      /api/calendar                        — "Coming This Week" row
+      /api/discover?category=upcoming-*    — Upcoming Movies/Shows rows
+      /api/user/suggestions                — "Suggested for You" row
+      getDashboardFast() → New in Library  — live shelf
+  → merge every row (cached + live) into a single pool
+  → applyRowOrder(pool, userProfile.rowOrder)
+  → unshift Continue Watching as row 0
   → serve
 ```
+
+Live rows (calendar, upcoming-*, suggestions, new, continue) exist outside
+the 60-min cache because they depend on fast-changing data (library additions,
+user activity, release schedules). They are still treated as first-class
+orderable rows: the loader hands them to `applyRowOrder` alongside the cached
+personalized rows so user ordering preferences apply uniformly.
 
 ---
 
@@ -62,12 +75,15 @@ Page Load
 ### Row Order (Default)
 
 1. **Continue Watching** — always position 0, not reorderable, live from Jellyfin
-2. **Trending Now** — from trending provider, fire emoji, velocity-scored
-3. **From Friends** — shared/watched by friends, social context ("Alex watched this")
-4. **Right Now** — time-aware provider, only shown if current hour has genre matches
-5. **Recommended for You** — catch-all for similar_users, similar_item, studio_match, era_match, completion_pattern, external reason types
-6. **New in Library** — recent server additions, not personalized
-7. **Genre rows** — ordered by user's genre affinity ranking ("Sci-Fi — Your #1 genre"), one row per top genre
+2. **Coming This Week** — calendar row, live from `/api/calendar`, shows upcoming releases from user libraries (Sonarr/Radarr/etc.) with release-date chips
+3. **Trending Now** — from trending provider, fire emoji, velocity-scored
+4. **From Friends** — shared/watched by friends, social context ("Alex watched this")
+5. **Right Now** — time-aware provider, only shown if current hour has genre matches
+6. **Recommended for You** — catch-all for similar_users, similar_item, studio_match, era_match, completion_pattern, external reason types
+7. **Suggested for You** — auto-suggest row, live from `/api/user/suggestions`, based on recent activity
+8. **New in Library** — recent server additions, not personalized
+9. **Upcoming Movies / Upcoming Shows** — live from `/api/discover?category=upcoming-*`, new releases arriving soon (discovery-side, outside the user's library)
+10. **Genre rows** — ordered by user's genre affinity ranking ("Sci-Fi — Your #1 genre"), one row per top genre
 
 ### Row Behavior
 
@@ -76,6 +92,7 @@ Page Load
 - `genre:*` in rowOrder means "all genre rows in affinity order"
 - Users can pin specific genres or reorder individually (UI in settings spec)
 - New row types added in the future appear at the end
+- **All rows flow through `applyRowOrder`** — including live rows (calendar, upcoming-*, suggestions, new-in-library). The page component does NOT positionally hardcode any row; Continue Watching is the one exception and is unshifted onto position 0 after ordering. This keeps a single canonical source for "what order homepage rows appear in" (see `src/lib/server/homepage-cache.ts`, CANONICAL banner).
 
 ---
 
@@ -104,14 +121,19 @@ interface HeroItem {
 
 ```typescript
 interface HomepageRow {
-  id: string;             // "trending", "friends", "new", "genre:drama", "recommended"
+  id: string;             // "trending", "friends", "new", "genre:drama", "recommended", "calendar", "upcoming-movies", "upcoming-tv", "suggestions"
   title: string;          // "Trending Now"
   subtitle?: string;      // "Your #1 genre"
-  type: 'reason' | 'genre' | 'system';
-  // type mapping: reason = trending/friends/time-aware/recommended,
-  //               genre = genre:* rows,
-  //               system = continue/new (non-recommendation rows)
+  type: 'reason' | 'genre' | 'system' | 'calendar';
+  // type mapping: reason    = trending/friends/time-aware/recommended,
+  //               genre     = genre:* rows,
+  //               system    = continue / new / upcoming-* / suggestions,
+  //               calendar  = release-calendar row (uses calendarItems, not items)
   items: HomepageItem[];
+  // Only populated when type === 'calendar'. Uses the CalendarItem shape so
+  // the calendar row renders release-date chips without forcing every row
+  // item to carry release-date fields.
+  calendarItems?: CalendarItem[];
 }
 ```
 
@@ -183,25 +205,41 @@ In-memory `withCache` is the right choice — the scheduler rebuilds every 60min
 ### `+page.server.ts`
 
 ```
-load({ locals }) {
-  // Parallel fetch
-  const [continueWatching, homepageCache] = await Promise.all([
-    getContinueWatching(userId, userCred),  // live Jellyfin call
-    getHomepageCache(userId)                 // pre-computed cache read
-  ]);
+load({ locals, fetch }) {
+  // Parallel fetch — all rows, cached and live
+  const [continueWatching, homepageCache, calendarItems, upMovies, upTv, suggestions, dash] =
+    await Promise.all([
+      getContinueWatching(userId, userCred),     // live
+      getHomepageCache(userId),                  // cached personalized
+      fetch('/api/calendar?days=7'),             // live calendar
+      fetch('/api/discover?category=upcoming-movies'),
+      fetch('/api/discover?category=upcoming-tv'),
+      fetch('/api/user/suggestions'),
+      getDashboardFast(userId)                   // new-in-library shelf
+    ]);
 
-  if (homepageCache) {
-    // Apply user's rowOrder from rec profile
-    const rows = applyRowOrder(homepageCache.rows, userProfile.rowOrder);
-    // Inject Continue Watching as row 0
-    rows.unshift(continueWatchingRow);
-    return { hero: homepageCache.hero, rows };
-  }
+  // Build all rows (cache + live) into a single pool and order them.
+  const allRows = [
+    ...(homepageCache?.rows ?? []),
+    calendarRow(calendarItems),
+    ...upcomingRows(upMovies, upTv),
+    suggestionsRow(suggestions),
+    newRow(dash)
+  ].filter(Boolean);
 
-  // Cold start fallback
-  return coldStartHomepage(continueWatching, userId);
+  const ordered = applyRowOrder(allRows, userProfile.rowOrder);
+  if (continueWatching.length) ordered.unshift(continueWatchingRow);
+
+  return { hero: homepageCache?.hero ?? coldHero, rows: ordered };
 }
 ```
+
+The page component (`+page.svelte`) iterates `data.rows` in the order
+received — no positional hardcoding, no row-specific insertion points.
+Rows render based on `row.id` / `row.type`:
+Continue Watching uses its landscape-card component, calendar rows render
+via `CalendarRow` (keyed on `type === 'calendar'`), everything else goes
+through the shared `MediaRow` component.
 
 ---
 

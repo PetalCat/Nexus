@@ -1,5 +1,10 @@
 // Shared homepage types — safe for both server and client imports
 
+// Calendar items use a different shape than HomepageItem (they carry releaseDate/status).
+// We import the shared CalendarItem type so a calendar row can be represented as just
+// another HomepageRow in the canonical ordered list.
+import type { CalendarItem } from '$lib/adapters/types';
+
 export interface HeroItem {
 	id: string;
 	sourceId: string;
@@ -45,8 +50,16 @@ export interface HomepageRow {
 	id: string;
 	title: string;
 	subtitle?: string;
-	type: 'reason' | 'genre' | 'system';
+	// Row shape classes:
+	//   'reason' — recommendation provider reason row (trending, friends, time-aware, recommended, external)
+	//   'genre' — per-genre row, ordered by user affinity
+	//   'system' — non-personalized shelves (continue, new-in-library, upcoming-*, suggestions)
+	//   'calendar' — upcoming-releases calendar row (renders from calendarItems, not items)
+	type: 'reason' | 'genre' | 'system' | 'calendar';
 	items: HomepageItem[];
+	// Populated only when type === 'calendar'. Distinct shape keeps rendering
+	// specialized without forcing HomepageItem to carry release-date/status fields.
+	calendarItems?: CalendarItem[];
 }
 
 export interface HomepageCache {
