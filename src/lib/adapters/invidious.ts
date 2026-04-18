@@ -191,7 +191,12 @@ async function invFetch<T = any>(
  *  (host.docker.internal:3000) instead of the browser's localhost. */
 function proxyInvImage(url: string | undefined, serviceId: string): string | undefined {
 	if (!url) return undefined;
-	if (url.startsWith('/')) return url;
+	// Relative URLs (some Invidious instances emit e.g. `/vi/abc/mqdefault.jpg`)
+	// must be proxied too — returning as-is makes the browser resolve against
+	// Nexus's origin instead of Invidious. Review items 42-43.
+	if (url.startsWith('/')) {
+		return `/api/media/image?service=${encodeURIComponent(serviceId)}&path=${encodeURIComponent(url)}`;
+	}
 	try {
 		const parsed = new URL(url);
 		// Strip the origin for Invidious-served URLs (/vi/ paths and similar)
