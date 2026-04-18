@@ -137,17 +137,27 @@ export interface ComputedStats {
 export function computeStats(userId: string, from: number, to: number, mediaType?: string): ComputedStats {
 	const db = getRawDb();
 
-	const mediaTypeFilter = mediaType && mediaType !== 'all' ? ` AND media_type = '${mediaType}'` : '';
-
-	// Query play_sessions directly — one row per session, no dedup needed
-	const sessions = db.prepare(`
-		SELECT media_id, media_title, media_type, duration_ms, media_duration_ms, media_genres,
-		       device_name, client_name, metadata, started_at, completed
-		FROM play_sessions
-		WHERE user_id = ? AND started_at >= ? AND started_at < ?${mediaTypeFilter}
-		ORDER BY started_at ASC
-		LIMIT 50000
-	`).all(userId, from, to) as any[];
+	const filterByMediaType = Boolean(mediaType) && mediaType !== 'all';
+	// Parameterize the media_type filter rather than interpolating user-controllable
+	// input into SQL. Callers today funnel trusted-ish values, but the `type` query
+	// param on /api/user/stats reaches here directly — defense-in-depth required.
+	const sessions = (filterByMediaType
+		? db.prepare(`
+			SELECT media_id, media_title, media_type, duration_ms, media_duration_ms, media_genres,
+			       device_name, client_name, metadata, started_at, completed
+			FROM play_sessions
+			WHERE user_id = ? AND started_at >= ? AND started_at < ? AND media_type = ?
+			ORDER BY started_at ASC
+			LIMIT 50000
+		`).all(userId, from, to, mediaType)
+		: db.prepare(`
+			SELECT media_id, media_title, media_type, duration_ms, media_duration_ms, media_genres,
+			       device_name, client_name, metadata, started_at, completed
+			FROM play_sessions
+			WHERE user_id = ? AND started_at >= ? AND started_at < ?
+			ORDER BY started_at ASC
+			LIMIT 50000
+		`).all(userId, from, to)) as any[];
 
 	// Completions from the completed column
 	const completions = sessions.filter((s: any) => s.completed === 1).length;
