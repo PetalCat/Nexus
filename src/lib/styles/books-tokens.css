@@ -1,0 +1,9 @@
+.books-surface {
+  --void:#0d0b0a; --base:#181514; --raised:#1f1c1a; --surface:#272321;
+  --cream:#f0ebe3; --muted:#a09890; --faint:#605850;
+  --accent:#d4a253; --accent-lt:#e8bc6a; --accent-dim:#b8862e;
+  --steel:#3d8f84; --steel-lt:#56a99d; --warm:#c45c5c;
+  --font-display:'Playfair Display',Georgia,serif;
+  --font-body:'DM Sans',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
