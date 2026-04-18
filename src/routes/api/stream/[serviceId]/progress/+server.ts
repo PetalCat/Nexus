@@ -87,6 +87,36 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		RepeatMode: 'RepeatNone'
 	};
 
+	// Media type classification: prefer what the client tells us (the player
+	// knows whether it's a movie / episode / video). If absent, fetch the
+	// item's Type from Jellyfin and map. Only fall back to 'movie' when we
+	// genuinely can't know — avoids poisoning play_sessions with wrong type.
+	// Codex-audit followup (P2): was previously hardcoded 'movie'.
+	let resolvedMediaType: string = typeof body.mediaType === 'string' ? body.mediaType : '';
+	if (!resolvedMediaType && token && externalUserId) {
+		try {
+			const itemRes = await fetch(
+				`${config.url}/Users/${externalUserId}/Items/${itemId}`,
+				{ headers, signal: AbortSignal.timeout(3000) }
+			);
+			if (itemRes.ok) {
+				const itemBody = await itemRes.json();
+				const jfType = itemBody?.Type;
+				const TYPE_MAP: Record<string, string> = {
+					Movie: 'movie',
+					Episode: 'episode',
+					Series: 'show',
+					Audio: 'music',
+					MusicAlbum: 'album',
+					Video: 'video',
+					Book: 'book'
+				};
+				if (jfType && TYPE_MAP[jfType]) resolvedMediaType = TYPE_MAP[jfType];
+			}
+		} catch { /* ignore — fall through to fallback */ }
+	}
+	if (!resolvedMediaType) resolvedMediaType = 'movie';
+
 	try {
 		// Canonical Nexus-side record for resume/history/insights.
 		if (locals.user?.id) {
@@ -100,7 +130,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				serviceId,
 				serviceType: config.type,
 				mediaId: String(itemId),
-				mediaType: 'movie', // overwritten via metadata when the adapter knows better
+				mediaType: resolvedMediaType,
 				sessionKey: `${config.type}:${serviceId}:${itemId}:${locals.user.id}`,
 				progress,
 				positionTicks: typeof positionTicks === 'number' ? positionTicks : null,

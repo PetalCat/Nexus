@@ -211,7 +211,11 @@ export const sessions = sqliteTable('sessions', {
 // open row per item.
 export const playSessions = sqliteTable('play_sessions', {
 	id: text('id').primaryKey(),
-	sessionKey: text('session_key').unique(),
+	// NOT unique — the same stable key (e.g. `reader:svc:bookId:userId`) may
+	// appear across successive sessions for the same item. Identity during a
+	// single open session is enforced by `ended_at IS NULL` in lookups, not by
+	// a global unique constraint. Codex-audit followup.
+	sessionKey: text('session_key'),
 	userId: text('user_id').notNull().references(() => users.id),
 	serviceId: text('service_id').notNull(),
 	serviceType: text('service_type').notNull(),
