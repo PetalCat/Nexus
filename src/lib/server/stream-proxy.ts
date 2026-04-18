@@ -108,6 +108,10 @@ export async function createStreamSession(params: {
 	upstreamUrl: string;
 	authHeaders?: Record<string, string>;
 	isHls?: boolean;
+	/** Which adapter produced this session — tells the Rust proxy whether
+	 *  to apply Plex-style workarounds (VOD-normalize manifests, enforce
+	 *  waitForSegments=1 on each hop) or pass bytes through unchanged. */
+	kind?: 'plex' | 'jellyfin' | 'generic';
 }): Promise<{ streamUrl: string } | null> {
 	if (!proxyProcess) return null;
 	try {
@@ -118,7 +122,8 @@ export async function createStreamSession(params: {
 				upstream_url: params.upstreamUrl,
 				auth_headers: params.authHeaders ?? {},
 				is_hls: params.isHls ?? false,
-				url_prefix: '/api/stream-proxy/'
+				url_prefix: '/api/stream-proxy/',
+				kind: params.kind ?? 'generic'
 			}),
 			signal: AbortSignal.timeout(5000)
 		});

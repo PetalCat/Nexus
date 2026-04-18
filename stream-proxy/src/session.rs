@@ -22,6 +22,19 @@ static SESSIONS: LazyLock<DashMap<String, Session>> = LazyLock::new(DashMap::new
 
 const SESSION_TTL: Duration = Duration::from_secs(6 * 60 * 60); // 6h
 
+/// Which adapter produced this session. The proxy uses this to dispatch
+/// server-specific workarounds (Plex's lazy segments, live-style manifests)
+/// instead of applying them to every HLS session unconditionally. Anything
+/// the proxy doesn't specifically handle is treated as `Generic`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AdapterKind {
+    Plex,
+    Jellyfin,
+    #[default]
+    Generic,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub upstream_url: String,
@@ -34,6 +47,10 @@ pub struct Session {
     /// deployments pass "/api/stream-proxy/" when creating the session.
     #[serde(default = "default_url_prefix")]
     pub url_prefix: String,
+    /// Adapter that produced this session. Drives per-server quirks in the
+    /// HLS rewriter and the upstream fetch path.
+    #[serde(default)]
+    pub kind: AdapterKind,
     /// Monotonic creation timestamp. Not serialized — set to `Instant::now()` when
     /// the struct is deserialized from the POST body. Used only for TTL enforcement.
     #[serde(skip, default = "Instant::now")]
@@ -97,6 +114,7 @@ mod tests {
             auth_headers: HashMap::from([("X-Api-Key".to_string(), "secret".to_string())]),
             is_hls: true,
             url_prefix: "/stream/".to_string(),
+            kind: AdapterKind::Generic,
             created_at: Instant::now(),
         }
     }

@@ -56,15 +56,10 @@ export function probeBrowserCaps(): BrowserCaps {
 	if (!containers.includes('mp4')) containers.push('mp4'); // force at minimum
 	if (!containers.includes('ts')) containers.push('ts');
 
-	// Snap to a standard HLS ladder. Raw `screen.height * dpr` gives values
-	// like 1912 on a retina MBP — Plex's universal transcoder rejects those
-	// with 400 (`videoResolution=1920x1912` is invalid). Jellyfin tolerates
-	// arbitrary heights because it caps via DeviceProfile, but Plex + other
-	// stricter adapters want ladder values. Snap DOWN so we never request a
-	// resolution beyond what the physical display can show.
-	const rawMax = window.screen.height * (window.devicePixelRatio ?? 1);
-	const LADDER = [2160, 1440, 1080, 720, 480];
-	const maxHeight = LADDER.find((h) => h <= rawMax) ?? 480;
+	// Report the physical display max as-is. Adapters decide how to interpret
+	// it — Jellyfin caps via DeviceProfile, the Plex adapter snaps to its
+	// own ladder internally (see `snapToPlexLadder` in plex-playback.ts).
+	const maxHeight = Math.round(window.screen.height * (window.devicePixelRatio ?? 1));
 
 	cached = { videoCodecs, audioCodecs, containers, maxHeight };
 	return cached;

@@ -1,3 +1,4 @@
+use crate::session::AdapterKind;
 use m3u8_rs::{parse_playlist_res, Playlist};
 
 /// Rewrite a Jellyfin HLS playlist for proxy delivery:
@@ -23,6 +24,7 @@ pub fn rewrite_manifest(
     sig: &str,
     url_prefix: &str,
     manifest_url: &str,
+    kind: AdapterKind,
 ) -> Result<Vec<u8>, String> {
     let parsed = parse_playlist_res(raw).map_err(|e| format!("parse: {e:?}"))?;
     match parsed {
@@ -57,17 +59,16 @@ pub fn rewrite_manifest(
             media
                 .write_to(&mut out)
                 .map_err(|e| format!("write media: {e}"))?;
-            // Normalize the media playlist so HLS.js treats it as a
-            // well-formed VOD, not a live stream missing endpoint signals.
-            // Plex's transcoder writes a "live-style" playlist (no VERSION,
-            // no PLAYLIST-TYPE, no ENDLIST, and MEDIA-SEQUENCE implicit 0),
-            // even though all segment URIs are declared upfront. HLS.js's
-            // stream-controller stalls in STOPPED->IDLE on such a playlist
-            // because it thinks it's live with nothing past the "edge".
-            // Jellyfin writes proper VOD manifests, which is why JF works
-            // unaided. We inject the missing tags so both paths behave the
-            // same downstream.
-            out = normalize_media_playlist(out, media.media_sequence);
+            // Plex's transcoder writes "live-style" playlists (no VERSION,
+            // no PLAYLIST-TYPE, no ENDLIST, implicit MEDIA-SEQUENCE=0) even
+            // though all segments are declared upfront. HLS.js treats that
+            // as live-edge and stalls in STOPPED->IDLE. Jellyfin already
+            // emits proper VOD manifests, so only run the normalization for
+            // the Plex adapter — keeps the Jellyfin bytes identical to what
+            // m3u8_rs emits on re-serialize (no extra tags, no confusion).
+            if kind == AdapterKind::Plex {
+                out = normalize_media_playlist(out, media.media_sequence);
+            }
             Ok(out)
         }
     }
@@ -239,7 +240,7 @@ mod tests {
 #EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360,CODECS=\"avc1.64001f,mp4a.40.2\"
 /Videos/abc/main.m3u8?ApiKey=leaky
 ";
-        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8").expect("parses and rewrites");
+        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8", AdapterKind::Jellyfin).expect("parses and rewrites");
         let out_str = std::str::from_utf8(&out).unwrap();
         assert!(out_str.contains("BANDWIDTH=1280000"), "preserves bandwidth");
         assert!(out_str.contains("RESOLUTION=640x360"), "preserves resolution");
@@ -259,7 +260,7 @@ mod tests {
 /Videos/abc/hls1/main/1.ts?ApiKey=leaky
 #EXT-X-ENDLIST
 ";
-        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8").expect("parses and rewrites");
+        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8", AdapterKind::Jellyfin).expect("parses and rewrites");
         let out_str = std::str::from_utf8(&out).unwrap();
         assert!(!out_str.contains("leaky"));
         assert!(out_str.contains("/stream/s1/"));
