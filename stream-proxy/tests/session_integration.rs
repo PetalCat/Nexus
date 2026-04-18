@@ -74,7 +74,7 @@ async fn hls_session_rewrite_and_proxy_round_trip() {
     assert!(String::from_utf8_lossy(&body).contains("BANDWIDTH=1280000"));
 
     // Rewrite pipeline
-    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "testsess", "testsig", "/stream/", "http://upstream/path/master.m3u8").unwrap();
+    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "testsess", "testsig", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin).unwrap();
     let s = String::from_utf8_lossy(&rewritten);
     assert!(!s.contains("secret"), "ApiKey must be stripped");
     assert!(s.contains("/stream/testsess/"), "must rewrite URI to proxy path");
@@ -95,7 +95,7 @@ fn hls_rewrite_embeds_sig_query_param() {
 /Videos/abc/hls1/main/0.ts?ApiKey=leaky
 #EXT-X-ENDLIST
 ";
-    let out = nexus_stream_proxy::handlers::hls::rewrite_manifest(input, "s1", "mysig123", "/stream/", "http://upstream/path/master.m3u8")
+    let out = nexus_stream_proxy::handlers::hls::rewrite_manifest(input, "s1", "mysig123", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin)
         .expect("parses and rewrites");
     let s = std::str::from_utf8(&out).unwrap();
     assert!(s.contains("/stream/s1/"), "rewrites URI to proxy path");

@@ -177,6 +177,7 @@ export async function jellyfinNegotiatePlayback(
 
 	const info = await res.json();
 	const session = mapPlaybackInfoToSession(config, userCred, info, plan, caps);
+	session.kind = 'jellyfin';
 
 	// Wrap the stream URL through the Rust proxy for ApiKey stripping + byte pipe
 	const proxySession = await createStreamSession({
@@ -186,6 +187,7 @@ export async function jellyfinNegotiatePlayback(
 			'X-Emby-Token': token,
 		},
 		isHls: session.engine === 'hls',
+		kind: 'jellyfin',
 	});
 	if (proxySession) {
 		session.url = proxySession.streamUrl;

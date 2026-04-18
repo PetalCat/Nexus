@@ -25,6 +25,32 @@ export interface BrowserCaps {
 export type PlaybackMode = 'direct-play' | 'remux' | 'direct-stream' | 'transcode';
 export type PlaybackEngine = 'hls' | 'dash' | 'progressive';
 
+/**
+ * Which media server produced this session. The proxy and the HLS engine
+ * both need this to apply server-specific quirks (Plex's lazy segments,
+ * live-style manifests, non-ladder resolution rejections, etc.) without
+ * leaking those quirks into shared code paths.
+ *
+ * `generic` is for everything else (Invidious, direct file URLs) where no
+ * server-specific behavior is needed.
+ */
+export type PlaybackKind = 'plex' | 'jellyfin' | 'generic';
+
+/**
+ * Subset of hls.js config fields an adapter may override. Deliberately
+ * narrow — we only expose what adapters actually need to tune. Add more
+ * fields here as specific needs arise; don't widen to `Partial<HlsConfig>`
+ * wholesale, since that leaks hls.js internals into the adapter contract.
+ */
+export interface AdapterHlsConfig {
+	fragLoadingMaxRetry?: number;
+	fragLoadingRetryDelay?: number;
+	manifestLoadingMaxRetry?: number;
+	manifestLoadingRetryDelay?: number;
+	levelLoadingMaxRetry?: number;
+	levelLoadingRetryDelay?: number;
+}
+
 export interface TrackInfo {
 	id: number;
 	name: string;
@@ -48,6 +74,14 @@ export interface SessionLevel {
 
 export interface PlaybackSession {
 	engine: PlaybackEngine;
+	/** Which adapter produced this session — used by the HLS engine and the
+	 *  Rust stream-proxy to apply server-specific workarounds. Defaults to
+	 *  `'generic'` when the producer doesn't set it. */
+	kind?: PlaybackKind;
+	/** Adapter-supplied hls.js config overrides. Merged on top of the
+	 *  engine's defaults. Used e.g. by the Plex adapter to crank fragment
+	 *  retries for Plex's lazily-generated segments. */
+	hlsConfig?: AdapterHlsConfig;
 	url: string;
 	mime?: string;
 	mode: PlaybackMode;

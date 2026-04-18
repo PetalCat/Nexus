@@ -22,6 +22,19 @@ import { createStreamSession } from '$lib/server/stream-proxy';
 
 const IMAGE_SUB_CODECS = new Set(['pgs', 'pgssub', 'vobsub', 'dvdsub', 'dvbsub']);
 
+/**
+ * Plex's universal transcoder rejects arbitrary resolution values with a 400
+ * — asking for `videoResolution=1920x1912` (what you get from a raw retina
+ * `screen.height * dpr`) fails where `1920x1080` succeeds. Snap to the
+ * nearest standard HLS ladder rung at or below the input, so we always
+ * request a height Plex will honor. Kept inside the Plex adapter so other
+ * adapters (Jellyfin caps via DeviceProfile) aren't constrained by it.
+ */
+const PLEX_HLS_LADDER = [2160, 1440, 1080, 720, 480] as const;
+export function snapToPlexLadder(height: number): number {
+	return PLEX_HLS_LADDER.find((h) => h <= height) ?? 480;
+}
+
 // ── Exported helpers ───────────────────────────────────────────────────
 
 /** Derive Nexus playback mode from a Plex MediaContainer decision response. */
@@ -124,7 +137,11 @@ function buildTranscodeUrl(
 	const base = config.url.replace(/\/+$/, '');
 	// `path` must be the library metadata URI, e.g. `/library/metadata/12345`
 	const path = item.key ?? `/library/metadata/${item.id}`;
-	const maxHeight = plan.targetHeight ?? caps.maxHeight ?? 1080;
+	// Plex's transcoder 400s on non-ladder resolutions — a raw retina value
+	// like 1912 fails. Snap down to the nearest standard HLS ladder rung so
+	// we never ask Plex to transcode to a height it refuses to emit.
+	const rawHeight = plan.targetHeight ?? caps.maxHeight ?? 1080;
+	const maxHeight = snapToPlexLadder(rawHeight);
 	const maxBitrate = plan.maxBitrate
 		? Math.round(plan.maxBitrate / 1000) // kbps for Plex
 		: 20_000;
@@ -227,6 +244,7 @@ export async function plexNegotiatePlayback(
 
 	const session: PlaybackSession = {
 		engine,
+		kind: 'plex',
 		url: streamUrl,
 		mode,
 		playSessionId: sessionId,
@@ -234,16 +252,38 @@ export async function plexNegotiatePlayback(
 		audioTracks: filterAudioTracks(streams),
 		subtitleTracks: filterTextSubtitles(streams),
 		burnableSubtitleTracks: filterImageSubtitles(streams),
-		sourceHeight
+		sourceHeight,
+		// Plex-specific hls.js tuning, scoped to this session so Jellyfin
+		// (and everything else) keeps hls.js's defaults:
+		//  - Plex's transcoder lazily 404s segments not yet emitted; crank
+		//    fragLoadingMaxRetry so routine "wait a moment" 404s don't
+		//    surface to the app as stalls.
+		//  - Plex occasionally 400s the first /start.m3u8 while its
+		//    metadata probe races with session creation; retries get us
+		//    past the cold start.
+		hlsConfig:
+			engine === 'hls'
+				? {
+						fragLoadingMaxRetry: 8,
+						fragLoadingRetryDelay: 500,
+						manifestLoadingMaxRetry: 4,
+						manifestLoadingRetryDelay: 800,
+						levelLoadingMaxRetry: 4,
+						levelLoadingRetryDelay: 800
+				  }
+				: undefined
 	};
 
 	// Wrap the stream URL through the Rust proxy — strips X-Plex-Token from
 	// the client-visible URL and pipes bytes zero-copy. Same treatment we give
-	// Jellyfin streams.
+	// Jellyfin streams; `kind: 'plex'` tells the proxy to apply Plex-specific
+	// quirks (VOD-normalize the live-style manifest, enforce waitForSegments=1
+	// on every hop) that Jellyfin sessions don't need.
 	const proxySession = await createStreamSession({
 		upstreamUrl: session.url,
 		authHeaders: plexHeaders(token),
-		isHls: engine === 'hls'
+		isHls: engine === 'hls',
+		kind: 'plex'
 	});
 	if (proxySession) {
 		session.url = proxySession.streamUrl;

@@ -23,7 +23,12 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 				return;
 			}
 
-			hls = new Hls({
+			// Baseline config — adapter-neutral. Any server-specific tuning
+			// (Plex's lazy-segment retry counts, etc.) arrives via
+			// `session.hlsConfig`, applied below. Keeping the base config
+			// free of adapter quirks means Jellyfin, Invidious, and
+			// direct-file HLS all use hls.js's well-tested defaults.
+			const baseConfig = {
 				maxBufferLength: 60,
 				maxMaxBufferLength: 120,
 				startLevel: -1,
@@ -31,18 +36,10 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 				enableWorker: true,
 				lowLatencyMode: false,
 				debug: false,
-				// Plex's transcoder occasionally 400s the first /start.m3u8
-				// while its metadata probe races with session creation, and
-				// 404s subsequent .ts segments while it's still generating
-				// them ahead of the playhead. Both are transient and resolve
-				// on retry. Bump retry counts on manifests AND fragments so
-				// these don't surface as fatal errors to the app layer.
-				manifestLoadingMaxRetry: 4,
-				manifestLoadingRetryDelay: 800,
-				levelLoadingMaxRetry: 4,
-				levelLoadingRetryDelay: 800,
-				fragLoadingMaxRetry: 8,
-				fragLoadingRetryDelay: 500,
+			};
+			hls = new Hls({
+				...baseConfig,
+				...(session.hlsConfig ?? {}),
 			});
 
 			hls.loadSource(session.url);

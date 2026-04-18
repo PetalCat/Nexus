@@ -3,7 +3,7 @@ use crate::handlers::hls::rewrite_manifest;
 use crate::proxy::{
     cached_or_stream, full_body, stream_upstream_response, BoxError, HTTP_CLIENT,
 };
-use crate::session::{self as session_store, Session};
+use crate::session::{self as session_store, AdapterKind, Session};
 use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
@@ -19,6 +19,8 @@ pub struct CreateSessionBody {
     pub is_hls: bool,
     #[serde(default = "default_url_prefix_body")]
     pub url_prefix: String,
+    #[serde(default)]
+    pub kind: AdapterKind,
 }
 
 fn default_url_prefix_body() -> String {
@@ -47,6 +49,7 @@ pub async fn create(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         auth_headers: parsed.auth_headers,
         is_hls: parsed.is_hls,
         url_prefix: parsed.url_prefix,
+        kind: parsed.kind,
         created_at: std::time::Instant::now(),
     };
     let id = session_store::create(session);
@@ -117,12 +120,11 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
 
-    // Plex's transcoder generates TS segments lazily — without waitForSegments=1
-    // the server returns 404 for segments that haven't been emitted yet. The
-    // adapter sets it on the initial start.m3u8, but Plex doesn't propagate
-    // it onto the variant-emitted segment URIs, so we enforce it on every
-    // upstream hop through the /transcode/universal path.
-    let upstream_url = ensure_plex_wait_for_segments(upstream_url);
+    // Adapter-specific upstream URL rewriting. Plex's transcoder generates
+    // TS segments lazily; without waitForSegments=1 the server returns 404
+    // for segments not yet emitted, so we enforce it on every hop. Other
+    // adapters get the URL as-is.
+    let upstream_url = adapter_rewrite_upstream_url(session.kind, upstream_url);
 
     // Non-HLS session: use cached_or_stream so segment-sized bodies hit the
     // cache and trigger prefetch. proxy_stream stays for pure passthrough
@@ -183,7 +185,7 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
     let sig = session_store::sign(&session_id);
-    let rewritten = match rewrite_manifest(&body, &session_id, &sig, &session.url_prefix, &upstream_url) {
+    let rewritten = match rewrite_manifest(&body, &session_id, &sig, &session.url_prefix, &upstream_url, session.kind) {
         Ok(out) => out,
         Err(e) => {
             eprintln!("[stream-proxy] manifest rewrite error: {e}");
@@ -198,8 +200,20 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         .unwrap()
 }
 
-/// Append `waitForSegments=1` to any URL under the Plex `/video/:/transcode/universal/`
-/// path, unless already present. No-op for Jellyfin or other upstreams.
+/// Dispatch upstream-URL rewriting based on which adapter produced this
+/// session. The default path is identity — only adapters with known quirks
+/// get bespoke handling here, and those quirks stay contained to this file.
+fn adapter_rewrite_upstream_url(kind: AdapterKind, url: String) -> String {
+    match kind {
+        AdapterKind::Plex => ensure_plex_wait_for_segments(url),
+        AdapterKind::Jellyfin | AdapterKind::Generic => url,
+    }
+}
+
+/// Append `waitForSegments=1` to any URL under the Plex
+/// `/video/:/transcode/universal/` path, unless already present. Plex's
+/// transcoder generates segments lazily and returns 404 for not-yet-emitted
+/// ones; this flag makes the server block until the segment exists.
 fn ensure_plex_wait_for_segments(url: String) -> String {
     if !url.contains("/transcode/universal/") {
         return url;
