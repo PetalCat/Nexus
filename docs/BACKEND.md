@@ -1268,7 +1268,7 @@ SSR data fetching via `+page.server.ts` files. Summary:
 | `/` (layout) | None | — | user, pendingRequests |
 | `/` (home) | None | — | dashboard rows, hero item |
 | `/login` | Not logged in | `next` | — (POST: authenticate) |
-| `/setup` | No users exist | — | — (POST: create admin) |
+| `/welcome` | Fresh install (POST: create admin) or logged-in | — | admin-create form OR wizard data |
 | `/invite` | Not logged in | `code` | valid, error (POST: register) |
 | `/settings` | None | — | services, health, users, credentials, linkable |
 | `/admin` | Admin | — | sessions, requests, health, queue |
