@@ -57,6 +57,37 @@ pub fn rewrite_manifest(
             media
                 .write_to(&mut out)
                 .map_err(|e| format!("write media: {e}"))?;
+            // m3u8_rs drops #EXT-X-MEDIA-SEQUENCE when the value is 0
+            // (treats as default). HLS.js strongly prefers it present for
+            // non-VOD playlists (Plex's transcode output is live-style:
+            // segments arrive over time, no ENDLIST). Inject on round-trip
+            // if missing so the parser on the client side doesn't treat
+            // segment numbering as ambiguous.
+            let text = String::from_utf8_lossy(&out);
+            if !text.contains("#EXT-X-MEDIA-SEQUENCE") {
+                let seq = media.media_sequence;
+                let tag = format!("#EXT-X-MEDIA-SEQUENCE:{seq}\n");
+                // Insert right after #EXT-X-TARGETDURATION so it's near the
+                // other playlist-level tags. Fallback: after #EXTM3U.
+                let with_seq = if let Some(idx) = text.find("#EXT-X-TARGETDURATION") {
+                    let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
+                    let mut s = String::with_capacity(text.len() + tag.len());
+                    s.push_str(&text[..after]);
+                    s.push_str(&tag);
+                    s.push_str(&text[after..]);
+                    s
+                } else if let Some(idx) = text.find("#EXTM3U") {
+                    let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
+                    let mut s = String::with_capacity(text.len() + tag.len());
+                    s.push_str(&text[..after]);
+                    s.push_str(&tag);
+                    s.push_str(&text[after..]);
+                    s
+                } else {
+                    text.into_owned()
+                };
+                out = with_seq.into_bytes();
+            }
             Ok(out)
         }
     }
