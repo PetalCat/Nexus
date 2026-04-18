@@ -121,8 +121,8 @@
 	<!-- Logo -->
 	<div class="flex items-center justify-between px-5 pt-7 pb-1">
 		{#if !collapsed || mobileOpen}
-			<a href="/" class="group/logo font-display text-[22px] font-bold tracking-[0.02em] transition-colors duration-300" aria-label="Nexus home" onclick={closeMobile}>
-				<span class="font-black italic text-accent group-hover/logo:text-accent-light">N</span><span class="text-cream/85 group-hover/logo:text-cream">exus</span>
+			<a href="/" class="group/logo font-display text-[22px] italic font-bold tracking-[-0.01em] transition-colors duration-300" aria-label="Nexus home" onclick={closeMobile}>
+				<span class="font-black text-accent group-hover/logo:text-accent-light">N</span><span class="text-cream/90 group-hover/logo:text-cream">exus</span>
 			</a>
 		{:else}
 			<a href="/" class="flex items-center justify-center" aria-label="Nexus home">
@@ -178,7 +178,7 @@
 
 		<!-- Library section label -->
 		{#if !collapsed || mobileOpen}
-			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-faint/50">Library</p>
+			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-faint/60">Library</p>
 		{:else}
 			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
 		{/if}
@@ -221,7 +221,7 @@
 
 		<!-- My Library section label -->
 		{#if !collapsed || mobileOpen}
-			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-faint/50">My Library</p>
+			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-faint/60">My Library</p>
 		{:else}
 			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
 		{/if}
@@ -266,7 +266,7 @@
 
 		<!-- System section label -->
 		{#if !collapsed || mobileOpen}
-			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-faint/50">System</p>
+			<p class="!mt-5 !mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-faint/60">System</p>
 		{:else}
 			<div class="!my-3 mx-3 h-px bg-cream/[0.04]" aria-hidden="true"></div>
 		{/if}
