@@ -31,6 +31,15 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 				enableWorker: true,
 				lowLatencyMode: false,
 				debug: false,
+				// Plex's transcoder occasionally 400s the first /start.m3u8
+				// while its metadata probe races with session creation — the
+				// retry succeeds every time. hls.js defaults to maxRetry=1 on
+				// manifest/level loads; bump so these transient cold-starts
+				// don't leave the player hung at readyState=0.
+				manifestLoadingMaxRetry: 4,
+				manifestLoadingRetryDelay: 800,
+				levelLoadingMaxRetry: 4,
+				levelLoadingRetryDelay: 800,
 			});
 
 			hls.loadSource(session.url);
