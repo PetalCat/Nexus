@@ -13,11 +13,32 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  release:
+  # Multi-platform build via native runners. We build amd64 on
+  # ubuntu-latest (x86_64) and arm64 on ubuntu-24.04-arm (free native
+  # arm64 runners for public repos). Each job pushes a single-platform
+  # image with a digest-only reference; the merge job below collects
+  # those digests into a multi-arch manifest at :latest and :<version>.
+  # This avoids QEMU-emulated rust compilation (~25 min → ~5 min).
+  # Reference: https://docs.docker.com/build/ci/github-actions/multi-platform/
+  build:
     needs: ci
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Platform label
+        id: plabel
+        run: echo "SUFFIX=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          PLATFORM: ${{ matrix.platform }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -29,32 +50,88 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      # GHCR rejects uppercase in repository names — PetalCat/Nexus must
-      # be normalized to petalcat/nexus before the push or buildx errors
-      # out with "repository name must be lowercase". $GITHUB_REPOSITORY
-      # is a runtime-controlled, non-attacker-controlled env var.
       - name: Lowercase repo name
         id: repo
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
+      - name: Build and push (by digest)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          # arm64 builds via QEMU take 20-30 min (rust cross-compile).
-          # Drop for now; re-add as a parallel job on native arm64 runners
-          # (ubuntu-24.04-arm) when we actually have arm64 deploy targets.
-          platforms: linux/amd64
-          tags: |
-            ${{ steps.repo.outputs.IMAGE }}:latest
-            ${{ steps.repo.outputs.IMAGE }}:${{ steps.version.outputs.VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          # push-by-digest stashes the image without a tag; merge job
+          # below assembles the multi-arch manifest from both digests.
+          outputs: type=image,name=${{ steps.repo.outputs.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ steps.plabel.outputs.SUFFIX }}
+          cache-to: type=gha,mode=max,scope=${{ steps.plabel.outputs.SUFFIX }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > /tmp/digests/${{ steps.plabel.outputs.SUFFIX }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ steps.plabel.outputs.SUFFIX }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [ci, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Lowercase repo name
+        id: repo
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          cd /tmp/digests
+          # Each file contains a single digest string (e.g. sha256:abc...).
+          # `imagetools create` takes one IMAGE@digest arg per platform and
+          # assembles them into a manifest list at the supplied tags.
+          DIGEST_ARGS=""
+          for f in *; do
+            DIGEST=$(cat "$f")
+            DIGEST_ARGS="$DIGEST_ARGS ${{ steps.repo.outputs.IMAGE }}@$DIGEST"
+          done
+          docker buildx imagetools create \
+            --tag ${{ steps.repo.outputs.IMAGE }}:latest \
+            --tag ${{ steps.repo.outputs.IMAGE }}:${{ steps.version.outputs.VERSION }} \
+            $DIGEST_ARGS
+
+      - name: Inspect manifest
+        run: docker buildx imagetools inspect ${{ steps.repo.outputs.IMAGE }}:${{ steps.version.outputs.VERSION }}
+
+  release:
+    needs: merge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
