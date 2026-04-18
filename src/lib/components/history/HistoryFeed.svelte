@@ -103,7 +103,7 @@
 						{@const progress = event.progress != null ? `${Math.round(event.progress * 100)}%` : null}
 						{@const poster = posterUrl(event)}
 						<a
-							href="/media/{event.mediaType}/{event.serviceId}:{event.mediaId}"
+							href="/media/{event.mediaType}/{event.mediaId}?service={event.serviceId}"
 							class="flex items-center gap-3 rounded-lg bg-cream/[0.02] p-2.5 transition-colors hover:bg-cream/[0.04]"
 						>
 							{#if poster}
