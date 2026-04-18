@@ -1,5 +1,16 @@
 @import 'tailwindcss';
 
+/* Variable fonts — the stylesheet references these by name (e.g.
+   --font-display: 'Playfair Display Variable') but nothing was loading them,
+   so Georgia / system-ui was faking every display cue including the italic-N
+   in the logo (#47). Loading the real families fixes the whole typographic
+   system in one go. Italic axes are imported separately — the default index
+   is wght-normal only. */
+@import '@fontsource-variable/playfair-display';
+@import '@fontsource-variable/playfair-display/wght-italic.css';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/jetbrains-mono';
+
 @theme {
 	--color-void: #0d0b0a;
 	--color-deep: #121010;
