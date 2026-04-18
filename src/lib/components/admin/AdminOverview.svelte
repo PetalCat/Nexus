@@ -47,6 +47,9 @@
 	}
 
 	function itemBackdrop(session: JellyfinSession) {
+		// Plex sessions pre-resolve backdrop URLs via the Plex adapter (#C9).
+		if (session._backdropUrl) return session._backdropUrl;
+		if (session._posterUrl) return session._posterUrl;
 		const item = session.NowPlayingItem;
 		if (!item) return null;
 		const serviceId = session._serviceId ?? '';
