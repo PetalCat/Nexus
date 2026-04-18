@@ -117,17 +117,27 @@ export function computeWrapped(userId: string, year?: number): WrappedStats {
 		prev = day;
 	}
 
-	const today = new Date();
-	const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+	// "Current streak" is the streak trailing the end of the target year, not
+	// the real current date. For the current year we anchor at today; for
+	// prior years we anchor at Dec 31 of that year so historical Wrapped
+	// reports reflect the streak as it stood at year-end.
+	// Codex-audit round 2 P2.
+	const now = new Date();
+	const isCurrentYear = now.getFullYear() === targetYear;
+	const anchor = isCurrentYear
+		? now
+		: new Date(targetYear, 11, 31); // Dec 31 of targetYear
+	const anchorStr = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, '0')}-${String(anchor.getDate()).padStart(2, '0')}`;
 	const dayLookup = new Set(activeDays.map((d) => d.day));
 	let current = 0;
-	const cursor = new Date(today);
+	const cursor = new Date(anchor);
 	while (true) {
 		const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
 		if (!dayLookup.has(key)) {
-			// Allow "today" to be absent without breaking the streak (user hasn't
-			// watched yet today but yesterday counts).
-			if (key === todayStr) {
+			// Allow the anchor day itself to be absent without breaking the
+			// streak (user hasn't watched yet today / wasn't watching on
+			// Dec 31 but prior days count).
+			if (key === anchorStr) {
 				cursor.setDate(cursor.getDate() - 1);
 				continue;
 			}
