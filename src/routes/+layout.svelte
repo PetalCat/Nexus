@@ -7,10 +7,12 @@
 	import NotificationPanel from '$lib/components/NotificationPanel.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
+	import BugReportModal from '$lib/components/BugReportModal.svelte';
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { onNavigate, afterNavigate, invalidateAll } from '$app/navigation';
 	import { initAnalytics, trackPageView, destroyAnalytics } from '$lib/stores/analytics';
+	import { installCrashReporter } from '$lib/client/crash-reporter';
 	import { connectWs, disconnectWs, onMessage } from '$lib/stores/ws';
 	import { probeBandwidthIfStale } from '$lib/bandwidth-probe';
 	import { setNavigating } from '$lib/transition';
@@ -70,6 +72,10 @@
 	let mobileOpen = $state(false);
 
 	onMount(() => {
+		// Install crash reporter first so subsequent init errors get logged.
+		// buildVersion flows in from the root +layout.server.ts load so stale
+		// tabs on prior deploys show up differently in telemetry.
+		installCrashReporter({ buildVersion: (data as any)?.buildVersion });
 		initAnalytics();
 		if (data.user) {
 			connectWs();
@@ -148,10 +154,19 @@
 
 	const isMac = $derived(browser ? navigator.platform?.includes('Mac') : true);
 
+	let bugReportOpen = $state(false);
+
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 			e.preventDefault();
 			togglePalette(searchScope);
+		}
+		// Cmd/Ctrl+Shift+B — open the bug report modal from anywhere. The
+		// browser's default Cmd+Shift+B is "toggle bookmarks bar" which is
+		// low-value inside a webapp tab, so no conflict in practice.
+		if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+			e.preventDefault();
+			bugReportOpen = true;
 		}
 	}
 </script>
@@ -263,4 +278,9 @@
 
 <CommandPalette />
 <ToastContainer />
+<BugReportModal
+	bind:open={bugReportOpen}
+	buildVersion={(data as any)?.buildVersion}
+	onclose={() => (bugReportOpen = false)}
+/>
 
