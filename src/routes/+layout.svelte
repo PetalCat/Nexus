@@ -63,7 +63,7 @@
 	let unsubWs: (() => void) | null = null;
 	let unsubRecovery: (() => void) | null = null;
 
-	const noLayoutPaths = ['/setup', '/login', '/register', '/pending-approval', '/reset-password', '/books/read', '/play'];
+	const noLayoutPaths = ['/welcome', '/login', '/register', '/pending-approval', '/reset-password', '/books/read', '/play'];
 	const noLayout = $derived(noLayoutPaths.some((p) => $page.url.pathname === p || $page.url.pathname.startsWith(p + '/')));
 
 	let sidebarCollapsed = $state(false);

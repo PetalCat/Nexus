@@ -1,12 +1,16 @@
 /**
  * Canonical state-machine tests for resolveRedirect.
  *
- * The resolver governs five onboarding entry points (/setup, /welcome,
- * /register, /invite, /pending-approval) plus the general logged-in /
- * logged-out flows. These tests pin the (user × status × path × settings)
- * tuples so that future changes to the state machine force an explicit
- * test update, and so drift between the resolver and the routes can't
- * regress silently. (#32)
+ * The resolver governs four onboarding entry points (/welcome, /register,
+ * /invite, /pending-approval) plus the general logged-in / logged-out flows.
+ * These tests pin the (user × status × path × settings) tuples so that
+ * future changes to the state machine force an explicit test update, and
+ * so drift between the resolver and the routes can't regress silently.
+ * (#32, #24)
+ *
+ * The `/setup` route was retired in #24; fresh-install admin creation now
+ * happens at `/welcome` too. Tests that previously pinned /setup behavior
+ * have been adapted to /welcome.
  */
 import { describe, it, expect } from 'vitest';
 import { resolveRedirect, type RedirectUser } from '../redirects';
@@ -60,34 +64,48 @@ describe('resolveRedirect — legacy URL rewrites', () => {
 });
 
 describe('resolveRedirect — first-run (no users yet)', () => {
-	it('redirects anything-but-/setup to /setup', () => {
+	it('redirects anything-but-/welcome to /welcome', () => {
 		const opts = mkOpts({ userCount: 0 });
-		expect(resolveRedirect(null, '/login', '', opts)).toEqual({ location: '/setup', status: 303 });
-		expect(resolveRedirect(null, '/', '', opts)).toEqual({ location: '/setup', status: 303 });
-		expect(resolveRedirect(null, '/register', '', opts)).toEqual({ location: '/setup', status: 303 });
+		expect(resolveRedirect(null, '/login', '', opts)).toEqual({
+			location: '/welcome',
+			status: 303
+		});
+		expect(resolveRedirect(null, '/', '', opts)).toEqual({
+			location: '/welcome',
+			status: 303
+		});
+		expect(resolveRedirect(null, '/register', '', opts)).toEqual({
+			location: '/welcome',
+			status: 303
+		});
 	});
 
-	it('lets /setup through during first-run', () => {
+	it('lets /welcome through during first-run so the admin-create form renders', () => {
 		const opts = mkOpts({ userCount: 0 });
-		expect(resolveRedirect(null, '/setup', '', opts)).toBeNull();
-	});
-});
-
-describe('resolveRedirect — /setup lifecycle', () => {
-	it('no-session + users-exist → /login', () => {
-		const t = resolveRedirect(null, '/setup', '', mkOpts({ userCount: 1 }));
-		expect(t).toEqual({ location: '/login', status: 303 });
+		expect(resolveRedirect(null, '/welcome', '', opts)).toBeNull();
 	});
 
-	it('session + onboarding_complete → /', () => {
-		const opts = mkOpts({ userCount: 1, settings: { onboarding_complete: 'true' } });
-		const t = resolveRedirect(activeUser, '/setup', '', opts);
-		expect(t).toEqual({ location: '/', status: 303 });
+	it('first-run + /welcome sub-path passes through too', () => {
+		const opts = mkOpts({ userCount: 0 });
+		expect(resolveRedirect(null, '/welcome/foo', '', opts)).toBeNull();
 	});
 
-	it('session + wizard-in-progress → null (let through)', () => {
-		const t = resolveRedirect(activeUser, '/setup', '', mkOpts({ userCount: 1 }));
-		expect(t).toBeNull();
+	it('first-run + user-less session on /welcome → null (admin-create form renders)', () => {
+		// Even with user === null (no session), userCount===0 means the /welcome
+		// route should render its admin-create branch. Rule 2 wins over rule 3d.
+		const opts = mkOpts({ userCount: 0 });
+		expect(resolveRedirect(null, '/welcome', '', opts)).toBeNull();
+	});
+
+	it('first-run redirects API routes to /welcome too (no special-casing)', () => {
+		// Before #24 rule 2 unconditionally bounced non-/setup to /setup including
+		// /api/*. The unified rule keeps that: a fresh install has no API surface
+		// worth serving until an admin exists.
+		const opts = mkOpts({ userCount: 0 });
+		expect(resolveRedirect(null, '/api/library', '', opts)).toEqual({
+			location: '/welcome',
+			status: 303
+		});
 	});
 });
 
@@ -137,8 +155,8 @@ describe('resolveRedirect — /pending-approval lifecycle', () => {
 	});
 });
 
-describe('resolveRedirect — /welcome lifecycle', () => {
-	it('no user → /login', () => {
+describe('resolveRedirect — /welcome lifecycle (post-first-run)', () => {
+	it('no user (users exist) → /login', () => {
 		const t = resolveRedirect(null, '/welcome', '', mkOpts({ userCount: 1 }));
 		expect(t).toEqual({ location: '/login', status: 303 });
 	});
