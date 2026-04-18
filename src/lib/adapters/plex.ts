@@ -640,6 +640,12 @@ export const plexAdapter: ServiceAdapter = {
 				const durationMs = session.duration ?? 0;
 				const progress = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
 
+				// For episodes, prefer the show-level art (grandparentArt) over
+				// the episode's own still, so the admin backdrop matches Jellyfin's
+				// "series backdrop for episode" behavior. Falls back to `session.art`.
+				const backdropPath = session.grandparentArt ?? session.art;
+				const posterPath = session.grandparentThumb ?? session.thumb;
+
 				results.push({
 					sessionId: session.Session?.id ?? session.sessionKey ?? session.ratingKey,
 					userId: session.User?.id ?? '',
@@ -663,7 +669,12 @@ export const plexAdapter: ServiceAdapter = {
 						videoCodec: session.Media?.[0]?.videoCodec,
 						audioCodec: session.Media?.[0]?.audioCodec,
 						resolution: session.Media?.[0]?.videoResolution,
-						bitrate: session.Media?.[0]?.bitrate
+						bitrate: session.Media?.[0]?.bitrate,
+						// Pre-resolved image URLs (routed through /api/media/image so
+						// the browser never sees X-Plex-Token). Consumed by the admin
+						// session shim at `fetchPlexSessions`. (#C9)
+						backdropUrl: imageUrl(config, backdropPath),
+						posterUrl: imageUrl(config, posterPath)
 					}
 				});
 			}
