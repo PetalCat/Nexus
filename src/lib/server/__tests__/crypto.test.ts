@@ -24,14 +24,28 @@ describe('crypto (AES-256-GCM envelope)', () => {
 		expect(() => assertEncryptionKey()).not.toThrow();
 	});
 
-	it('throws when the env var is missing', () => {
+	it('auto-generates and persists a key when the env var is missing', () => {
+		// Behavior change (codex round 8 followup): missing env is no longer a
+		// hard-fail. Nexus auto-generates a key to `<dataDir>/.nexus-encryption-key`
+		// on first boot so docker-compose-up still works as a one-line deploy.
 		const saved = process.env.NEXUS_ENCRYPTION_KEY;
+		const savedDb = process.env.DATABASE_URL;
 		delete process.env.NEXUS_ENCRYPTION_KEY;
+		// Point DATABASE_URL at a tmp dir so the auto-gen writes somewhere safe.
+		const { mkdtempSync, existsSync, rmSync } = require('node:fs') as typeof import('node:fs');
+		const { tmpdir } = require('node:os') as typeof import('node:os');
+		const { resolve } = require('node:path') as typeof import('node:path');
+		const dir = mkdtempSync(resolve(tmpdir(), 'nexus-crypto-test-'));
+		process.env.DATABASE_URL = resolve(dir, 'test.db');
 		__resetCryptoForTests();
 		try {
-			expect(() => assertEncryptionKey()).toThrow(/NEXUS_ENCRYPTION_KEY/);
+			expect(() => assertEncryptionKey()).not.toThrow();
+			expect(existsSync(resolve(dir, '.nexus-encryption-key'))).toBe(true);
 		} finally {
 			process.env.NEXUS_ENCRYPTION_KEY = saved;
+			if (savedDb === undefined) delete process.env.DATABASE_URL;
+			else process.env.DATABASE_URL = savedDb;
+			rmSync(dir, { recursive: true, force: true });
 			__resetCryptoForTests();
 		}
 	});
