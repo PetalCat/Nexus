@@ -125,13 +125,27 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				? Math.max(0, Math.min((positionTicks ?? 0) / durationTicks, 1))
 				: null;
 			const mediaDurationMs = durationTicks > 0 ? Math.round(durationTicks / 10_000) : null;
+			// Prefer the upstream's own session identifier (Jellyfin PlaySessionId /
+			// Plex sessionKey) so concurrent plays on two devices — or a restart
+			// before the old row ages out — stay as distinct sessions instead of
+			// collapsing into one keyed by (type:service:item:user).
+			// Codex round 5 P2. Falls back to the synthesized key when upstream
+			// didn't send one (older clients, tests).
+			const upstreamSessionId =
+				typeof body.playSessionId === 'string' ? body.playSessionId
+				: typeof body.PlaySessionId === 'string' ? body.PlaySessionId
+				: typeof body.sessionKey === 'string' ? body.sessionKey
+				: undefined;
+			const sessionKey = upstreamSessionId
+				? `${config.type}:${serviceId}:${upstreamSessionId}`
+				: `${config.type}:${serviceId}:${itemId}:${locals.user.id}`;
 			upsertPlaySession({
 				userId: locals.user.id,
 				serviceId,
 				serviceType: config.type,
 				mediaId: String(itemId),
 				mediaType: resolvedMediaType,
-				sessionKey: `${config.type}:${serviceId}:${itemId}:${locals.user.id}`,
+				sessionKey,
 				progress,
 				positionTicks: typeof positionTicks === 'number' ? positionTicks : null,
 				mediaDurationMs,
