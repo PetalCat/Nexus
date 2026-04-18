@@ -1,19 +1,27 @@
 <script lang="ts">
 	/**
-	 * /welcome — per-user first-run flow (admin AND non-admin as of #24).
-	 * Three-phase Wizarr-inspired wizard:
+	 * /welcome — unified first-run + per-user onboarding (#24).
 	 *
-	 * Phase 1 — Welcome copy
-	 * Phase 2 — Connect services (each card opens AccountLinkModal)
-	 * Phase 3 — Summary + Done button (POSTs to ?/complete to mark
-	 *           welcome_completed_at)
+	 * Mode A (admin-create): when data.needsAdminCreation is true (fresh
+	 * install, no users yet, no session), renders the first-admin form.
+	 * Submitting creates the user + session and reloads into Mode B.
+	 *
+	 * Mode B (per-user wizard): Wizarr-inspired three-phase flow —
+	 *   Phase 1 — Welcome copy
+	 *   Phase 2 — Connect services (each card opens AccountLinkModal)
+	 *   Phase 3 — Summary + Done button (POSTs to ?/complete to mark
+	 *             welcome_completed_at)
 	 */
-	import type { PageData } from './$types';
+	import type { ActionData, PageData } from './$types';
+	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import AccountLinkModal from '$lib/components/account-linking/AccountLinkModal.svelte';
 	import type { AccountServiceSummary } from '$lib/components/account-linking/types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Mode A state — admin-create form submission in progress.
+	let adminCreateLoading = $state(false);
 
 	type Phase = 'welcome' | 'connect' | 'summary';
 	let phase = $state<Phase>('welcome');
@@ -52,18 +60,118 @@
 </svelte:head>
 
 <div class="flex min-h-screen flex-col" style="background: var(--color-void)">
-	<!-- Step dots -->
-	<div class="fixed top-6 left-1/2 -translate-x-1/2 z-10 flex gap-2">
-		{#each ['welcome', 'connect', 'summary'] as p, i (p)}
-			<div
-				class="h-1.5 rounded-full transition-all duration-500"
-				style="width: {p === phase ? '24px' : '6px'}; background: {p === phase ? 'var(--color-cream)' : ['welcome', 'connect', 'summary'].indexOf(p) < ['welcome', 'connect', 'summary'].indexOf(phase) ? 'var(--color-accent)' : 'rgba(255,255,255,0.15)'}"
-			></div>
-		{/each}
-	</div>
+	{#if data.needsAdminCreation}
+		<!-- Mode A: fresh-install admin-create form. No step dots; the user has
+		     not entered the wizard proper yet. -->
+		<div class="flex flex-1 flex-col items-center justify-center px-6 pb-16 pt-16">
+			<div class="flex w-full max-w-sm flex-col items-center gap-10 text-center">
+				<div>
+					<h1 class="text-display text-4xl font-bold tracking-tight">Welcome to Nexus</h1>
+					<p class="mt-3 text-[var(--color-muted)]">
+						Create your admin account to get started.
+					</p>
+				</div>
 
-	<div class="flex flex-1 flex-col items-center justify-center px-6 pb-16 pt-16">
-		{#if phase === 'welcome'}
+				<form
+					method="POST"
+					action="?/createAccount"
+					class="flex w-full flex-col gap-5 rounded-3xl border border-white/[0.06] bg-white/[0.02] p-8"
+					use:enhance={() => {
+						adminCreateLoading = true;
+						return async ({ update }) => {
+							await update({ reset: false });
+							adminCreateLoading = false;
+						};
+					}}
+				>
+					{#if form?.error && form.step === 'account'}
+						<div
+							class="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+						>
+							{form.error}
+						</div>
+					{/if}
+
+					<label class="flex flex-col gap-2 text-left">
+						<span
+							class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
+							>Username</span
+						>
+						<input
+							name="username"
+							class="input py-3"
+							placeholder="admin"
+							autocomplete="username"
+							required
+						/>
+					</label>
+					<label class="flex flex-col gap-2 text-left">
+						<span
+							class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
+							>Display Name</span
+						>
+						<input
+							name="displayName"
+							class="input py-3"
+							placeholder="Your name"
+							required
+						/>
+					</label>
+					<div class="grid grid-cols-2 gap-4">
+						<label class="flex flex-col gap-2 text-left">
+							<span
+								class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
+								>Password</span
+							>
+							<input
+								name="password"
+								type="password"
+								class="input py-3"
+								placeholder="--------"
+								autocomplete="new-password"
+								required
+							/>
+						</label>
+						<label class="flex flex-col gap-2 text-left">
+							<span
+								class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]"
+								>Confirm</span
+							>
+							<input
+								name="confirm"
+								type="password"
+								class="input py-3"
+								placeholder="--------"
+								autocomplete="new-password"
+								required
+							/>
+						</label>
+					</div>
+
+					<button
+						type="submit"
+						class="btn btn-primary mt-2 py-3 text-base"
+						disabled={adminCreateLoading}
+					>
+						{adminCreateLoading ? 'Creating...' : 'Continue'}
+					</button>
+				</form>
+			</div>
+		</div>
+	{:else}
+		<!-- Mode B: per-user wizard phases -->
+		<!-- Step dots -->
+		<div class="fixed top-6 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+			{#each ['welcome', 'connect', 'summary'] as p, i (p)}
+				<div
+					class="h-1.5 rounded-full transition-all duration-500"
+					style="width: {p === phase ? '24px' : '6px'}; background: {p === phase ? 'var(--color-cream)' : ['welcome', 'connect', 'summary'].indexOf(p) < ['welcome', 'connect', 'summary'].indexOf(phase) ? 'var(--color-accent)' : 'rgba(255,255,255,0.15)'}"
+				></div>
+			{/each}
+		</div>
+
+		<div class="flex flex-1 flex-col items-center justify-center px-6 pb-16 pt-16">
+			{#if phase === 'welcome'}
 			<div class="flex max-w-lg flex-col items-center gap-8 text-center">
 				<div class="relative">
 					<div
@@ -216,11 +324,12 @@
 				</form>
 			</div>
 		{/if}
-	</div>
+		</div>
+	{/if}
 </div>
 
-<!-- Personal-account-linking modal -->
-{#if modalSummary}
+<!-- Personal-account-linking modal (only meaningful in wizard mode) -->
+{#if !data.needsAdminCreation && modalSummary}
 	<AccountLinkModal
 		service={modalSummary}
 		onSuccess={() => handleSuccess(modalSummary!.id)}
