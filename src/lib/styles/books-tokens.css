@@ -7,3 +7,10 @@
   --font-body:'DM Sans',system-ui,sans-serif;
   --font-mono:'JetBrains Mono',ui-monospace,monospace;
 }
+
+.books-surface {
+  font-family: var(--font-body);
+  color: var(--cream);
+  background: var(--void);
+  min-height: 100vh;
+}
