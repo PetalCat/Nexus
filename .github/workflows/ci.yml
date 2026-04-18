@@ -6,6 +6,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Reusable-workflow entry so release.yml can invoke us via
+  # `jobs.ci.uses: ./.github/workflows/ci.yml` on tag pushes.
+  workflow_call:
 
 jobs:
   check:
