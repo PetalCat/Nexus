@@ -103,6 +103,31 @@
 		onrefresh?.();
 	}
 
+	async function dismissNotification(id: string) {
+		await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+		onrefresh?.();
+	}
+
+	// CANONICAL: session_invite actions — join existing session endpoint or
+	// just dismiss on decline (no dedicated decline endpoint exists). (#35)
+	async function acceptSessionInvite(notif: Notification, ev: Event) {
+		ev.preventDefault();
+		ev.stopPropagation();
+		const sessionId = (notif.metadata as { sessionId?: string } | null)?.sessionId;
+		if (!sessionId) return;
+		try {
+			await fetch(`/api/sessions/${sessionId}/join`, { method: 'POST' });
+		} finally {
+			await dismissNotification(notif.id);
+		}
+	}
+
+	async function declineSessionInvite(notif: Notification, ev: Event) {
+		ev.preventDefault();
+		ev.stopPropagation();
+		await dismissNotification(notif.id);
+	}
+
 	function handleItemClick(notif: Notification) {
 		if (!notif.read) {
 			markRead(notif.id);
@@ -197,6 +222,25 @@
 							</div>
 							{#if notif.message}
 								<p class="mt-0.5 truncate text-xs text-muted">{notif.message}</p>
+							{/if}
+
+							{#if notif.type === 'session_invite'}
+								<div class="mt-2 flex gap-2">
+									<button
+										onclick={(ev) => acceptSessionInvite(notif, ev)}
+										class="flex items-center gap-1 rounded-md bg-accent/20 px-2.5 py-1 text-xs font-medium text-accent-light transition-colors hover:bg-accent/30"
+									>
+										<Check size={12} />
+										<span>Accept</span>
+									</button>
+									<button
+										onclick={(ev) => declineSessionInvite(notif, ev)}
+										class="flex items-center gap-1 rounded-md bg-cream/[0.06] px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-cream/[0.1] hover:text-cream"
+									>
+										<X size={12} />
+										<span>Decline</span>
+									</button>
+								</div>
 							{/if}
 						</div>
 
