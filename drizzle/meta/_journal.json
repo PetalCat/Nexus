@@ -92,6 +92,20 @@
       "when": 1776466991171,
       "tag": "0012_drop_book_reading_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1776482179309,
+      "tag": "0013_drop_session_key_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1776482340782,
+      "tag": "0014_fix_activity_backfill_media_types",
+      "breakpoints": true
     }
   ]
 }
