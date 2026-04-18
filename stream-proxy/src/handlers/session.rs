@@ -176,7 +176,7 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
     let sig = session_store::sign(&session_id);
-    let rewritten = match rewrite_manifest(&body, &session_id, &sig, &session.url_prefix) {
+    let rewritten = match rewrite_manifest(&body, &session_id, &sig, &session.url_prefix, &upstream_url) {
         Ok(out) => out,
         Err(e) => {
             eprintln!("[stream-proxy] manifest rewrite error: {e}");
