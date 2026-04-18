@@ -1,3 +1,7 @@
+<script lang="ts">
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
+</script>
+
 <svelte:head>
 	<title>Pending Approval — Nexus</title>
 </svelte:head>
@@ -24,6 +28,10 @@
 				Your account is waiting for admin approval. Check back later.
 			</p>
 			<a href="/api/auth/logout" class="btn btn-ghost text-sm" data-sveltekit-reload>Sign Out</a>
+		</div>
+
+		<div class="mt-6">
+			<CommunityLinks heading="Community" center />
 		</div>
 	</div>
 </div>

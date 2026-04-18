@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	type RegisterForm = {
 		error?: string;
@@ -202,5 +203,9 @@
 		<p class="mt-4 text-center text-xs text-[var(--color-muted)]">
 			Already have an account? <a href="/login" class="text-[var(--color-accent)] hover:underline">Sign in</a>
 		</p>
+
+		<div class="mt-6">
+			<CommunityLinks heading="Community" center />
+		</div>
 	</div>
 </div>

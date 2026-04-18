@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	// Extended form type to cover all possible fail() return shapes
 	type LoginForm = {
@@ -226,5 +227,9 @@
 				Don't have an account? <a href="/register" class="text-[var(--color-accent)] hover:underline">Create one</a>
 			</p>
 		{/if}
+
+		<div class="mt-6">
+			<CommunityLinks heading="Community" center />
+		</div>
 	</div>
 </div>

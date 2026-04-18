@@ -20,6 +20,7 @@
 		FolderOpen,
 		Share2
 	} from 'lucide-svelte';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	interface NavItem {
 		id: string;
@@ -324,6 +325,12 @@
 			</a>
 		{/if}
 	</nav>
+
+	{#if !collapsed || mobileOpen}
+		<div class="border-t border-cream/[0.04] px-5 py-4">
+			<CommunityLinks heading="Community" compact />
+		</div>
+	{/if}
 
 	<!-- Collapse toggle — desktop only -->
 	<div class="hidden border-t border-cream/[0.04] p-2.5 lg:block">
