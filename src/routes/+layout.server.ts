@@ -57,6 +57,10 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		unseenShares,
 		autoplayTrailers,
 		autoplayNext,
+		// Surfaced to the client bundle for crash-reporter + "Report issue"
+		// prefills. Read once at SSR so a stale tab can be distinguished
+		// from a fresh one in telemetry after a deploy.
+		buildVersion: process.env.npm_package_version ?? 'dev',
 		// Streamed — never blocks page navigation
 		pendingRequests: fetchPendingRequests(),
 	};
