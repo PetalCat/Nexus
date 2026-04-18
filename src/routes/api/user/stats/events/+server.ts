@@ -1,5 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getRawDb } from '$lib/db';
+import { getServiceConfig } from '$lib/server/services';
+import { resolveHistoryPoster } from '$lib/server/history-thumbnails';
 import type { RequestHandler } from './$types';
 
 /**
@@ -29,9 +31,25 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	const where = conditions.join(' AND ');
 
-	const events = db.prepare(
-		`SELECT * FROM play_sessions WHERE ${where} ORDER BY started_at DESC LIMIT ? OFFSET ?`
+	const rows = db.prepare(
+		`SELECT id, user_id as userId, service_id as serviceId, service_type as serviceType,
+		        media_id as mediaId, media_type as mediaType, media_title as mediaTitle,
+		        started_at as timestamp, duration_ms as durationMs,
+		        media_duration_ms as mediaDurationMs, progress, completed,
+		        device_name as deviceName, client_name as clientName
+		 FROM play_sessions WHERE ${where} ORDER BY started_at DESC LIMIT ? OFFSET ?`
 	).all(...params, limit, offset) as any[];
+
+	const events = rows.map((e) => ({
+		...e,
+		poster: resolveHistoryPoster({
+			serviceId: e.serviceId,
+			serviceType: e.serviceType,
+			mediaId: e.mediaId,
+			mediaType: e.mediaType,
+			serviceUrl: getServiceConfig(e.serviceId)?.url
+		})
+	}));
 
 	const totalRow = db.prepare(
 		`SELECT COUNT(*) as count FROM play_sessions WHERE ${where}`

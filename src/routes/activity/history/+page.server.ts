@@ -1,16 +1,18 @@
 import { getRawDb, getDb, schema } from '$lib/db';
 import { getServiceConfig } from '$lib/server/services';
+import { resolveHistoryPoster } from '$lib/server/history-thumbnails';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const userId = locals.user!.id;
 
 	const raw = getRawDb();
-	const events = raw.prepare(`
-		SELECT id, user_id as userId, service_id as serviceId, media_id as mediaId,
-		       media_type as mediaType, media_title as mediaTitle, started_at as timestamp,
-		       duration_ms as durationMs, media_duration_ms as mediaDurationMs, progress,
-		       completed, device_name as deviceName, client_name as clientName
+	const rows = raw.prepare(`
+		SELECT id, user_id as userId, service_id as serviceId, service_type as serviceType,
+		       media_id as mediaId, media_type as mediaType, media_title as mediaTitle,
+		       started_at as timestamp, duration_ms as durationMs,
+		       media_duration_ms as mediaDurationMs, progress, completed,
+		       device_name as deviceName, client_name as clientName
 		FROM play_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT 50 OFFSET 0
 	`).all(userId) as any[];
 
@@ -26,12 +28,20 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.all();
 	const services = serviceRows.map((s) => ({ id: s.id, name: s.name, type: s.type }));
 
-	// Build service URL map for poster thumbnails (Jellyfin images are public)
-	const serviceUrls: Record<string, string> = {};
-	for (const s of serviceRows) {
-		const config = getServiceConfig(s.id);
-		if (config?.url) serviceUrls[s.id] = config.url;
-	}
+	// Resolve a poster URL per event using the owning service's type.
+	// Jellyfin/Plex images are public via the server URL; Invidious videos use
+	// ytimg CDN; Calibre/RomM covers are auth-gated and go through the Nexus
+	// image proxy. Anything else returns null (the view shows a color block).
+	const events = rows.map((e) => ({
+		...e,
+		poster: resolveHistoryPoster({
+			serviceId: e.serviceId,
+			serviceType: e.serviceType,
+			mediaId: e.mediaId,
+			mediaType: e.mediaType,
+			serviceUrl: getServiceConfig(e.serviceId)?.url
+		})
+	}));
 
-	return { events, total, services, serviceUrls };
+	return { events, total, services };
 };
