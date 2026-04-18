@@ -46,7 +46,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		return {
 			needsAdminCreation: true as const,
 			linkableSummaries: [] as AccountServiceSummary[],
-			displayName: 'there'
+			displayName: 'there',
+			isAdmin: false,
+			hasAnyServices: false
 		};
 	}
 
@@ -88,7 +90,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	return {
 		needsAdminCreation: false as const,
 		linkableSummaries,
-		displayName: locals.user.displayName ?? locals.user.username ?? 'there'
+		displayName: locals.user.displayName ?? locals.user.username ?? 'there',
+		// Admin-on-fresh-install needs to configure services before the wizard's
+		// personal-account linking step can surface anything. #24 moved admin
+		// creation into /welcome but the service-registration step from the
+		// retired /setup route was lost — admins landed at "You're all set"
+		// without configuring any backends. Codex round 3 P1.
+		isAdmin: !!locals.user.isAdmin,
+		hasAnyServices: configs.length > 0
 	};
 };
 

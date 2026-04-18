@@ -64,13 +64,30 @@ function insertSession(
 	deviceName?: string,
 	clientName?: string
 ): void {
+	// Previously used `INSERT ... ON CONFLICT(session_key) DO UPDATE` — that
+	// relied on the UNIQUE index on session_key, which migration 0013 dropped
+	// (see codex-audit followup for why — stable keys must be reusable across
+	// successive sessions). Now manually look up an open session by key and
+	// UPDATE it, else INSERT fresh. Codex round 3 P1.
 	const db = getRawDb();
 	const now = Date.now();
+	const existing = db
+		.prepare(`SELECT id FROM play_sessions WHERE session_key = ? AND ended_at IS NULL LIMIT 1`)
+		.get(tracker.sessionKey) as { id: string } | undefined;
+
+	if (existing) {
+		// Revive an open row: reset duration/progress/completed, keep the row.
+		db.prepare(
+			`UPDATE play_sessions SET ended_at = NULL, duration_ms = 0, progress = 0, completed = 0, updated_at = ? WHERE id = ?`
+		).run(now, existing.id);
+		// Keep tracker.dbId in sync with the row we actually wrote to.
+		tracker.dbId = existing.id;
+		return;
+	}
+
 	db.prepare(`
 		INSERT INTO play_sessions (id, session_key, user_id, service_id, service_type, media_id, media_type, media_title, media_year, media_genres, parent_id, parent_title, started_at, ended_at, duration_ms, media_duration_ms, progress, completed, device_name, client_name, metadata, source, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, 0, 0, ?, ?, ?, 'poller', ?, ?)
-		ON CONFLICT(session_key) DO UPDATE SET
-			ended_at = NULL, duration_ms = 0, progress = 0, completed = 0, updated_at = excluded.updated_at
 	`).run(
 		tracker.dbId, tracker.sessionKey, tracker.userId, tracker.serviceId,
 		tracker.serviceType,
