@@ -47,7 +47,8 @@
 		episode: '#3d8f84',
 		book: '#c45c5c',
 		game: '#56a99d',
-		music: '#e8bc6a'
+		music: '#e8bc6a',
+		video: '#d4a253'
 	};
 
 	const groupedByDay = $derived.by(() => {

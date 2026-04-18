@@ -836,7 +836,10 @@ Returns subtitle streams for a Jellyfin item.
 **Response:** Array of `{ id, name, language, isExternal, url }` — proxied VTT URLs
 
 #### `POST /api/stream/{serviceId}/progress`
-Reports playback progress to Jellyfin + emits analytics events.
+Reports playback progress to Jellyfin and upserts the corresponding row in
+`play_sessions` (the canonical session store, per the 2026-03-13 tracking
+rebuild + the #13 data-model unification). Does **not** emit separate
+analytics events — `play_sessions` is the event store.
 
 **Auth:** Session required
 **Body:**
@@ -855,7 +858,9 @@ Reports playback progress to Jellyfin + emits analytics events.
 }
 ```
 
-**Side effects:** Emits `play_start`, `progress`, or `play_stop` analytics events. Invalidates continue-watching and activity caches on stop.
+**Side effects:** Upserts into `play_sessions` via the shared
+`findOpenSession` / `upsertPlaySession` helpers. Invalidates continue-watching
+and activity caches on stop.
 
 #### `GET /api/stream/{serviceId}/test`
 Diagnostic endpoint for stream proxy connectivity.
