@@ -5,6 +5,10 @@
 [![CI](https://github.com/PetalCat/Nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/PetalCat/Nexus/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/PetalCat/Nexus?label=latest&sort=semver)](https://github.com/PetalCat/Nexus/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![GitHub Issues](https://img.shields.io/badge/Issues-GitHub-181717?logo=github)](https://github.com/PetalCat/Nexus/issues)
+[![Discord](https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/AE5uurHzJM)
+[![Reddit](https://img.shields.io/badge/Reddit-r%2Fnexusarr-FF4500?logo=reddit&logoColor=white)](https://reddit.com/r/nexusarr)
+[![Matrix](https://img.shields.io/badge/Matrix-%23nexusmedia:beeper.com-000000?logo=matrix&logoColor=white)](https://matrix.to/#/%23nexusmedia:beeper.com)
 
 > **Status: public beta.** The playback path for Jellyfin + Plex + Invidious works, and the core browse/search/discovery surface is solid. Expect rough edges around Calibre UI polish, some settings pages, and the Collections/Watchlist feature which isn't merged yet. File a bug with `Cmd+Alt+B` from any page — it opens a prefilled GitHub issue. See [What's not ready yet](#whats-not-ready-yet) below.
 
@@ -105,13 +109,6 @@ Honest list so you know what to expect before installing:
 From any page in Nexus: `Cmd+Alt+B` (or `Ctrl+Alt+B`) opens a bug report dialog. It auto-fills the URL, your browser, the build version, and any JS errors caught in the last minute, then opens a prefilled GitHub issue in a new tab — you review + click Submit.
 
 You can also file issues directly: <https://github.com/PetalCat/Nexus/issues/new>. For open-ended questions or feature ideas, use [Discussions](https://github.com/PetalCat/Nexus/discussions) instead.
-
-## Community
-
-- GitHub Issues: <https://github.com/PetalCat/Nexus/issues>
-- Discord: <https://discord.gg/AE5uurHzJM>
-- Reddit: <https://reddit.com/r/nexusarr>
-- Matrix: <https://matrix.to/#/%23nexusmedia:beeper.com>
 
 ## Project status
 
