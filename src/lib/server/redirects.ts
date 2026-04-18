@@ -121,7 +121,12 @@ export function resolveRedirect(
 	// 2. First-run global: no users yet → /welcome (everything else bounces
 	//    there). The /welcome route renders the admin-create form when
 	//    userCount===0 && no session (see its `needsAdminCreation` branch).
+	//
+	//    API paths bypass — they're data endpoints, not browser surfaces. A
+	//    303 to /welcome from /api/health would crash any reverse-proxy
+	//    health check AND any polling client that doesn't follow redirects.
 	if (readUserCount() === 0) {
+		if (path.startsWith('/api')) return null;
 		if (!path.startsWith('/welcome')) {
 			return { location: '/welcome', status: 303 };
 		}
