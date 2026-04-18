@@ -16,12 +16,6 @@
 	const hasData = $derived(
 		data.recentlyPlayed.length > 0 || data.newAlbums.length > 0 || data.artists.length > 0
 	);
-
-	function albumArt(item: { mediaId: string; serviceId: string }): string | null {
-		if (!item.serviceId || !item.mediaId) return null;
-		const path = `/Items/${item.mediaId}/Images/Primary?maxHeight=88&quality=80`;
-		return `/api/media/image?service=${encodeURIComponent(item.serviceId)}&path=${encodeURIComponent(path)}`;
-	}
 </script>
 
 <svelte:head>
@@ -46,7 +40,7 @@
 		{#if data.recentlyPlayed.length > 0}
 			<div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-8">
 				{#each data.recentlyPlayed.slice(0, 6) as item (item.mediaId ?? item.serviceId + item.timestamp)}
-					{@const chipArt = albumArt(item)}
+					{@const chipArt = item.poster ?? null}
 					{@const chipLowRes = lowResImageUrl(chipArt)}
 					{@const chipKey = item.mediaId ?? item.serviceId + item.timestamp}
 					<a href="/music/albums/{item.mediaId}?service={item.serviceId}" class="recent-chip">
