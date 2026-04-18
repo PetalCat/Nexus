@@ -24,27 +24,41 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const adapter = registry.get(calibreConfig.type);
 
 	// Ping first so we can distinguish "empty library" from "failed to load".
-	// All getServiceData() helpers below swallow errors and return [], so without
-	// this check a dead Calibre looks identical to an empty one. (Review item 27.)
+	// getServiceData() helpers no longer swallow errors (review followup — they
+	// used to cache [] on transient failures, blacking out the library for
+	// 5 min after recovery). We now catch at this boundary so a mid-request
+	// hiccup degrades to an offline page instead of a 500.
 	const health = adapter?.ping ? await adapter.ping(calibreConfig) : undefined;
-	const serviceStatus: 'online' | 'offline' = health?.online ? 'online' : 'offline';
-	const serviceError = health?.online ? undefined : health?.error;
+	let serviceStatus: 'online' | 'offline' = health?.online ? 'online' : 'offline';
+	let serviceError = health?.online ? undefined : health?.error;
 
 	// Single fetch — all helpers (series, categories, authors) use withCache on the same data
 	// Run them in parallel; they share the same underlying cached fetchBooks call.
 	// When offline, skip the parallel fetch entirely (avoids 4× wasted timeouts).
-	const [allBooksRaw, categoriesRaw, seriesRaw, authorsRaw] = serviceStatus === 'online'
-		? await Promise.all([
-			adapter?.getServiceData?.(calibreConfig, 'all', {}, userCred),
-			adapter?.getServiceData?.(calibreConfig, 'categories', {}, userCred),
-			adapter?.getServiceData?.(calibreConfig, 'series', {}, userCred),
-			adapter?.getServiceData?.(calibreConfig, 'authors', {}, userCred)
-		])
-		: [[], [], [], []];
-	const allBooks = (allBooksRaw ?? []) as UnifiedMedia[];
-	const categories = (categoriesRaw ?? []) as string[];
-	const series = (seriesRaw ?? []) as any[];
-	const authors = (authorsRaw ?? []) as any[];
+	let allBooks: UnifiedMedia[] = [];
+	let categories: string[] = [];
+	let series: any[] = [];
+	let authors: any[] = [];
+	if (serviceStatus === 'online') {
+		try {
+			const [allBooksRaw, categoriesRaw, seriesRaw, authorsRaw] = await Promise.all([
+				adapter?.getServiceData?.(calibreConfig, 'all', {}, userCred),
+				adapter?.getServiceData?.(calibreConfig, 'categories', {}, userCred),
+				adapter?.getServiceData?.(calibreConfig, 'series', {}, userCred),
+				adapter?.getServiceData?.(calibreConfig, 'authors', {}, userCred)
+			]);
+			allBooks = (allBooksRaw ?? []) as UnifiedMedia[];
+			categories = (categoriesRaw ?? []) as string[];
+			series = (seriesRaw ?? []) as any[];
+			authors = (authorsRaw ?? []) as any[];
+		} catch (err) {
+			// A failure here after a successful ping means Calibre flaked
+			// between ping and library fetch. Surface as offline (no cache
+			// poisoning — next request re-probes and can recover instantly).
+			serviceStatus = 'offline';
+			serviceError = err instanceof Error ? err.message : String(err);
+		}
+	}
 
 	// Sort
 	let items = [...allBooks];
