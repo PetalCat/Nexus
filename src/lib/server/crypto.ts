@@ -7,15 +7,25 @@
  * The version prefix lets us rotate keys / algorithms later without migrating
  * every row up front. Today we only accept/emit `v1`.
  *
- * Key source: `NEXUS_ENCRYPTION_KEY` env var. Must be a 32-byte key expressed
- * as either 64 hex chars or a 44-char base64 string (`openssl rand -hex 32`
- * works). Read lazily on first use and cached in module scope.
+ * Key source (in order):
+ *   1. `NEXUS_ENCRYPTION_KEY` env var — 64 hex chars or 44-char base64.
+ *   2. `<dataDir>/.nexus-encryption-key` — persisted file (0600 perms).
+ *   3. Auto-generated on first boot: 32 random bytes written to #2, logged
+ *      as a one-time warning. Keeps `docker compose up` a one-line deploy.
  *
- * Startup policy: `assertEncryptionKey()` must be called during `hooks.server.ts`
- * boot; it throws a readable error if the env var is missing or malformed so
- * operators fail loud instead of silently storing plaintext.
+ * Operators who want strong key-management SHOULD set the env var; operators
+ * who want zero-config get a safe random key persisted to the data dir which
+ * is typically the only durable writeable mount. Either way, the same key is
+ * used across restarts (never silently rotates), so encrypted rows stay
+ * decryptable.
+ *
+ * Startup policy: `assertEncryptionKey()` must be called during boot. It
+ * resolves the key via the fallback chain and throws only if NONE of the
+ * three sources is available (e.g. read-only filesystem, hostile env).
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 const ALGO = 'aes-256-gcm';
 const IV_LEN = 12; // 96-bit IV recommended for GCM
@@ -38,15 +48,46 @@ function parseKey(raw: string): Buffer {
 	);
 }
 
+/** Resolve the on-disk key file path from DATABASE_URL's parent dir. */
+function keyFilePath(): string {
+	const dbPath = process.env.DATABASE_URL ?? './data/nexus.db';
+	const dir = dirname(resolve(dbPath));
+	return resolve(dir, '.nexus-encryption-key');
+}
+
 function getKey(): Buffer {
 	if (cachedKey) return cachedKey;
+
+	// 1. Env var takes precedence.
 	const raw = process.env.NEXUS_ENCRYPTION_KEY;
-	if (!raw) {
-		throw new Error(
-			'NEXUS_ENCRYPTION_KEY is not set. Generate one with `openssl rand -hex 32` and add it to your .env before starting Nexus.'
-		);
+	if (raw && raw.trim()) {
+		cachedKey = parseKey(raw);
+		return cachedKey;
 	}
-	cachedKey = parseKey(raw);
+
+	// 2. Persisted key file in the data dir.
+	const path = keyFilePath();
+	if (existsSync(path)) {
+		const disk = readFileSync(path, 'utf8');
+		cachedKey = parseKey(disk);
+		return cachedKey;
+	}
+
+	// 3. Auto-generate + persist. One-time warning so operators see what
+	//    happened and can upgrade to env-var management if they want.
+	const dir = dirname(path);
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	const generated = randomBytes(KEY_LEN);
+	writeFileSync(path, generated.toString('hex') + '\n', { encoding: 'utf8', mode: 0o600 });
+	try { chmodSync(path, 0o600); } catch { /* fs may not support chmod */ }
+	cachedKey = generated;
+	// Loud log so it shows up on first boot. No throw — keeps one-line deploy.
+	// eslint-disable-next-line no-console
+	console.warn(
+		`[crypto] Generated a new NEXUS_ENCRYPTION_KEY at ${path}. ` +
+		`Back this file up — losing it invalidates every stored service password. ` +
+		`Set the NEXUS_ENCRYPTION_KEY env var to manage the key yourself.`
+	);
 	return cachedKey;
 }
 

@@ -42,6 +42,9 @@ jobs:
           PORT: 8585
           DATABASE_URL: ./data/test-ci.db
           ORIGIN: http://localhost:8585
+          # Required as of 2026-04-17 security cluster — boot hard-fails without it.
+          # Fixed ephemeral value; CI databases are wiped per job.
+          NEXUS_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
 
   rust-proxy:
     runs-on: ubuntu-latest
