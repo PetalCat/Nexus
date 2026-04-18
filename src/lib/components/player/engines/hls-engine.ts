@@ -32,14 +32,17 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 				lowLatencyMode: false,
 				debug: false,
 				// Plex's transcoder occasionally 400s the first /start.m3u8
-				// while its metadata probe races with session creation — the
-				// retry succeeds every time. hls.js defaults to maxRetry=1 on
-				// manifest/level loads; bump so these transient cold-starts
-				// don't leave the player hung at readyState=0.
+				// while its metadata probe races with session creation, and
+				// 404s subsequent .ts segments while it's still generating
+				// them ahead of the playhead. Both are transient and resolve
+				// on retry. Bump retry counts on manifests AND fragments so
+				// these don't surface as fatal errors to the app layer.
 				manifestLoadingMaxRetry: 4,
 				manifestLoadingRetryDelay: 800,
 				levelLoadingMaxRetry: 4,
 				levelLoadingRetryDelay: 800,
+				fragLoadingMaxRetry: 8,
+				fragLoadingRetryDelay: 500,
 			});
 
 			hls.loadSource(session.url);
@@ -62,10 +65,15 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 				if (lvl) levelCallbacks.forEach((cb) => cb(lvl));
 			});
 
+			// Only fatal errors surface to the app. Transient networkError
+			// events (Plex-style 404 on not-yet-generated segments, 400 on
+			// cold-start manifests) get retried by hls.js and shouldn't
+			// trigger the adaptive-downgrade stall path — doing so tears
+			// down the working session and asks for a NEW transcode, which
+			// Plex refuses with 400 because the prior session is still
+			// active. FRAG_LOAD_EMERGENCY_ABORTED below still counts as a
+			// stall since it fires only after all retries are exhausted.
 			hls.on(Hls.Events.ERROR, (_: unknown, data: { fatal: boolean; type: string }) => {
-				if (data.type === 'networkError') {
-					stallCallbacks.forEach((cb) => cb({ timestamp: Date.now(), duration: 0 }));
-				}
 				if (data.fatal) {
 					errorCallbacks.forEach((cb) => cb());
 				}
