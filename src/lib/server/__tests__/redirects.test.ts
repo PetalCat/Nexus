@@ -97,15 +97,14 @@ describe('resolveRedirect — first-run (no users yet)', () => {
 		expect(resolveRedirect(null, '/welcome', '', opts)).toBeNull();
 	});
 
-	it('first-run redirects API routes to /welcome too (no special-casing)', () => {
-		// Before #24 rule 2 unconditionally bounced non-/setup to /setup including
-		// /api/*. The unified rule keeps that: a fresh install has no API surface
-		// worth serving until an admin exists.
+	it('first-run does NOT redirect API paths — they bypass rule 2', () => {
+		// API routes are data endpoints, not browser surfaces — bouncing a
+		// 303 from /api/health (or any other /api/*) would crash reverse-proxy
+		// health checks and polling clients that don't follow redirects.
+		// Fixed during the 10.10.10.15 deploy smoke-test.
 		const opts = mkOpts({ userCount: 0 });
-		expect(resolveRedirect(null, '/api/library', '', opts)).toEqual({
-			location: '/welcome',
-			status: 303
-		});
+		expect(resolveRedirect(null, '/api/library', '', opts)).toBeNull();
+		expect(resolveRedirect(null, '/api/health', '', opts)).toBeNull();
 	});
 });
 

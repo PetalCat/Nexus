@@ -19,6 +19,11 @@ RUN cargo build --release
 FROM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
+# python3 + build tools: better-sqlite3 tries prebuild-install first but falls
+# back to node-gyp compilation when the prebuilt binary for this exact Node
+# version isn't available. Without these, the fallback fails with "gyp ERR!
+# find Python" and the whole deps stage dies.
+RUN apk add --no-cache python3 make g++
 # pnpm-workspace.yaml is REQUIRED — it carries the onlyBuiltDependencies
 # allowlist for better-sqlite3. Without it, pnpm 10 blocks the install
 # script and the native .node binding never builds, leading to a runtime
@@ -36,6 +41,8 @@ RUN pnpm build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
+# Same reason as deps stage — better-sqlite3 may fall back to node-gyp.
+RUN apk add --no-cache python3 make g++
 
 # Same as deps stage — pnpm-workspace.yaml must be present BEFORE pnpm install
 # so the better-sqlite3 build allowlist is honored. Forgetting it produces a
