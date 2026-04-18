@@ -57,40 +57,77 @@ pub fn rewrite_manifest(
             media
                 .write_to(&mut out)
                 .map_err(|e| format!("write media: {e}"))?;
-            // m3u8_rs drops #EXT-X-MEDIA-SEQUENCE when the value is 0
-            // (treats as default). HLS.js strongly prefers it present for
-            // non-VOD playlists (Plex's transcode output is live-style:
-            // segments arrive over time, no ENDLIST). Inject on round-trip
-            // if missing so the parser on the client side doesn't treat
-            // segment numbering as ambiguous.
-            let text = String::from_utf8_lossy(&out);
-            if !text.contains("#EXT-X-MEDIA-SEQUENCE") {
-                let seq = media.media_sequence;
-                let tag = format!("#EXT-X-MEDIA-SEQUENCE:{seq}\n");
-                // Insert right after #EXT-X-TARGETDURATION so it's near the
-                // other playlist-level tags. Fallback: after #EXTM3U.
-                let with_seq = if let Some(idx) = text.find("#EXT-X-TARGETDURATION") {
-                    let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
-                    let mut s = String::with_capacity(text.len() + tag.len());
-                    s.push_str(&text[..after]);
-                    s.push_str(&tag);
-                    s.push_str(&text[after..]);
-                    s
-                } else if let Some(idx) = text.find("#EXTM3U") {
-                    let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
-                    let mut s = String::with_capacity(text.len() + tag.len());
-                    s.push_str(&text[..after]);
-                    s.push_str(&tag);
-                    s.push_str(&text[after..]);
-                    s
-                } else {
-                    text.into_owned()
-                };
-                out = with_seq.into_bytes();
-            }
+            // Normalize the media playlist so HLS.js treats it as a
+            // well-formed VOD, not a live stream missing endpoint signals.
+            // Plex's transcoder writes a "live-style" playlist (no VERSION,
+            // no PLAYLIST-TYPE, no ENDLIST, and MEDIA-SEQUENCE implicit 0),
+            // even though all segment URIs are declared upfront. HLS.js's
+            // stream-controller stalls in STOPPED->IDLE on such a playlist
+            // because it thinks it's live with nothing past the "edge".
+            // Jellyfin writes proper VOD manifests, which is why JF works
+            // unaided. We inject the missing tags so both paths behave the
+            // same downstream.
+            out = normalize_media_playlist(out, media.media_sequence);
             Ok(out)
         }
     }
+}
+
+/// Inject the tags HLS.js needs to treat a Plex-style playlist as VOD.
+/// Inserts (when missing): #EXT-X-VERSION:3, #EXT-X-MEDIA-SEQUENCE, and
+/// #EXT-X-PLAYLIST-TYPE:VOD right after the opening #EXTM3U. Appends
+/// #EXT-X-ENDLIST at end-of-file if absent. Idempotent for Jellyfin's
+/// already-well-formed manifests since their tags are already present.
+fn normalize_media_playlist(bytes: Vec<u8>, media_sequence: u64) -> Vec<u8> {
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+
+    // Build the header-level tags we want to guarantee are present, in the
+    // spec-recommended order: VERSION, TARGETDURATION, MEDIA-SEQUENCE,
+    // PLAYLIST-TYPE, then everything else.
+    let has_version = text.contains("#EXT-X-VERSION");
+    let has_media_sequence = text.contains("#EXT-X-MEDIA-SEQUENCE");
+    let has_playlist_type = text.contains("#EXT-X-PLAYLIST-TYPE");
+    let has_endlist = text.contains("#EXT-X-ENDLIST");
+
+    let mut injects = String::new();
+    if !has_version {
+        injects.push_str("#EXT-X-VERSION:3\n");
+    }
+    if !has_media_sequence {
+        injects.push_str(&format!("#EXT-X-MEDIA-SEQUENCE:{media_sequence}\n"));
+    }
+    if !has_playlist_type {
+        injects.push_str("#EXT-X-PLAYLIST-TYPE:VOD\n");
+    }
+
+    let with_header = if injects.is_empty() {
+        text
+    } else if let Some(idx) = text.find("#EXTM3U") {
+        // Insert right after the EXTM3U header line.
+        let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
+        let mut s = String::with_capacity(text.len() + injects.len());
+        s.push_str(&text[..after]);
+        s.push_str(&injects);
+        s.push_str(&text[after..]);
+        s
+    } else {
+        // Corrupt manifest without #EXTM3U — leave it alone, let the client
+        // error so we notice.
+        text
+    };
+
+    let with_endlist = if has_endlist {
+        with_header
+    } else {
+        let mut s = with_header;
+        if !s.ends_with('\n') {
+            s.push('\n');
+        }
+        s.push_str("#EXT-X-ENDLIST\n");
+        s
+    };
+
+    with_endlist.into_bytes()
 }
 
 /// Strip `ApiKey` / `api_key` and rewrite a single URI to `/stream/{id}/<opaque>`.
