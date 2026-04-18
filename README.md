@@ -106,6 +106,13 @@ From any page in Nexus: `Cmd+Alt+B` (or `Ctrl+Alt+B`) opens a bug report dialog.
 
 You can also file issues directly: <https://github.com/PetalCat/Nexus/issues/new>. For open-ended questions or feature ideas, use [Discussions](https://github.com/PetalCat/Nexus/discussions) instead.
 
+## Community
+
+- GitHub Issues: <https://github.com/PetalCat/Nexus/issues>
+- Discord: <https://discord.gg/AE5uurHzJM>
+- Reddit: <https://reddit.com/r/nexusarr>
+- Matrix: <https://matrix.to/#/%23nexusmedia:beeper.com>
+
 ## Project status
 
 Active development, public beta. Current release: see the badge above. Releases are tagged `vX.Y.Z-beta.N` and published to [ghcr.io/petalcat/nexus](https://github.com/PetalCat/Nexus/pkgs/container/nexus) for both `linux/amd64` and `linux/arm64`.

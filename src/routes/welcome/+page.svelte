@@ -17,6 +17,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import AccountLinkModal from '$lib/components/account-linking/AccountLinkModal.svelte';
 	import type { AccountServiceSummary } from '$lib/components/account-linking/types';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -156,6 +157,10 @@
 						{adminCreateLoading ? 'Creating...' : 'Continue'}
 					</button>
 				</form>
+
+				<div class="w-full">
+					<CommunityLinks heading="Community" center />
+				</div>
 			</div>
 		</div>
 	{:else}
@@ -207,6 +212,8 @@
 				>
 					Let's go →
 				</button>
+
+				<CommunityLinks heading="Community" center />
 			</div>
 		{:else if phase === 'connect'}
 			<div class="flex w-full max-w-2xl flex-col items-center gap-8 text-center">

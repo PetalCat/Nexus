@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	type InviteForm = {
 		error?: string;
@@ -218,5 +219,9 @@
 				</p>
 			{/if}
 		{/if}
+
+		<div class="mt-6">
+			<CommunityLinks heading="Community" center />
+		</div>
 	</div>
 </div>

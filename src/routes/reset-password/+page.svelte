@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ActionData } from './$types';
+	import CommunityLinks from '$lib/components/CommunityLinks.svelte';
 
 	let { form }: { form: ActionData } = $props();
 	let loading = $state(false);
@@ -43,5 +44,9 @@
 				{loading ? 'Saving…' : 'Set New Password'}
 			</button>
 		</form>
+
+		<div class="mt-6">
+			<CommunityLinks heading="Community" center />
+		</div>
 	</div>
 </div>
