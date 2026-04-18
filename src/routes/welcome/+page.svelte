@@ -211,15 +211,33 @@
 		{:else if phase === 'connect'}
 			<div class="flex w-full max-w-2xl flex-col items-center gap-8 text-center">
 				<div>
-					<h2 class="text-display text-3xl font-bold">Connect your accounts</h2>
+					<h2 class="text-display text-3xl font-bold">
+						{#if summaries.length === 0 && data.isAdmin && !data.hasAnyServices}
+							Add your first service
+						{:else}
+							Connect your accounts
+						{/if}
+					</h2>
 					<p class="mt-3 text-[var(--color-muted)]">
-						{#if summaries.length === 0}
+						{#if summaries.length === 0 && data.isAdmin && !data.hasAnyServices}
+							Nexus needs at least one backend to show you anything — Jellyfin,
+							Plex, Calibre, Invidious, RomM, or any supported service. Head to
+							Services to connect your first one.
+						{:else if summaries.length === 0}
 							Your admin hasn't registered any user-linkable services yet. You're all set.
 						{:else}
 							You have {summaries.length} service{summaries.length === 1 ? '' : 's'} available.
 							Link yours to see your own library, subscriptions, and history.
 						{/if}
 					</p>
+					{#if summaries.length === 0 && data.isAdmin && !data.hasAnyServices}
+						<a
+							href="/admin/services"
+							class="btn btn-primary mt-6 inline-flex px-10 py-3"
+						>
+							Go to Services →
+						</a>
+					{/if}
 				</div>
 
 				{#if summaries.length > 0}
