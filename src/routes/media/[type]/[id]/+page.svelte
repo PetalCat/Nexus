@@ -548,12 +548,16 @@
 	/** Handle audio track change from the player UI (issue #14).
 	 *  Audio selection requires a server-side re-negotiate on Jellyfin
 	 *  because the mux can't flip streams in place. */
-	async function handleAudioChange(trackId: number): Promise<void> {
+	async function handleAudioChange(trackId: number, currentTimeSeconds: number): Promise<void> {
 		const id = jellyfinItemId || item?.sourceId || '';
-		const savedTime = playbackSession ? undefined : 0;
 		try {
-			const plan: PlaybackPlan = { audioTrackHint: trackId };
-			if (savedTime !== undefined) plan.startPositionSeconds = savedTime;
+			// Preserve playhead across the re-negotiate so the track switch
+			// doesn't rewind to zero (or to Jellyfin's saved resume point).
+			// Codex round 4 P2.
+			const plan: PlaybackPlan = {
+				audioTrackHint: trackId,
+				startPositionSeconds: currentTimeSeconds
+			};
 			const next = await negotiatePlayback(data.serviceId, id, plan);
 			playbackSession = next;
 			if (videoPlaybackSession) videoPlaybackSession = next;
@@ -579,12 +583,14 @@
 	 *    <track> mode directly. We fire only to record the user's pick
 	 *    for future resume (future work; not persisted yet).
 	 *  - 'burn-in'         — requires a re-transcode. */
-	async function handleSubtitleChange(trackId: number, mode: 'off' | 'native' | 'burn-in'): Promise<void> {
+	async function handleSubtitleChange(trackId: number, mode: 'off' | 'native' | 'burn-in', currentTimeSeconds: number): Promise<void> {
 		if (mode !== 'burn-in') return; // native / off — no server action
 		const id = jellyfinItemId || item?.sourceId || '';
 		try {
 			const next = await negotiatePlayback(data.serviceId, id, {
-				burnSubIndex: trackId
+				burnSubIndex: trackId,
+				// Preserve playhead across the burn-in transcode (#14). Codex round 4 P2.
+				startPositionSeconds: currentTimeSeconds
 			});
 			playbackSession = next;
 			if (videoPlaybackSession) videoPlaybackSession = next;

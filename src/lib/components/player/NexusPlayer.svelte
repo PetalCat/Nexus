@@ -29,8 +29,16 @@
 		onqualitychange?: (plan: PlaybackPlan) => Promise<PlaybackSession>;
 
 		// Subtitle / audio selection (issue #14).
-		onsubtitlechange?: (trackId: number, mode: SubtitleMode) => void;
-		onaudiochange?: (trackId: number) => void;
+		/**
+		 * Fires when the user picks a subtitle track. `mode` distinguishes
+		 * native (browser-attached) from burn-in (requires server transcode).
+		 * `currentTimeSeconds` is the video's current playhead — the caller
+		 * MUST pass this to `startPositionSeconds` on any renegotiation so
+		 * switching tracks mid-movie doesn't rewind to zero. Codex round 4 P2.
+		 */
+		onsubtitlechange?: (trackId: number, mode: SubtitleMode, currentTimeSeconds: number) => void;
+		/** Same contract as onsubtitlechange. */
+		onaudiochange?: (trackId: number, currentTimeSeconds: number) => void;
 		/** Initial track IDs; if present, used on session attach so UI
 		 *  reflects what the user picked last time for this item. */
 		initialSubtitleTrack?: number;
@@ -356,7 +364,7 @@
 	function handleAudioSelect(id: number) {
 		ps.currentAudioTrack = id;
 		ps.activePanel = 'none';
-		onaudiochange?.(id);
+		onaudiochange?.(id, videoEl?.currentTime ?? 0);
 	}
 
 	function activateNativeSubtitle(id: number) {
@@ -396,6 +404,7 @@
 		ps.currentSubtitleTrack = id;
 		ps.isBurnIn = false;
 		ps.activePanel = 'none';
+		const now = videoEl?.currentTime ?? 0;
 		if (id === -1) {
 			// Off — deactivate everything and notify caller.
 			if (videoEl) {
@@ -403,21 +412,22 @@
 					videoEl.textTracks[i].mode = 'hidden';
 				}
 			}
-			onsubtitlechange?.(id, 'off');
+			onsubtitlechange?.(id, 'off', now);
 			return;
 		}
 		activateNativeSubtitle(id);
-		onsubtitlechange?.(id, 'native');
+		onsubtitlechange?.(id, 'native', now);
 	}
 
 	function handleBurnInSelect(id: number) {
 		ps.currentSubtitleTrack = id;
 		ps.isBurnIn = true;
 		ps.activePanel = 'none';
+		const now = videoEl?.currentTime ?? 0;
 		// Burn-in still requires a transcode; caller decides via
 		// onsubtitlechange(id, 'burn-in') whether to renegotiate.
 		if (onsubtitlechange) {
-			onsubtitlechange(id, 'burn-in');
+			onsubtitlechange(id, 'burn-in', now);
 		} else if (onqualitychange && videoEl) {
 			// Legacy fallback for callers that haven't wired onsubtitlechange yet.
 			const savedTime = videoEl.currentTime;
@@ -720,6 +730,13 @@
 		return () => {
 			detachEngine();
 			if (controlsTimeout) clearTimeout(controlsTimeout);
+			// Clear the up-next countdown on unmount — otherwise a stray interval
+			// can fire after the user navigates away and call onplaynext, causing
+			// an unexpected redirect from wherever they went. Codex round 4 P2.
+			if (postPlayCountdownTimer) {
+				clearInterval(postPlayCountdownTimer);
+				postPlayCountdownTimer = undefined;
+			}
 			document.removeEventListener('keydown', handleKeydown);
 			document.removeEventListener('fullscreenchange', handleFullscreenChange);
 			if (theaterEl && theaterEl.parentNode === document.body && portalParent) {
