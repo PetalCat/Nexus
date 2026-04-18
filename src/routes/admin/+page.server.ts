@@ -41,6 +41,13 @@ export interface JellyfinSession {
 	_serviceId?: string;
 	_serviceUrl?: string;
 	_serviceName?: string;
+	/**
+	 * Pre-resolved backdrop/poster URLs. Used by Plex sessions (whose backdrop
+	 * comes from `art`/`grandparentArt` not Jellyfin-shaped `BackdropImageTags`)
+	 * so the admin UI doesn't need adapter-specific logic. (#C9)
+	 */
+	_backdropUrl?: string;
+	_posterUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,12 +132,14 @@ async function fetchPlexSessions(config: {
 				SeriesName: s.parentTitle,
 				ProductionYear: s.year,
 				RunTimeTicks: runtimeMs ? runtimeMs * 10_000 : undefined
-				// Backdrops are not carried in NexusSession — admin UI will
-				// render a plain tile without a backdrop image for Plex sessions.
 			},
 			_serviceId: config.id,
 			_serviceUrl: base,
-			_serviceName: config.name
+			_serviceName: config.name,
+			// Pre-resolved by the Plex adapter (#C9) — admin UI reads these
+			// directly instead of trying to Jellyfin-shape its way to a URL.
+			_backdropUrl: s.metadata?.backdropUrl as string | undefined,
+			_posterUrl: s.metadata?.posterUrl as string | undefined
 		};
 	});
 }
