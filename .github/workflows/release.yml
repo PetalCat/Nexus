@@ -33,6 +33,14 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # GHCR rejects uppercase in repository names — PetalCat/Nexus must
+      # be normalized to petalcat/nexus before the push or buildx errors
+      # out with "repository name must be lowercase". $GITHUB_REPOSITORY
+      # is a runtime-controlled, non-attacker-controlled env var.
+      - name: Lowercase repo name
+        id: repo
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -40,8 +48,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+            ${{ steps.repo.outputs.IMAGE }}:latest
+            ${{ steps.repo.outputs.IMAGE }}:${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
