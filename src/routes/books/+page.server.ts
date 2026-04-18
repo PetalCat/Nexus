@@ -14,7 +14,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const status = url.searchParams.get('status') ?? '';
 	const tab = url.searchParams.get('tab') ?? 'all';
 
-	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[], hasBookService: false, readingStats: { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 } };
+	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[], hasBookService: false, serviceStatus: 'unconfigured' as 'unconfigured' | 'online' | 'offline', serviceError: undefined as string | undefined, readingStats: { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 } };
 
 	const calibreConfig = getConfigsForMediaType('book')[0];
 	if (!calibreConfig) return empty;
@@ -23,14 +23,24 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const adapter = registry.get(calibreConfig.type);
 
+	// Ping first so we can distinguish "empty library" from "failed to load".
+	// All getServiceData() helpers below swallow errors and return [], so without
+	// this check a dead Calibre looks identical to an empty one. (Review item 27.)
+	const health = adapter?.ping ? await adapter.ping(calibreConfig) : undefined;
+	const serviceStatus: 'online' | 'offline' = health?.online ? 'online' : 'offline';
+	const serviceError = health?.online ? undefined : health?.error;
+
 	// Single fetch — all helpers (series, categories, authors) use withCache on the same data
-	// Run them in parallel; they share the same underlying cached fetchBooks call
-	const [allBooksRaw, categoriesRaw, seriesRaw, authorsRaw] = await Promise.all([
-		adapter?.getServiceData?.(calibreConfig, 'all', {}, userCred),
-		adapter?.getServiceData?.(calibreConfig, 'categories', {}, userCred),
-		adapter?.getServiceData?.(calibreConfig, 'series', {}, userCred),
-		adapter?.getServiceData?.(calibreConfig, 'authors', {}, userCred)
-	]);
+	// Run them in parallel; they share the same underlying cached fetchBooks call.
+	// When offline, skip the parallel fetch entirely (avoids 4× wasted timeouts).
+	const [allBooksRaw, categoriesRaw, seriesRaw, authorsRaw] = serviceStatus === 'online'
+		? await Promise.all([
+			adapter?.getServiceData?.(calibreConfig, 'all', {}, userCred),
+			adapter?.getServiceData?.(calibreConfig, 'categories', {}, userCred),
+			adapter?.getServiceData?.(calibreConfig, 'series', {}, userCred),
+			adapter?.getServiceData?.(calibreConfig, 'authors', {}, userCred)
+		])
+		: [[], [], [], []];
 	const allBooks = (allBooksRaw ?? []) as UnifiedMedia[];
 	const categories = (categoriesRaw ?? []) as string[];
 	const series = (seriesRaw ?? []) as any[];
@@ -130,6 +140,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		items: filtered,
 		total: allBooks.length,
 		hasBookService: true,
+		serviceStatus,
+		serviceError,
 		sortBy,
 		tab,
 		categories,

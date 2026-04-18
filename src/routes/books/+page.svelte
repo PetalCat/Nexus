@@ -336,22 +336,45 @@
 
 			<!-- Library Display -->
 			{#if filtered.length === 0}
+				{@const isFailedLoad = data.hasBookService && data.serviceStatus === 'offline'}
+				{@const isEmptyLibrary = data.hasBookService && data.serviceStatus === 'online' && data.items.length === 0}
 				<div class="flex flex-col items-center justify-center py-24 text-center">
-					<div class="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface)] text-[var(--color-muted)]">
-						<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/><path d="M4 20h10"/>
-						</svg>
+					<div class="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface)] {isFailedLoad ? 'text-amber-500' : 'text-[var(--color-muted)]'}">
+						{#if isFailedLoad}
+							<!-- Warning icon for failed load -->
+							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+							</svg>
+						{:else}
+							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/><path d="M4 20h10"/>
+							</svg>
+						{/if}
 					</div>
-					<p class="font-medium">No books found</p>
-					<p class="mt-1 text-sm text-[var(--color-muted)]">
-						{data.items.length === 0
-							? data.hasBookService
-								? 'Your book library is empty, still syncing, or Calibre is unavailable right now.'
-								: 'Connect Calibre to see your book collection here.'
-							: 'Try adjusting your filters.'}
-					</p>
-					{#if data.items.length === 0 && !data.hasBookService}
+					{#if isFailedLoad}
+						<p class="font-medium">Couldn't load Calibre library</p>
+						<p class="mt-1 max-w-md text-sm text-[var(--color-muted)]">
+							Calibre-Web is configured but unreachable right now. Check that the service is running and your credentials are correct.
+						</p>
+						{#if data.serviceError}
+							<p class="mt-2 max-w-md text-xs text-[var(--color-muted)]/70 font-mono">{data.serviceError}</p>
+						{/if}
+						<div class="mt-4 flex gap-2">
+							<a href="/settings/accounts" class="btn btn-secondary text-sm">Check connection</a>
+							<button onclick={() => window.location.reload()} class="btn btn-primary text-sm">Retry</button>
+						</div>
+					{:else if isEmptyLibrary}
+						<p class="font-medium">Your library is empty</p>
+						<p class="mt-1 max-w-md text-sm text-[var(--color-muted)]">
+							Calibre-Web is connected, but there are no books yet. Add books through Calibre-Web's interface to see them here.
+						</p>
+					{:else if !data.hasBookService}
+						<p class="font-medium">No books found</p>
+						<p class="mt-1 text-sm text-[var(--color-muted)]">Connect Calibre to see your book collection here.</p>
 						<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
+					{:else}
+						<p class="font-medium">No books found</p>
+						<p class="mt-1 text-sm text-[var(--color-muted)]">Try adjusting your filters.</p>
 					{/if}
 				</div>
 			{:else if viewMode === 'shelf'}
