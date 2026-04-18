@@ -143,6 +143,11 @@ function buildTranscodeUrl(
 	params.set('maxVideoBitrate', String(maxBitrate));
 	params.set('videoResolution', `1920x${maxHeight}`);
 	params.set('videoQuality', '100');
+	// Plex generates TS segments lazily behind the playhead — without this
+	// flag, a client request for segment N returns 404 when Plex hasn't
+	// emitted it yet. With waitForSegments=1 the server blocks the request
+	// until the segment exists. Plex Web / Plexamp both set this.
+	params.set('waitForSegments', '1');
 	params.set('X-Plex-Token', token);
 	params.set('X-Plex-Client-Identifier', PLEX_CLIENT_ID);
 	params.set('X-Plex-Product', 'Nexus');

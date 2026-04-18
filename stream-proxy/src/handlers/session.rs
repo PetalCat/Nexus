@@ -117,6 +117,13 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
 
+    // Plex's transcoder generates TS segments lazily — without waitForSegments=1
+    // the server returns 404 for segments that haven't been emitted yet. The
+    // adapter sets it on the initial start.m3u8, but Plex doesn't propagate
+    // it onto the variant-emitted segment URIs, so we enforce it on every
+    // upstream hop through the /transcode/universal path.
+    let upstream_url = ensure_plex_wait_for_segments(upstream_url);
+
     // Non-HLS session: use cached_or_stream so segment-sized bodies hit the
     // cache and trigger prefetch. proxy_stream stays for pure passthrough
     // (e.g. ranged requests — cached_or_stream detects and delegates).
@@ -189,6 +196,22 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         .header("cache-control", "no-store")
         .body(full_body(rewritten))
         .unwrap()
+}
+
+/// Append `waitForSegments=1` to any URL under the Plex `/video/:/transcode/universal/`
+/// path, unless already present. No-op for Jellyfin or other upstreams.
+fn ensure_plex_wait_for_segments(url: String) -> String {
+    if !url.contains("/transcode/universal/") {
+        return url;
+    }
+    if url.contains("waitForSegments=") {
+        return url;
+    }
+    if url.contains('?') {
+        format!("{url}&waitForSegments=1")
+    } else {
+        format!("{url}?waitForSegments=1")
+    }
 }
 
 fn json_error(status: StatusCode, msg: &str) -> Response<BoxBody<Bytes, BoxError>> {
@@ -295,6 +318,40 @@ mod tests {
                 "live.m3u8"
             ),
             "http://jf.local/Videos/abc/live.m3u8"
+        );
+    }
+
+    #[test]
+    fn ensure_plex_wait_for_segments_appends_to_plex_urls() {
+        assert_eq!(
+            ensure_plex_wait_for_segments(
+                "http://plex.local/video/:/transcode/universal/start.m3u8?path=/lib/123"
+                    .to_string()
+            ),
+            "http://plex.local/video/:/transcode/universal/start.m3u8?path=/lib/123&waitForSegments=1"
+        );
+    }
+
+    #[test]
+    fn ensure_plex_wait_for_segments_is_idempotent() {
+        let u = "http://plex.local/video/:/transcode/universal/00001.ts?waitForSegments=1"
+            .to_string();
+        assert_eq!(ensure_plex_wait_for_segments(u.clone()), u);
+    }
+
+    #[test]
+    fn ensure_plex_wait_for_segments_leaves_jellyfin_alone() {
+        let u = "http://jf.local/Videos/abc/hls1/main/0.ts".to_string();
+        assert_eq!(ensure_plex_wait_for_segments(u.clone()), u);
+    }
+
+    #[test]
+    fn ensure_plex_wait_for_segments_handles_no_query() {
+        assert_eq!(
+            ensure_plex_wait_for_segments(
+                "http://plex.local/video/:/transcode/universal/session/abc/base/0.ts".to_string()
+            ),
+            "http://plex.local/video/:/transcode/universal/session/abc/base/0.ts?waitForSegments=1"
         );
     }
 }
