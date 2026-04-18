@@ -8,10 +8,23 @@ export type { HeroItem, HomepageItem, HomepageRow, HomepageCache } from '$lib/ty
 import type { HeroItem, HomepageItem, HomepageRow, HomepageCache } from '$lib/types/homepage';
 
 // ---------------------------------------------------------------------------
-// Homepage Cache
+// CANONICAL: Homepage row assembly + ordering.
 //
-// Assembles pre-computed recommendations into homepage-ready rows.
-// Called by the rec scheduler after recommendations are rebuilt.
+// This module is the single source of truth for:
+//   - what rows the homepage can show (assembly in buildHomepageCache)
+//   - the default order those rows appear in (DEFAULT_ROW_ORDER)
+//   - how user-specified rowOrder is applied (applyRowOrder)
+//
+// The `+page.server.ts` loader MUST pass every homepage row — including
+// live-only rows (continue, calendar, upcoming-*, suggestions, new) — through
+// applyRowOrder so user ordering reaches them. Do NOT positionally hardcode
+// rows in `+page.svelte`. If a new homepage row type ships, add it to
+// DEFAULT_ROW_ORDER here so it has a deterministic default slot.
+//
+// Continue Watching is the one exception: it is pinned to position 0 at serve
+// time (see applyRowOrder's caller) because it changes on every play/pause.
+//
+// Contract reference: docs/superpowers/specs/2026-03-11-personalized-homepage-design.md
 // ---------------------------------------------------------------------------
 
 const MIN_ROW_ITEMS = 3;
@@ -378,13 +391,20 @@ export function invalidateHomepageCache(userId: string) {
 	invalidate(`homepage:${userId}`);
 }
 
-/** Default row order */
+/** Default row order.
+ *
+ * Covers every row id this module or the homepage loader can produce. Rows
+ * not listed here still appear at the end (via applyRowOrder's tail append).
+ */
 export const DEFAULT_ROW_ORDER = [
 	'continue',
+	'calendar',
 	'trending-movie', 'trending-show',
 	'friends', 'time-aware',
 	'recommended-movie', 'recommended-show',
+	'suggestions',
 	'new',
+	'upcoming-movies', 'upcoming-tv',
 	'trending-book', 'trending-game',
 	'recommended-book', 'recommended-game',
 	'genre:*',
