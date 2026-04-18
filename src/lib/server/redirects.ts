@@ -180,6 +180,15 @@ export function resolveRedirect(
 		if (!user) {
 			return { location: '/login', status: 303 };
 		}
+		// Account-lock states take precedence over the welcome flow — a user
+		// pending approval or with forcePasswordReset=true must not see
+		// onboarding before resolving those locks. Codex round 6 P2.
+		if (user.forcePasswordReset) {
+			return { location: '/reset-password', status: 303 };
+		}
+		if (user.status === 'pending') {
+			return { location: '/pending-approval', status: 303 };
+		}
 		return null;
 	}
 
