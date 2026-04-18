@@ -161,10 +161,11 @@
 			e.preventDefault();
 			togglePalette(searchScope);
 		}
-		// Cmd/Ctrl+Shift+B — open the bug report modal from anywhere. The
-		// browser's default Cmd+Shift+B is "toggle bookmarks bar" which is
-		// low-value inside a webapp tab, so no conflict in practice.
-		if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+		// Cmd/Ctrl+Alt+B — open the bug report modal from anywhere. Uses
+		// Alt instead of Shift because Cmd/Ctrl+Shift+B is the browser's
+		// "toggle bookmarks bar" shortcut and stealing it makes bookmarks
+		// feel broken. Cmd/Ctrl+Alt+B has no default OS or browser binding.
+		if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 'b' || e.key === 'B' || e.code === 'KeyB')) {
 			e.preventDefault();
 			bugReportOpen = true;
 		}
