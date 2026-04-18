@@ -78,7 +78,7 @@ if (browser) initAudio();
 
 function loadAndPlay(track: Track) {
 	if (!audioElement) return;
-	const streamUrl = `/api/stream/${track.serviceId}/audio/${track.sourceId}/universal?Container=opus,mp3,aac&AudioCodec=opus&TranscodingContainer=ts&MaxStreamingBitrate=320000`;
+	const streamUrl = `/api/stream/${track.serviceId}/audio/${track.sourceId}/universal?Container=opus,mp3,aac&AudioCodec=opus&TranscodingContainer=aac&MaxStreamingBitrate=320000`;
 	audioElement.src = streamUrl;
 	audioElement.play().catch((e) => console.error('[music] Play failed:', e));
 	_playing = true;
