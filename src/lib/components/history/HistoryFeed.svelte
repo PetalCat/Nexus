@@ -5,6 +5,7 @@
 		id: string;
 		userId: string;
 		serviceId: string;
+		serviceType?: string | null;
 		mediaId: string;
 		mediaType: string;
 		mediaTitle: string | null;
@@ -13,22 +14,22 @@
 		mediaDurationMs: number | null;
 		progress: number | null;
 		completed: number | null;
+		/**
+		 * Resolved thumbnail URL for this row. Produced server-side by
+		 * `$lib/server/history-thumbnails.ts` so each service type (Jellyfin,
+		 * Invidious, Calibre, RomM, …) uses its correct image shape. May be
+		 * null if no thumbnail can be derived — the view shows a color block.
+		 */
+		poster?: string | null;
 	}
 
 	interface Props {
 		events: HistoryEvent[];
-		serviceUrls?: Record<string, string>;
 	}
 
-	let { events, serviceUrls = {} }: Props = $props();
+	let { events }: Props = $props();
 
 	let loadedPosters = $state<Record<string, boolean>>({});
-
-	function posterUrl(event: HistoryEvent): string | null {
-		if (!event.serviceId || !event.mediaId) return null;
-		const path = `/Items/${event.mediaId}/Images/Primary?maxHeight=88&quality=80`;
-		return `/api/media/image?service=${encodeURIComponent(event.serviceId)}&path=${encodeURIComponent(path)}`;
-	}
 
 	const TYPE_COLORS: Record<string, string> = {
 		movie: 'rgba(212,162,83,0.15)',
@@ -101,7 +102,7 @@
 				<div class="flex flex-col gap-1.5">
 					{#each group.events as event (event.id)}
 						{@const progress = event.progress != null ? `${Math.round(event.progress * 100)}%` : null}
-						{@const poster = posterUrl(event)}
+						{@const poster = event.poster ?? null}
 						<a
 							href="/media/{event.mediaType}/{event.mediaId}?service={event.serviceId}"
 							class="flex items-center gap-3 rounded-lg bg-cream/[0.02] p-2.5 transition-colors hover:bg-cream/[0.04]"
