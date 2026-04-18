@@ -46,7 +46,10 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          # arm64 builds via QEMU take 20-30 min (rust cross-compile).
+          # Drop for now; re-add as a parallel job on native arm64 runners
+          # (ubuntu-24.04-arm) when we actually have arm64 deploy targets.
+          platforms: linux/amd64
           tags: |
             ${{ steps.repo.outputs.IMAGE }}:latest
             ${{ steps.repo.outputs.IMAGE }}:${{ steps.version.outputs.VERSION }}
