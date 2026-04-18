@@ -222,7 +222,7 @@ export const plexAdapter: ServiceAdapter = {
 		},
 		userAuth: {
 			userLinkable: true,
-			usernameLabel: 'Email (optional)',
+			usernameLabel: 'Email',
 			supportsRegistration: false,
 			supportsAccountCreation: false,
 			// X-Plex-Token is effectively permanent — no need for stored-password refresh
@@ -570,23 +570,77 @@ export const plexAdapter: ServiceAdapter = {
 		}
 	},
 
-	async authenticateUser(config, _username, password) {
-		// Plex uses tokens directly — the password field is the user's Plex token.
-		// Verify the token works against this server.
-		const token = password;
-		const tempCred: UserCredential = {
-			accessToken: token
-		};
+	async authenticateUser(config, username, password) {
+		// Email + password flow via plex.tv. The modal's "Email (optional)"
+		// field is the login; "Password" is the real password. We exchange
+		// them for a token via plex.tv/api/v2/users/signin and store the
+		// token as the access credential. If only a password-shaped value is
+		// supplied (no email), fall back to treating it as a raw token —
+		// preserves the PIN-flow / power-user path.
+		let token: string;
+		let externalUserId = '';
+		let externalUsername = '';
 
-		// Verify the token works against the server
+		if (username && username.trim()) {
+			// Proper email+password flow.
+			const form = new URLSearchParams();
+			form.set('login', username.trim());
+			form.set('password', password);
+			let res: Response;
+			try {
+				res = await fetch('https://plex.tv/api/v2/users/signin', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/x-www-form-urlencoded',
+						'X-Plex-Client-Identifier': 'nexus',
+						'X-Plex-Product': 'Nexus',
+						'X-Plex-Device-Name': 'Nexus',
+						'X-Plex-Version': '1.0',
+						Accept: 'application/json'
+					},
+					body: form.toString(),
+					signal: AbortSignal.timeout(10_000)
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				throw new AdapterAuthError(`Cannot reach plex.tv (${msg})`, 'unreachable');
+			}
+			if (res.status === 401) {
+				throw new AdapterAuthError('Incorrect Plex email or password', 'invalid');
+			}
+			if (!res.ok) {
+				throw new AdapterAuthError(`plex.tv sign-in failed: HTTP ${res.status}`, 'invalid');
+			}
+			const body = (await res.json()) as {
+				authToken?: string;
+				id?: number | string;
+				username?: string;
+				email?: string;
+				title?: string;
+			};
+			if (!body.authToken) {
+				throw new AdapterAuthError('plex.tv: no authToken in response', 'invalid');
+			}
+			token = body.authToken;
+			externalUserId = String(body.id ?? '');
+			externalUsername = body.username ?? body.title ?? username.trim();
+		} else {
+			// Fallback: password field contained a pre-obtained token (PIN flow,
+			// power user). Verify and accept. Documented as a fallback path;
+			// the primary UX is email+password above.
+			token = password;
+		}
+
+		// Verify the token works against THIS server (so misdirected tokens
+		// for other Plex accounts get rejected before we store them).
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		let serverData: any;
 		try {
-			serverData = await plexFetch(config, '/', undefined, tempCred);
+			serverData = await plexFetch(config, '/', undefined, { accessToken: token } as UserCredential);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			if (/401|403|unauthorized|forbidden/i.test(msg)) {
-				throw new AdapterAuthError('Invalid Plex token', 'invalid');
+				throw new AdapterAuthError('Plex server did not accept that account', 'invalid');
 			}
 			if (/unreach|ENOTFOUND|ECONNREFUSED|timeout|abort/i.test(msg)) {
 				throw new AdapterAuthError(`Cannot reach Plex at ${config.url}`, 'unreachable');
@@ -597,28 +651,27 @@ export const plexAdapter: ServiceAdapter = {
 			throw new AdapterAuthError('Plex: token rejected by server', 'invalid');
 		}
 
-		// Fetch user info from plex.tv
-		let externalUserId = '';
-		let externalUsername = '';
-		try {
-			const res = await fetch('https://plex.tv/api/v2/user', {
-				headers: {
-					'X-Plex-Token': token,
-					'X-Plex-Client-Identifier': 'nexus',
-					'X-Plex-Product': 'Nexus',
-					Accept: 'application/json'
-				},
-				signal: AbortSignal.timeout(8000)
-			});
-			if (res.ok) {
-				const user = await res.json();
-				externalUserId = String(user.id ?? '');
-				externalUsername = user.username ?? user.title ?? '';
+		// Fill in user identity if the token-fallback path didn't resolve it.
+		if (!externalUserId) {
+			try {
+				const res = await fetch('https://plex.tv/api/v2/user', {
+					headers: {
+						'X-Plex-Token': token,
+						'X-Plex-Client-Identifier': 'nexus',
+						'X-Plex-Product': 'Nexus',
+						Accept: 'application/json'
+					},
+					signal: AbortSignal.timeout(8000)
+				});
+				if (res.ok) {
+					const user = await res.json();
+					externalUserId = String(user.id ?? '');
+					externalUsername = user.username ?? user.title ?? '';
+				}
+			} catch {
+				externalUserId = serverData.MediaContainer.machineIdentifier ?? 'plex-user';
+				externalUsername = username || 'Plex User';
 			}
-		} catch {
-			// plex.tv unreachable — use server identity as fallback
-			externalUserId = serverData.MediaContainer.machineIdentifier ?? 'plex-user';
-			externalUsername = _username || 'Plex User';
 		}
 
 		return { accessToken: token, externalUserId, externalUsername };
