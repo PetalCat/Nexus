@@ -1,6 +1,6 @@
 import { getDashboardFast, getEnabledConfigs } from '$lib/server/services';
 import { getHomepageCache, buildHomepageCache, applyRowOrder, cwToItem, homepageImage } from '$lib/server/homepage-cache';
-import type { HomepageRow, HomepageItem, HeroItem, HomepageCache } from '$lib/server/homepage-cache';
+import type { HomepageRow, HomepageItem, HeroItem } from '$lib/server/homepage-cache';
 import { withCache } from '$lib/server/cache';
 import { getRecommendations } from '$lib/server/recommendations/aggregator';
 import { getRawDb } from '$lib/db';
@@ -8,6 +8,11 @@ import { registry } from '$lib/adapters/registry';
 import { getUserCredentialForService } from '$lib/server/auth';
 import type { CalendarItem } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
+
+// All homepage rows — cached (from buildHomepageCache) and live (CW, calendar,
+// upcoming, suggestions, new) — flow through applyRowOrder so users' rowOrder
+// reaches every row. No positional hardcoding in the page component.
+// See CANONICAL banner in $lib/server/homepage-cache.ts.
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const userId = locals.user?.id;
@@ -48,7 +53,19 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		fetch('/api/discover?category=upcoming-tv&page=1').then((r) => (r.ok ? r.json() : null)).catch(() => null),
 		userId ? fetch('/api/user/suggestions').then((r) => (r.ok ? r.json() : [])).catch(() => []) : Promise.resolve([])
 	]);
-	const calendarItems: CalendarItem[] = calendarRes;
+	const calendarItems: CalendarItem[] = Array.isArray(calendarRes) ? calendarRes : [];
+
+	// Build calendar row (live-fetched, orderable like any other row).
+	const calendarRow: HomepageRow | null = calendarItems.length > 0
+		? {
+				id: 'calendar',
+				title: 'Coming This Week',
+				subtitle: 'Upcoming releases from your libraries',
+				type: 'calendar',
+				items: [],
+				calendarItems
+			}
+		: null;
 
 	// Build upcoming rows from discover API
 	const upcomingRows: HomepageRow[] = [];
@@ -157,8 +174,10 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		}
 
-		// Inject New in Library + upcoming into the cached rows
+		// Merge every row source (cache + live) through applyRowOrder.
+		// Continue Watching is pinned to position 0 (spec contract) after ordering.
 		const allRows = [...homepageCache.rows, ...upcomingRows];
+		if (calendarRow) allRows.push(calendarRow);
 		if (suggestionsRow) allRows.push(suggestionsRow);
 		if (newRow) allRows.push(newRow);
 
@@ -170,7 +189,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			rows: orderedRows,
 			personalized: true,
 			hasServices,
-			calendarItems,
 			unlinkedServiceCount,
 		};
 	}
@@ -184,6 +202,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			withCache(`homepage:${userId}`, 60 * 60 * 1000, async () => eagerCache);
 
 			const allRows = [...eagerCache.rows, ...upcomingRows];
+			if (calendarRow) allRows.push(calendarRow);
 			if (suggestionsRow) allRows.push(suggestionsRow);
 			if (newRow) allRows.push(newRow);
 			const orderedRows = applyRowOrder(allRows);
@@ -194,7 +213,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				rows: orderedRows,
 				personalized: true,
 				hasServices,
-				calendarItems,
 				unlinkedServiceCount,
 				};
 		}
@@ -212,12 +230,15 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		}).catch(() => {});
 	}
 
-	// True cold start — no recommendation data at all
-	const coldRows: HomepageRow[] = [];
-	if (continueRow) coldRows.push(continueRow);
-	if (newRow) coldRows.push(newRow);
-	coldRows.push(...upcomingRows);
-	if (suggestionsRow) coldRows.push(suggestionsRow);
+	// True cold start — no recommendation data at all.
+	// Still route through applyRowOrder so default ordering is the same as warm.
+	const coldPool: HomepageRow[] = [];
+	if (newRow) coldPool.push(newRow);
+	coldPool.push(...upcomingRows);
+	if (calendarRow) coldPool.push(calendarRow);
+	if (suggestionsRow) coldPool.push(suggestionsRow);
+	const coldRows = applyRowOrder(coldPool);
+	if (continueRow) coldRows.unshift(continueRow);
 
 	const heroSource = cwDashRow?.items[0] ?? newDashRow?.items[0];
 	const coldHero: HeroItem[] = heroSource?.backdrop
@@ -248,7 +269,6 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		rows: coldRows,
 		personalized: false,
 		hasServices,
-		calendarItems,
 		unlinkedServiceCount,
 	};
 };
