@@ -3,8 +3,11 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
 	testDir: './e2e',
-	// Ignore the globalSetup module — it's not a spec.
-	testIgnore: ['**/global-setup.ts'],
+	// Ignore the globalSetup module — it's not a spec. calibre.spec.ts
+	// is excluded from the default run because it talks to the
+	// containerized test-app on :8586 + a live Calibre-Web on :8087.
+	// Run it with `pnpm test:e2e:calibre`, which uses a dedicated config.
+	testIgnore: ['**/global-setup.ts', '**/calibre.spec.ts'],
 	timeout: 30_000,
 	retries: 0,
 	// Seeds an admin user via the /welcome createAccount action before any
