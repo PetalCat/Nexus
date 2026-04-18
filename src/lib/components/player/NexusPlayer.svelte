@@ -537,6 +537,7 @@
 			hasStarted = true;
 			ps.isLoading = true;
 			prevSessionUrl = session.url;
+			enterTheaterPortal();
 			attachEngine(session);
 			return;
 		}
@@ -630,9 +631,9 @@
 	function closeTheater() {
 		if (videoEl) videoEl.pause();
 		detachEngine();
+		exitTheaterPortal();
 		hasStarted = false;
 		ps.playing = false;
-		document.body.style.overflow = '';
 		session.close?.();
 		onclose?.();
 	}
@@ -693,31 +694,41 @@
 		el.addEventListener('ended', onEnded);
 	}
 
-	/* ── Portal for theater mode ── */
+	/* ── Portal for theater mode ──
+	 * CRITICAL ORDERING: the portal MUST move the <video> element into the
+	 * new parent BEFORE `attachEngine` runs. Moving a video element with
+	 * `document.body.appendChild()` after HLS.js has attached a MediaSource
+	 * disconnects the MS — the browser fires sourceclose, the MS stays
+	 * `readyState: "closed"`, no SourceBuffer can be created, and playback
+	 * wedges with readyState=0, levels loaded, no fragments fetched.
+	 * Doing the portal here in a synchronous helper (called before
+	 * attachEngine, not from an effect reacting to hasStarted) keeps the
+	 * DOM stable during engine attach. */
 	let portalParent: Node | null = null;
 	let portalSibling: Node | null = null;
 
-	$effect(() => {
+	function enterTheaterPortal() {
 		if (!theaterEl) return;
 		if (inline || isAudio) return;
-		if (hasStarted) {
-			portalParent = theaterEl.parentNode;
-			portalSibling = theaterEl.nextSibling;
-			document.body.appendChild(theaterEl);
-			document.body.style.overflow = 'hidden';
+		if (portalParent) return; // already portaled
+		portalParent = theaterEl.parentNode;
+		portalSibling = theaterEl.nextSibling;
+		document.body.appendChild(theaterEl);
+		document.body.style.overflow = 'hidden';
+	}
+
+	function exitTheaterPortal() {
+		if (!theaterEl) return;
+		if (!portalParent) return;
+		if (portalSibling && portalSibling.parentNode === portalParent) {
+			portalParent.insertBefore(theaterEl, portalSibling);
 		} else {
-			if (portalParent) {
-				if (portalSibling && portalSibling.parentNode === portalParent) {
-					portalParent.insertBefore(theaterEl, portalSibling);
-				} else {
-					(portalParent as Element).appendChild(theaterEl);
-				}
-				portalParent = null;
-				portalSibling = null;
-			}
-			document.body.style.overflow = '';
+			(portalParent as Element).appendChild(theaterEl);
 		}
-	});
+		portalParent = null;
+		portalSibling = null;
+		document.body.style.overflow = '';
+	}
 
 	/* ── Lifecycle ── */
 	onMount(() => {
@@ -725,7 +736,13 @@
 		if (videoEl) bindVideoEvents(videoEl);
 		document.addEventListener('keydown', handleKeydown);
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
-		if (autoplay) { hasStarted = true; ps.isLoading = true; prevSessionUrl = session.url; attachEngine(session); }
+		if (autoplay) {
+			hasStarted = true;
+			ps.isLoading = true;
+			prevSessionUrl = session.url;
+			enterTheaterPortal();
+			attachEngine(session);
+		}
 
 		return () => {
 			detachEngine();
