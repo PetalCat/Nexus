@@ -53,5 +53,6 @@ stream-proxy/target/
 *~
 .superpowers/
 .worktrees/
+.claude/
 sv-agentation
 CLAUDE.md

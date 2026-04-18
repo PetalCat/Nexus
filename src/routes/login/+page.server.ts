@@ -5,7 +5,6 @@ import {
 	createUser,
 	getSetting,
 	getUserByUsername,
-	getUserCount,
 	upsertUserCredential,
 	verifyPassword
 } from '$lib/server/auth';
@@ -16,7 +15,8 @@ import { and, eq } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
-	if (getUserCount() === 0) throw redirect(303, '/welcome');
+	// Fresh-install (userCount===0) + logged-in-user redirects both live in
+	// resolveRedirect (#32). This load only runs when we should render login.
 	if (locals.user) throw redirect(303, url.searchParams.get('next') || '/');
 	const registrationEnabled = getSetting('registration_enabled') === 'true';
 
