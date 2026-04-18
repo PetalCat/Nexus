@@ -50,11 +50,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!config) return json({ error: 'Service not found' }, { status: 404 });
 
 	const adapter = registry.get(config.type);
+	if (!adapter) {
+		return json({ error: 'No adapter registered for this service type' }, { status: 400 });
+	}
 	// Derived adapters (streamystats) authenticate via a parent service's token
 	// rather than their own login flow, so they don't set userLinkable but still
 	// accept user credentials through the autoLink path below.
 	const isDerivedUserService = config.type === 'streamystats';
-	if (!adapter?.userLinkable && !isDerivedUserService) {
+	if (!adapter.userLinkable && !isDerivedUserService) {
 		return json({ error: 'This service does not support user-level accounts' }, { status: 400 });
 	}
 
