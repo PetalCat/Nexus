@@ -538,10 +538,10 @@ export function removeCollaborator(playlistId: string, ownerId: string, collabor
 // Recently Played (from play_sessions)
 // ---------------------------------------------------------------------------
 
-export function getRecentlyPlayed(userId: string, limit = 50): Array<{ mediaId: string; mediaTitle: string | null; serviceId: string; timestamp: number }> {
+export function getRecentlyPlayed(userId: string, limit = 50): Array<{ mediaId: string; mediaTitle: string | null; serviceId: string; serviceType: string | null; timestamp: number }> {
 	const db = getDb();
-	const rows = db.all<{ media_id: string; media_title: string | null; service_id: string; started_at: number }>(
-		sql`SELECT DISTINCT media_id, media_title, service_id, MAX(started_at) as started_at
+	const rows = db.all<{ media_id: string; media_title: string | null; service_id: string; service_type: string | null; started_at: number }>(
+		sql`SELECT DISTINCT media_id, media_title, service_id, service_type, MAX(started_at) as started_at
 			FROM play_sessions
 			WHERE user_id = ${userId}
 			  AND media_type = 'music'
@@ -553,6 +553,7 @@ export function getRecentlyPlayed(userId: string, limit = 50): Array<{ mediaId: 
 		mediaId: r.media_id,
 		mediaTitle: r.media_title,
 		serviceId: r.service_id,
+		serviceType: r.service_type,
 		timestamp: r.started_at
 	}));
 }
