@@ -942,121 +942,99 @@
 
 <!-- Settings Panel -->
 {#if showSettings}
-	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showSettings = false} onkeydown={(e) => { if (e.key === 'Escape') showSettings = false; }} role="button" tabindex="-1" aria-label="Close settings">
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-cream/[0.06] p-5"
-			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
-			onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
-		>
-			<div class="mb-5 flex items-center justify-between">
-				<h2 class="text-sm font-semibold tracking-wide text-cream/90">Reading Settings</h2>
-				<button onclick={() => showSettings = false} class="rounded-lg p-1.5 text-cream/50 hover:bg-cream/[0.06] hover:text-cream">
-					<X size={16} strokeWidth={1.5} />
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="aa-scrim"
+		onclick={() => (showSettings = false)}
+		onkeydown={(e) => e.key === 'Escape' && (showSettings = false)}
+		role="button"
+		tabindex="-1"
+		aria-label="Close settings"
+	></div>
+	<div class="aa-sheet" role="dialog" aria-label="Typography settings">
+		<h5>Theme</h5>
+		<div class="grid grid-cols-4 gap-2 mb-5">
+			{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'oled', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
+				<button
+					class="flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[10px] transition-all {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/40 hover:border-cream/20 hover:text-cream/60'}"
+					onclick={() => { readerTheme = key as typeof readerTheme; }}
+				>
+					<span
+						class="h-5 w-5 rounded-full border-2"
+						style="background-color: {bg}; border-color: {readerTheme === key ? 'var(--color-accent)' : ring};"
+					></span>
+					{label}
 				</button>
-			</div>
+			{/each}
+		</div>
 
-			<!-- Theme -->
-			<div class="mb-5">
-				<span class="settings-label">Theme</span>
-				<div class="grid grid-cols-4 gap-2">
-					{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'oled', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
-						<button
-							class="flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[10px] transition-all {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/40 hover:border-cream/20 hover:text-cream/60'}"
-							onclick={() => { readerTheme = key as typeof readerTheme; }}
-						>
-							<span
-								class="h-5 w-5 rounded-full border-2"
-								style="background-color: {bg}; border-color: {readerTheme === key ? 'var(--color-accent)' : ring};"
-							></span>
-							{label}
-						</button>
-					{/each}
-				</div>
-			</div>
+		<h5>Font</h5>
+		<div class="grid grid-cols-4 gap-1.5 mb-5">
+			{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: 'system-ui, sans-serif' }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }, { key: 'display', label: 'Display', font: "'Playfair Display', Georgia, serif" }] as { key, label, font } (key)}
+				<button
+					class="rounded-lg border px-2 py-2 text-xs transition-all {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+					style="font-family: {font};"
+					onclick={() => { fontFamily = key as typeof fontFamily; }}
+				>{label}</button>
+			{/each}
+		</div>
 
-			<!-- Font Family -->
-			<div class="mb-5">
-				<span class="settings-label">Font</span>
-				<div class="grid grid-cols-4 gap-1.5">
-					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: 'system-ui, sans-serif' }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }, { key: 'display', label: 'Display', font: "'Playfair Display', Georgia, serif" }] as { key, label, font } (key)}
-						<button
-							class="rounded-lg border px-2 py-2 text-xs transition-all {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-							style="font-family: {font};"
-							onclick={() => { fontFamily = key as typeof fontFamily; }}
-						>{label}</button>
-					{/each}
-				</div>
+		<div class="mb-5">
+			<label for="reader-font-size" class="settings-label flex items-center justify-between">
+				<span>Font Size</span>
+				<span class="normal-case tracking-normal text-cream/60">{fontSize}px</span>
+			</label>
+			<div class="flex items-center gap-3">
+				<Type size={12} class="shrink-0 text-cream/30" />
+				<input id="reader-font-size" type="range" min="12" max="36" step="1" bind:value={fontSize} class="reader-range flex-1" />
+				<Type size={20} class="shrink-0 text-cream/30" />
 			</div>
+		</div>
 
-			<!-- Font Size -->
-			<div class="mb-5">
-				<label for="reader-font-size" class="settings-label flex items-center justify-between">
-					<span>Font Size</span>
-					<span class="normal-case tracking-normal text-cream/60">{fontSize}px</span>
-				</label>
-				<div class="flex items-center gap-3">
-					<Type size={12} class="shrink-0 text-cream/30" />
-					<input id="reader-font-size" type="range" min="12" max="36" step="1" bind:value={fontSize} class="reader-range flex-1" />
-					<Type size={20} class="shrink-0 text-cream/30" />
-				</div>
-			</div>
+		<div class="mb-5">
+			<label for="reader-line-height" class="settings-label flex items-center justify-between">
+				<span>Line Height</span>
+				<span class="normal-case tracking-normal text-cream/60">{lineHeight.toFixed(1)}</span>
+			</label>
+			<input id="reader-line-height" type="range" min="1.0" max="2.0" step="0.1" bind:value={lineHeight} class="reader-range w-full" />
+		</div>
 
-			<!-- Line Height -->
-			<div class="mb-5">
-				<label for="reader-line-height" class="settings-label flex items-center justify-between">
-					<span>Line Height</span>
-					<span class="normal-case tracking-normal text-cream/60">{lineHeight.toFixed(1)}</span>
-				</label>
-				<input id="reader-line-height" type="range" min="1.0" max="2.0" step="0.1" bind:value={lineHeight} class="reader-range w-full" />
-			</div>
+		<h5>Margins</h5>
+		<div class="flex gap-2 mb-5">
+			{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'medium', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
+				<button
+					class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {margins === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+					onclick={() => { margins = key as typeof margins; }}
+				>{label}</button>
+			{/each}
+		</div>
 
-			<!-- Margins -->
-			<div class="mb-5">
-				<span class="settings-label">Margins</span>
-				<div class="flex gap-2">
-					{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'medium', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
-						<button
-							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {margins === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-							onclick={() => { margins = key as typeof margins; }}
-						>{label}</button>
-					{/each}
-				</div>
-			</div>
+		<h5>Alignment</h5>
+		<div class="flex gap-2 mb-5">
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'start' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+				onclick={() => { textAlign = 'start'; }}
+			>
+				<AlignLeft size={13} strokeWidth={1.5} /> Left
+			</button>
+			<button
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'justify' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+				onclick={() => { textAlign = 'justify'; }}
+			>
+				<AlignJustify size={13} strokeWidth={1.5} /> Justified
+			</button>
+		</div>
 
-			<!-- Text Alignment -->
-			<div class="mb-5">
-				<span class="settings-label">Alignment</span>
-				<div class="flex gap-2">
-					<button
-						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'start' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { textAlign = 'start'; }}
-					>
-						<AlignLeft size={13} strokeWidth={1.5} /> Left
-					</button>
-					<button
-						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'justify' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { textAlign = 'justify'; }}
-					>
-						<AlignJustify size={13} strokeWidth={1.5} /> Justified
-					</button>
-				</div>
-			</div>
-
-			<!-- Reading Mode -->
-			<div>
-				<span class="settings-label">Reading Mode</span>
-				<div class="flex gap-2">
-					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { flow = 'paginated'; }}
-					>Paginated</button>
-					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { flow = 'scrolled'; }}
-					>Scrolled</button>
-				</div>
-			</div>
+		<h5>Reading Mode</h5>
+		<div class="flex gap-2">
+			<button
+				class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+				onclick={() => { flow = 'paginated'; }}
+			>Paginated</button>
+			<button
+				class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
+				onclick={() => { flow = 'scrolled'; }}
+			>Scrolled</button>
 		</div>
 	</div>
 {/if}
@@ -1360,6 +1338,41 @@
 		height: 4px;
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.08);
+	}
+
+	/* ── Settings floating sheet ───────────────────────────── */
+	.aa-scrim {
+		position: fixed;
+		inset: 0;
+		background: transparent; /* non-modal — scrim is click-outside handler only */
+		z-index: 70;
+	}
+	.aa-sheet {
+		position: fixed;
+		top: 56px;     /* below the topbar */
+		right: 14px;
+		width: min(280px, calc(100vw - 28px));
+		max-height: calc(100vh - 80px);
+		overflow-y: auto;
+		background: rgba(13, 11, 10, 0.96);
+		border: 1px solid rgba(240, 235, 227, 0.08);
+		border-radius: 10px;
+		padding: 14px;
+		z-index: 71;
+		box-shadow: 0 24px 52px rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(14px);
+		animation: aa-in 180ms ease-out;
+	}
+	@keyframes aa-in {
+		from { opacity: 0; transform: translateY(-6px); }
+		to   { opacity: 1; transform: translateY(0); }
+	}
+	.aa-sheet :global(h5) {
+		font-family: var(--font-display, 'Playfair Display', Georgia, serif);
+		font-size: 12px;
+		font-weight: 700;
+		margin: 0 0 8px;
+		color: var(--cream, #f0ebe3);
 	}
 
 	/* ── TOC overlay drawer ────────────────────────────────── */
