@@ -73,29 +73,23 @@
     <!-- Left column -->
     <div class="col-left">
       <h1>
-        Tonight, <em>{book.title}</em><br />is the brightest star.
+        Tonight, <em>{book.title}</em>.
       </h1>
 
       <p class="subtitle">
-        One of {totalBooks} volumes on the shelf · {activeCount} currently traced. Every page you
-        turn draws another line between the stars.
+        One of {totalBooks} on the shelf. Pick up where you left off.
       </p>
 
-      <!-- 3-cell meta row -->
+      <!-- 2-cell meta row -->
       <div class="meta-row">
         <div class="meta-cell">
-          <span class="meta-value">{book.title}</span>
-          <span class="meta-label">BRIGHTEST</span>
-        </div>
-        <div class="meta-divider" aria-hidden="true">|</div>
-        <div class="meta-cell">
           <span class="meta-value">{lastSession}</span>
-          <span class="meta-label">LAST TRACED</span>
+          <span class="meta-label">LAST OPENED</span>
         </div>
         <div class="meta-divider" aria-hidden="true">|</div>
         <div class="meta-cell">
           <span class="meta-value">{chapterLabel}</span>
-          <span class="meta-label">READING</span>
+          <span class="meta-label">CHAPTER</span>
         </div>
       </div>
     </div>
