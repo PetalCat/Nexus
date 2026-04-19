@@ -1,16 +1,21 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { UnifiedMedia } from '$lib/adapters/types';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaRow from '$lib/components/MediaRow.svelte';
-	import BookHero from '$lib/components/books/BookHero.svelte';
+	import HeroCinematic from '$lib/components/books/system/heroes/HeroCinematic.svelte';
+	import HeroLiterary from '$lib/components/books/system/heroes/HeroLiterary.svelte';
+	// HeroConstellation is available but not used in default flow (future flourish)
+	import RightRailBlock from '$lib/components/books/system/RightRailBlock.svelte';
+	import ProgressThread from '$lib/components/books/system/ProgressThread.svelte';
+	import ProseStat from '$lib/components/books/system/ProseStat.svelte';
+	import Ornament from '$lib/components/books/system/Ornament.svelte';
+	import SectionHeader from '$lib/components/books/system/SectionHeader.svelte';
+	// Preserved library-body components:
 	import BookshelfView from '$lib/components/books/BookshelfView.svelte';
 	import BookListRow from '$lib/components/books/BookListRow.svelte';
 	import SeriesCard from '$lib/components/books/SeriesCard.svelte';
 	import SeriesCollapsedCard from '$lib/components/books/SeriesCollapsedCard.svelte';
 	import AuthorCard from '$lib/components/books/AuthorCard.svelte';
-	import BookCardSkeleton from '$lib/components/books/BookCardSkeleton.svelte';
-	import ReadingStatsCard from '$lib/components/books/ReadingStatsCard.svelte';
+	import MediaCard from '$lib/components/MediaCard.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -124,326 +129,419 @@
 	function authorCover(authorName: string): string | undefined {
 		return data.items.find(i => (i.metadata?.author as string) === authorName)?.poster;
 	}
+
+	// New derived fields from Task 9 loader
+	const streakCount = $derived(data.streak14?.filter(Boolean).length ?? 0);
+	const nightsCount = $derived(streakCount);
 </script>
 
-<svelte:head>
-	<title>Books — Nexus</title>
-</svelte:head>
+<svelte:head><title>Books — Nexus</title></svelte:head>
 
-<div class="flex min-w-0 flex-col">
-	<!-- Hero (only for libraries with 5+ books) -->
-	{#if data.featuredBook && data.total >= 5}
-		<BookHero book={data.featuredBook} />
-	{/if}
+<div class="books-page">
 
-	<!-- Continue Reading Row -->
-	{#if data.continueReading.length > 0}
-		<div class="mt-6">
-			<MediaRow row={{ id: 'continue-reading', title: 'Continue Reading', subtitle: 'Pick up where you left off', items: data.continueReading }} />
-		</div>
-	{/if}
-
-	<!-- Recently Added Row (only if 10+ books — avoids duplicating the grid) -->
-	{#if data.recentlyAdded.length > 0 && data.total >= 10}
-		<div class="mt-6">
-			<MediaRow row={{ id: 'recently-added', title: 'Recently Added', subtitle: 'Latest additions to your library', items: data.recentlyAdded }} />
-		</div>
-	{/if}
-
-	<!-- Reading Stats -->
-	{#if data.readingStats && (data.readingStats.booksThisYear > 0 || data.readingStats.pagesThisMonth > 0)}
-		<div class="mt-6 px-3 sm:px-4 lg:px-6">
-			<ReadingStatsCard {...data.readingStats} />
-		</div>
-	{/if}
-
-	<!-- Tab Navigation (only show when series or multiple authors exist) -->
-	{#if data.series.length > 0 || data.authors.length > 1}
-		<div class="{data.total >= 5 ? 'mt-8' : 'mt-4'} border-b border-[var(--color-surface)] px-3 sm:px-4 lg:px-6">
-			<nav class="flex gap-0">
-				{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t (t.id)}
-					{#if t.id === 'all' || (t.id === 'series' && data.series.length > 0) || (t.id === 'authors' && data.authors.length > 1)}
-						<a
-							href={buildUrl({ tab: t.id })}
-							class="relative px-4 py-2.5 text-sm font-medium transition-colors {activeTab === t.id
-								? 'text-[var(--color-cream)]'
-								: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						>
-							{t.label}
-							{#if activeTab === t.id}
-								<div class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-[var(--color-accent)]"></div>
-							{/if}
-						</a>
-					{/if}
-				{/each}
-			</nav>
-		</div>
-	{/if}
-
-	<!-- Tab Content -->
-	{#if activeTab === 'series'}
-		<!-- Series Tab -->
-		<div class="px-3 py-6 sm:px-4 lg:px-6">
-			{#if data.series.length === 0}
-				<p class="py-12 text-center text-sm text-[var(--color-muted)]">No series found in your library.</p>
-			{:else}
-				<div class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4 sm:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
-					{#each data.series as series (series.name)}
-						<SeriesCard {series} />
-					{/each}
-				</div>
-			{/if}
-		</div>
-	{:else if activeTab === 'authors'}
-		<!-- Authors Tab -->
-		<div class="px-3 py-6 sm:px-4 lg:px-6">
-			{#if data.authors.length === 0}
-				<p class="py-12 text-center text-sm text-[var(--color-muted)]">No authors found in your library.</p>
-			{:else}
-				<div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-					{#each data.authors as author (author.name)}
-						<AuthorCard {author} representativeCover={authorCover(author.name)} />
-					{/each}
-				</div>
-			{/if}
-		</div>
+	<!-- 1. Hero -->
+	{#if !data.hasBookService}
+		<section class="onboarding-hero">
+			<h1>Connect a book service</h1>
+			<p>Nexus reads from Calibre-Web. Connect one under Settings → Accounts to populate your library.</p>
+			<a class="btn primary" href="/settings/accounts">Connect a service</a>
+		</section>
+	{:else if data.serviceStatus === 'offline'}
+		<section class="offline-strip">
+			<span class="tag">⚠ BOOK SERVICE OFFLINE</span>
+			<p>Couldn't reach Calibre-Web. {data.serviceError ?? 'Check that the service is running.'}</p>
+			<button onclick={() => window.location.reload()}>Retry</button>
+		</section>
+	{:else if data.currentBook}
+		<HeroCinematic book={data.currentBook} />
 	{:else}
-		<!-- All Books Tab -->
-		<div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
-			<!-- Filter Bar -->
-			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-				<div>
-					<h1 class="text-lg font-semibold text-[var(--color-cream)]">Books</h1>
-					<p class="text-xs text-[var(--color-muted)]">
-						{data.total} book{data.total === 1 ? '' : 's'}
-						{#if data.category}· {data.category}{/if}
-						{#if data.author}· {data.author}{/if}
-					</p>
-				</div>
+		<HeroLiterary totalBooks={data.total} {nightsCount} currentBook={data.currentBook ?? null} />
+	{/if}
 
-				<!-- Category chips (only show when 5+ books and multiple categories) -->
-				{#if data.categories.length > 1 && data.total >= 5}
-					<div class="flex gap-1.5 overflow-x-auto scrollbar-none sm:ml-auto">
-						<a
-							href={buildUrl({ category: '' })}
-							class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all {!data.category
-								? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-								: 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						>All</a>
-						{#each data.categories.slice(0, 12) as cat}
-							<a
-								href={buildUrl({ category: cat })}
-								class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all {data.category === cat
-									? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-									: 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-							>{cat}</a>
+	<!-- 2 + 3. Main + rail grid -->
+	{#if data.hasBookService && data.serviceStatus !== 'offline'}
+		<div class="main-grid">
+			<section class="lib-col" id="library">
+				<SectionHeader ordinal="◇ LIBRARY" title="Your library" meta={`${data.total} book${data.total === 1 ? '' : 's'}`} />
+
+				<!-- Tabs (only show when series or multiple authors exist) -->
+				{#if data.series.length > 0 || data.authors.length > 1}
+					<nav class="tabs">
+						{#each [{ id: 'all', label: 'All Books' }, { id: 'series', label: 'Series' }, { id: 'authors', label: 'Authors' }] as t (t.id)}
+							{#if t.id === 'all' || (t.id === 'series' && data.series.length > 0) || (t.id === 'authors' && data.authors.length > 1)}
+								<a href={buildUrl({ tab: t.id })} class:active={activeTab === t.id}>{t.label}</a>
+							{/if}
 						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<!-- Controls Row (hide for tiny libraries) -->
-			{#if data.total > 1}
-			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-				<!-- Sort -->
-				<div class="flex items-center gap-2">
-					<span class="text-xs text-[var(--color-muted)]">Sort</span>
-					<div class="flex gap-1 overflow-x-auto rounded-lg bg-[var(--color-surface)] p-1 scrollbar-none">
-						{#each sortOptions as s}
-							<a
-								href={buildUrl({ sort: s.id })}
-								class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {data.sortBy === s.id
-									? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
-									: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-							>{s.label}</a>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Status filter -->
-				<div class="flex items-center gap-2">
-					<span class="text-xs text-[var(--color-muted)]">Status</span>
-					<div class="flex gap-1 rounded-lg bg-[var(--color-surface)] p-1">
-						{#each statusOptions as s}
-							<a
-								href={buildUrl({ status: s.id })}
-								class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {data.status === s.id
-									? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
-									: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-							>{s.label}</a>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Spacer -->
-				<div class="hidden sm:flex sm:flex-1"></div>
-
-				<!-- Collapse series toggle -->
-				{#if data.series.length > 0}
-					<button
-						onclick={() => collapseSeries = !collapseSeries}
-						class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all {collapseSeries
-							? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-							: 'bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						aria-label="Collapse series"
-					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M4 6h4v4H4zM4 14h4v4H4zM14 6h6M14 10h4M14 14h6M14 18h4"/>
-						</svg>
-						Series
-					</button>
+					</nav>
 				{/if}
 
-				<!-- View mode toggle -->
-				<div class="flex items-center gap-1 rounded-lg bg-[var(--color-surface)] p-1">
-					<button
-						onclick={() => viewMode = 'grid'}
-						class="rounded-md p-1.5 transition-all {viewMode === 'grid' ? 'bg-[var(--color-raised)] text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						aria-label="Grid view"
-					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-							<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-						</svg>
-					</button>
-					<button
-						onclick={() => viewMode = 'list'}
-						class="rounded-md p-1.5 transition-all {viewMode === 'list' ? 'bg-[var(--color-raised)] text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						aria-label="List view"
-					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-							<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-						</svg>
-					</button>
-					<button
-						onclick={() => viewMode = 'shelf'}
-						class="rounded-md p-1.5 transition-all {viewMode === 'shelf' ? 'bg-[var(--color-raised)] text-[var(--color-cream)]' : 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-						aria-label="Shelf view"
-					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-							<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/>
-						</svg>
-					</button>
-				</div>
-
-				<!-- Quick search -->
-				<input
-					bind:value={localQuery}
-					class="input w-full text-sm sm:w-44"
-					placeholder="Filter..."
-				/>
-			</div>
-			{/if}
-
-			<!-- Library Display -->
-			{#if filtered.length === 0}
-				{@const isFailedLoad = data.hasBookService && data.serviceStatus === 'offline'}
-				{@const isEmptyLibrary = data.hasBookService && data.serviceStatus === 'online' && data.items.length === 0}
-				<div class="flex flex-col items-center justify-center py-24 text-center">
-					<div class="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface)] {isFailedLoad ? 'text-amber-500' : 'text-[var(--color-muted)]'}">
-						{#if isFailedLoad}
-							<!-- Warning icon for failed load -->
-							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-							</svg>
+				<!-- Tab Content -->
+				{#if activeTab === 'series'}
+					<!-- Series Tab -->
+					<div class="tab-body">
+						{#if data.series.length === 0}
+							<p class="empty-tab">No series found in your library.</p>
 						{:else}
-							<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/><path d="M4 20h10"/>
-							</svg>
+							<div class="series-grid">
+								{#each data.series as series (series.name)}
+									<SeriesCard {series} />
+								{/each}
+							</div>
 						{/if}
 					</div>
-					{#if isFailedLoad}
-						<p class="font-medium">Couldn't load Calibre library</p>
-						<p class="mt-1 max-w-md text-sm text-[var(--color-muted)]">
-							Calibre-Web is configured but unreachable right now. Check that the service is running and your credentials are correct.
-						</p>
-						{#if data.serviceError}
-							<p class="mt-2 max-w-md text-xs text-[var(--color-muted)]/70 font-mono">{data.serviceError}</p>
+				{:else if activeTab === 'authors'}
+					<!-- Authors Tab -->
+					<div class="tab-body">
+						{#if data.authors.length === 0}
+							<p class="empty-tab">No authors found in your library.</p>
+						{:else}
+							<div class="authors-grid">
+								{#each data.authors as author (author.name)}
+									<AuthorCard {author} representativeCover={authorCover(author.name)} />
+								{/each}
+							</div>
 						{/if}
-						<div class="mt-4 flex gap-2">
-							<a href="/settings/accounts" class="btn btn-secondary text-sm">Check connection</a>
-							<button onclick={() => window.location.reload()} class="btn btn-primary text-sm">Retry</button>
+					</div>
+				{:else}
+					<!-- All Books Tab -->
+					<div class="tab-body">
+						<!-- Filter Bar -->
+						<div class="filter-bar">
+							<!-- Category chips (only show when 5+ books and multiple categories) -->
+							{#if data.categories.length > 1 && data.total >= 5}
+								<div class="category-chips">
+									<a
+										href={buildUrl({ category: '' })}
+										class="chip {!data.category ? 'chip-active' : ''}"
+									>All</a>
+									{#each data.categories.slice(0, 12) as cat}
+										<a
+											href={buildUrl({ category: cat })}
+											class="chip {data.category === cat ? 'chip-active' : ''}"
+										>{cat}</a>
+									{/each}
+								</div>
+							{/if}
 						</div>
-					{:else if isEmptyLibrary}
-						<p class="font-medium">Your library is empty</p>
-						<p class="mt-1 max-w-md text-sm text-[var(--color-muted)]">
-							Calibre-Web is connected, but there are no books yet. Add books through Calibre-Web's interface to see them here.
-						</p>
-					{:else if !data.hasBookService}
-						<p class="font-medium">No books found</p>
-						<p class="mt-1 text-sm text-[var(--color-muted)]">Connect Calibre to see your book collection here.</p>
-						<a href="/settings/accounts" class="btn btn-primary mt-4 text-sm">Connect a Service</a>
-					{:else}
-						<p class="font-medium">No books found</p>
-						<p class="mt-1 text-sm text-[var(--color-muted)]">Try adjusting your filters.</p>
-					{/if}
-				</div>
-			{:else if viewMode === 'shelf'}
-				<BookshelfView items={filtered} />
-			{:else if viewMode === 'list'}
-				<div class="flex flex-col divide-y divide-[var(--color-surface)]">
-					{#each filtered as item (item.id)}
-						<BookListRow {item} />
-					{/each}
-				</div>
-			{:else}
-				<div
-					bind:this={gridContainer}
-					class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4"
-				>
-					{#if useVirtualScrolling}
-						{@const beforeHeight = Math.floor(visibleRange.start / cols) * CARD_HEIGHT}
-						{@const afterItems = displayItems.length - visibleRange.end}
-						{@const afterHeight = Math.ceil(Math.max(0, afterItems) / cols) * CARD_HEIGHT}
-						{#if beforeHeight > 0}
-							<div style="height: {beforeHeight}px; grid-column: 1 / -1;"></div>
-						{/if}
-						{#each displayItems.slice(visibleRange.start, visibleRange.end) as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
-							{#if entry.type === 'series'}
-								<SeriesCollapsedCard
-									seriesName={entry.name}
-									books={entry.books}
-									onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
-								/>
-							{:else}
-								<div class="relative">
-									<MediaCard item={entry.item} />
-									{#if entry.item.metadata?.formats}
-										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
-											{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
-												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt.name}</span>
-											{/each}
-										</div>
-									{/if}
+
+						<!-- Controls Row (hide for tiny libraries) -->
+						{#if data.total > 1}
+							<div class="controls-row">
+								<!-- Sort -->
+								<div class="ctrl-group">
+									<span class="ctrl-label">Sort</span>
+									<div class="seg-group">
+										{#each sortOptions as s}
+											<a
+												href={buildUrl({ sort: s.id })}
+												class="seg {data.sortBy === s.id ? 'seg-active' : ''}"
+											>{s.label}</a>
+										{/each}
+									</div>
 								</div>
-							{/if}
-						{/each}
-						{#if afterHeight > 0}
-							<div style="height: {afterHeight}px; grid-column: 1 / -1;"></div>
-						{/if}
-					{:else}
-						{#each displayItems as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
-							{#if entry.type === 'series'}
-								<SeriesCollapsedCard
-									seriesName={entry.name}
-									books={entry.books}
-									onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
-								/>
-							{:else}
-								<div class="relative">
-									<MediaCard item={entry.item} />
-									{#if entry.item.metadata?.formats}
-										<div class="absolute bottom-[3.2rem] left-1 z-10 flex gap-0.5">
-											{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
-												<span class="rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium uppercase text-white/80 backdrop-blur-sm">{fmt.name}</span>
-											{/each}
-										</div>
-									{/if}
+
+								<!-- Status filter -->
+								<div class="ctrl-group">
+									<span class="ctrl-label">Status</span>
+									<div class="seg-group">
+										{#each statusOptions as s}
+											<a
+												href={buildUrl({ status: s.id })}
+												class="seg {data.status === s.id ? 'seg-active' : ''}"
+											>{s.label}</a>
+										{/each}
+									</div>
 								</div>
-							{/if}
-						{/each}
-					{/if}
-				</div>
-			{/if}
+
+								<!-- Spacer -->
+								<div class="ctrl-spacer"></div>
+
+								<!-- Collapse series toggle -->
+								{#if data.series.length > 0}
+									<button
+										onclick={() => collapseSeries = !collapseSeries}
+										class="toggle-btn {collapseSeries ? 'toggle-btn-active' : ''}"
+										aria-label="Collapse series"
+									>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M4 6h4v4H4zM4 14h4v4H4zM14 6h6M14 10h4M14 14h6M14 18h4"/>
+										</svg>
+										Series
+									</button>
+								{/if}
+
+								<!-- View mode toggle -->
+								<div class="view-toggle">
+									<button
+										onclick={() => viewMode = 'grid'}
+										class="view-btn {viewMode === 'grid' ? 'view-btn-active' : ''}"
+										aria-label="Grid view"
+									>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+											<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+										</svg>
+									</button>
+									<button
+										onclick={() => viewMode = 'list'}
+										class="view-btn {viewMode === 'list' ? 'view-btn-active' : ''}"
+										aria-label="List view"
+									>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+											<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+										</svg>
+									</button>
+									<button
+										onclick={() => viewMode = 'shelf'}
+										class="view-btn {viewMode === 'shelf' ? 'view-btn-active' : ''}"
+										aria-label="Shelf view"
+									>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+											<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/>
+										</svg>
+									</button>
+								</div>
+
+								<!-- Quick search -->
+								<input
+									bind:value={localQuery}
+									class="input filter-input"
+									placeholder="Filter..."
+								/>
+							</div>
+						{/if}
+
+						<!-- Library Display -->
+						{#if filtered.length === 0}
+							{@const isEmptyLibrary = data.serviceStatus === 'online' && data.items.length === 0}
+							<div class="empty-state">
+								<div class="empty-icon">
+									<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M4 4h8a2 2 0 0 1 2 2v14H4V4z"/><path d="M14 6h4a2 2 0 0 1 2 2v12h-6"/><path d="M4 20h10"/>
+									</svg>
+								</div>
+								{#if isEmptyLibrary}
+									<p class="empty-title">Your library is empty</p>
+									<p class="empty-body">
+										Calibre-Web is connected, but there are no books yet. Add books through Calibre-Web's interface to see them here.
+									</p>
+								{:else}
+									<p class="empty-title">No books found</p>
+									<p class="empty-body">Try adjusting your filters.</p>
+								{/if}
+							</div>
+						{:else if viewMode === 'shelf'}
+							<BookshelfView items={filtered} />
+						{:else if viewMode === 'list'}
+							<div class="list-view">
+								{#each filtered as item (item.id)}
+									<BookListRow {item} />
+								{/each}
+							</div>
+						{:else}
+							<div
+								bind:this={gridContainer}
+								class="book-grid"
+							>
+								{#if useVirtualScrolling}
+									{@const beforeHeight = Math.floor(visibleRange.start / cols) * CARD_HEIGHT}
+									{@const afterItems = displayItems.length - visibleRange.end}
+									{@const afterHeight = Math.ceil(Math.max(0, afterItems) / cols) * CARD_HEIGHT}
+									{#if beforeHeight > 0}
+										<div style="height: {beforeHeight}px; grid-column: 1 / -1;"></div>
+									{/if}
+									{#each displayItems.slice(visibleRange.start, visibleRange.end) as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
+										{#if entry.type === 'series'}
+											<SeriesCollapsedCard
+												seriesName={entry.name}
+												books={entry.books}
+												onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
+											/>
+										{:else}
+											<div class="card-wrap">
+												<MediaCard item={entry.item} />
+												{#if entry.item.metadata?.formats}
+													<div class="fmt-badges">
+														{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
+															<span class="fmt-badge">{fmt.name}</span>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										{/if}
+									{/each}
+									{#if afterHeight > 0}
+										<div style="height: {afterHeight}px; grid-column: 1 / -1;"></div>
+									{/if}
+								{:else}
+									{#each displayItems as entry (entry.type === 'series' ? `series:${entry.name}` : entry.item.id)}
+										{#if entry.type === 'series'}
+											<SeriesCollapsedCard
+												seriesName={entry.name}
+												books={entry.books}
+												onExpand={() => { window.location.href = buildUrl({ tab: 'all', series: entry.name }); }}
+											/>
+										{:else}
+											<div class="card-wrap">
+												<MediaCard item={entry.item} />
+												{#if entry.item.metadata?.formats}
+													<div class="fmt-badges">
+														{#each (entry.item.metadata.formats as { name: string }[]).slice(0, 3) as fmt (fmt.name)}
+															<span class="fmt-badge">{fmt.name}</span>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										{/if}
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</section>
+
+			<aside class="rail" aria-label="Reading sidebar">
+				<!-- rail blocks populated in Task 11 -->
+			</aside>
 		</div>
+
+		<!-- 4. ProseStat divider -->
+		<div class="divider">
+			<ProseStat>
+				{#snippet children()}
+					Forty-two nights in flight this season · a streak of <strong>{streakCount}</strong>.
+					<a class="more-link" href="/books/stats">More in stats →</a>
+				{/snippet}
+			</ProseStat>
+		</div>
+
+		<!-- 5. Deep-page links -->
+		<div class="deep-links">
+			<a class="deep-card" href="/books/stats">
+				<div class="deep-title">Stats &amp; habits</div>
+				<div class="deep-sub">Goal ring · genre bars · year-of-nights calendar</div>
+				<span class="deep-arrow">→</span>
+			</a>
+			<a class="deep-card" href="/books/notes">
+				<div class="deep-title">Marginalia</div>
+				<div class="deep-sub">Highlights &amp; notes archive</div>
+				<span class="deep-arrow">→</span>
+			</a>
+		</div>
+
+		<!-- 6. Literary footer -->
+		<footer class="lit-footer">
+			<Ornament variant="cluster" />
+			<ProseStat>
+				{#snippet children()}
+					You've been reading at Nexus for <strong>{streakCount}</strong> nights this season.
+				{/snippet}
+			</ProseStat>
+		</footer>
 	{/if}
 </div>
+
+<style>
+	.books-page { padding-bottom: 60px; }
+
+	/* onboarding + offline */
+	.onboarding-hero { padding: 60px 32px; text-align: center; }
+	.onboarding-hero h1 { font-family: var(--font-display); font-size: 36px; margin: 0 0 10px; }
+	.onboarding-hero p { color: var(--muted); max-width: 48ch; margin: 0 auto 22px; }
+	.onboarding-hero .btn { display: inline-block; padding: 10px 22px; border-radius: 100px; background: var(--accent); color: var(--void); font-weight: 700; }
+	.offline-strip { padding: 20px 32px; background: rgba(196, 92, 92, .08); border-bottom: 1px solid rgba(196, 92, 92, .2); display: flex; align-items: center; gap: 16px; }
+	.offline-strip .tag { font: 10px/1 var(--font-mono); letter-spacing: .18em; color: #e88888; text-transform: uppercase; }
+	.offline-strip p { color: var(--muted); margin: 0; flex: 1; font-size: 13px; }
+	.offline-strip button { padding: 6px 14px; border-radius: 100px; background: rgba(240,235,227,.06); color: var(--cream); border: 1px solid rgba(240,235,227,.1); font-size: 12px; }
+
+	/* main + rail grid */
+	.main-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; padding: 20px 28px; }
+	.rail { position: sticky; top: 14px; align-self: start; background: var(--base); border: 1px solid rgba(240,235,227,.06); border-radius: 10px; padding: 4px 16px; min-height: 40px; }
+
+	/* library section */
+	.lib-col { min-width: 0; }
+	.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--surface); margin: 14px 0 18px; }
+	.tabs a { padding: 10px 18px; font-size: 13px; font-weight: 500; color: var(--muted); position: relative; text-decoration: none; }
+	.tabs a.active { color: var(--cream); }
+	.tabs a.active::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: var(--accent); border-radius: 1px; }
+
+	/* tab body */
+	.tab-body { padding: 6px 0; }
+	.empty-tab { padding: 48px 0; text-align: center; font-size: 13px; color: var(--muted); }
+	.series-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
+	.authors-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+
+	/* filter bar */
+	.filter-bar { margin-bottom: 10px; }
+	.category-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+	.category-chips::-webkit-scrollbar { display: none; }
+	.chip { flex-shrink: 0; border-radius: 100px; padding: 4px 10px; font-size: 11px; font-weight: 500; text-decoration: none; transition: all .15s; background: var(--surface); color: var(--muted); }
+	.chip:hover { color: var(--cream); }
+	.chip-active { background: rgba(212,162,83,.15); color: var(--accent); }
+
+	/* controls row */
+	.controls-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+	.ctrl-group { display: flex; align-items: center; gap: 8px; }
+	.ctrl-label { font-size: 12px; color: var(--muted); }
+	.ctrl-spacer { flex: 1; display: none; }
+	@media (min-width: 640px) { .ctrl-spacer { display: block; } }
+	.seg-group { display: flex; gap: 2px; background: var(--surface); border-radius: 8px; padding: 4px; overflow-x: auto; scrollbar-width: none; }
+	.seg-group::-webkit-scrollbar { display: none; }
+	.seg { border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 500; text-decoration: none; color: var(--muted); transition: all .15s; white-space: nowrap; }
+	.seg:hover { color: var(--cream); }
+	.seg-active { background: var(--raised); color: var(--cream); }
+	.toggle-btn { display: flex; align-items: center; gap: 6px; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 500; background: var(--surface); color: var(--muted); transition: all .15s; }
+	.toggle-btn:hover { color: var(--cream); }
+	.toggle-btn-active { background: rgba(212,162,83,.15); color: var(--accent); }
+	.view-toggle { display: flex; gap: 2px; background: var(--surface); border-radius: 8px; padding: 4px; }
+	.view-btn { border-radius: 6px; padding: 6px; color: var(--muted); transition: all .15s; }
+	.view-btn:hover { color: var(--cream); }
+	.view-btn-active { background: var(--raised); color: var(--cream); }
+	.filter-input { font-size: 13px; width: 100%; }
+	@media (min-width: 640px) { .filter-input { width: 176px; } }
+
+	/* empty state */
+	.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 96px 0; text-align: center; }
+	.empty-icon { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 16px; background: var(--surface); color: var(--muted); margin-bottom: 20px; }
+	.empty-title { font-weight: 600; color: var(--cream); margin: 0 0 6px; }
+	.empty-body { font-size: 13px; color: var(--muted); max-width: 42ch; margin: 0 0 16px; }
+
+	/* list view */
+	.list-view { display: flex; flex-direction: column; }
+	.list-view :global(> *) { border-bottom: 1px solid var(--surface); }
+	.list-view :global(> *:last-child) { border-bottom: none; }
+
+	/* book grid */
+	.book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; }
+	@media (min-width: 640px) { .book-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; } }
+	.card-wrap { position: relative; }
+	.fmt-badges { position: absolute; bottom: 3.2rem; left: 4px; z-index: 10; display: flex; gap: 2px; }
+	.fmt-badge { border-radius: 3px; background: rgba(0,0,0,.6); padding: 2px 4px; font-size: 9px; font-weight: 500; text-transform: uppercase; color: rgba(255,255,255,.8); backdrop-filter: blur(4px); }
+
+	/* divider */
+	.divider { text-align: center; padding: 14px 28px; }
+	.more-link { font: 10px/1 var(--font-mono); letter-spacing: .22em; color: var(--accent); text-transform: uppercase; margin-left: 10px; text-decoration: none; }
+
+	/* deep links */
+	.deep-links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 20px 28px; }
+	.deep-card { position: relative; display: block; padding: 18px 22px; background: var(--base); border: 1px solid rgba(240,235,227,.06); border-radius: 10px; text-decoration: none; color: var(--cream); }
+	.deep-card:hover { border-color: rgba(212,162,83,.3); }
+	.deep-title { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
+	.deep-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+	.deep-arrow { position: absolute; top: 20px; right: 22px; font: 11px/1 var(--font-mono); letter-spacing: .2em; color: var(--accent); }
+
+	/* footer */
+	.lit-footer { text-align: center; padding: 40px 28px 20px; }
+
+	/* responsive: tablet */
+	@media (max-width: 1023px) {
+		.main-grid { grid-template-columns: 1fr; }
+		.rail { position: static; }
+	}
+	/* responsive: mobile */
+	@media (max-width: 639px) {
+		.main-grid { padding: 16px; gap: 16px; }
+		.deep-links { grid-template-columns: 1fr; padding: 16px; }
+		.divider { padding: 8px 16px; }
+	}
+</style>
