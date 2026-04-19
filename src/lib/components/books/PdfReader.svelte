@@ -643,6 +643,7 @@
 
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
+		console.log('[PdfReader] renderPage', pageNum, { hasDoc: !!pdfDoc, hasPdfjs: !!pdfjs, alreadyRendered: renderedPages.has(pageNum), inFlight: renderingPages.has(pageNum) });
 		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
 
 		// bind:this with array-indexing inside snippets is unreliable in
@@ -1060,7 +1061,9 @@
 	// remount. This action runs *after* the canvas is in the DOM and the ref
 	// has been written, which is the only reliable signal to start rendering.
 	function onCanvasMount(node: HTMLCanvasElement, pageNum: number) {
+		console.log('[PdfReader] onCanvasMount', pageNum, { hasDoc: !!pdfDoc, loading });
 		const tryRender = () => {
+			console.log('[PdfReader] tryRender RAF', pageNum, { hasDoc: !!pdfDoc, loading, flow: settings.flow });
 			if (!pdfDoc || loading) return;
 			if (settings.flow === 'paginated') {
 				renderedPages.delete(pageNum);
