@@ -62,6 +62,10 @@
 	let numPages = $state(0);
 	let currentPage = $state(1);
 	let scale = $state(1);
+	// In paginated mode the page is auto-fit to the viewport; this multiplier
+	// lets the user zoom in/out from that baseline (1.0 = exact fit). Scrolled
+	// mode continues to use `scale` directly.
+	let paginatedZoom = $state(1);
 	let fitMode = $state<'width' | 'page' | 'custom'>('width');
 	let showToolbar = $state(true);
 	let showSidebar = $state(false);
@@ -211,11 +215,23 @@
 
 	// ── Zoom functions ────────────────────────────────────────────
 	function zoomIn() {
+		if (settings.flow === 'paginated') {
+			paginatedZoom = Math.min(5.0, paginatedZoom * 1.25);
+			invalidateAllPages();
+			scheduleBufferRender();
+			return;
+		}
 		fitMode = 'custom';
 		scale = Math.min(5.0, scale * 1.25);
 	}
 
 	function zoomOut() {
+		if (settings.flow === 'paginated') {
+			paginatedZoom = Math.max(0.25, paginatedZoom * 0.8);
+			invalidateAllPages();
+			scheduleBufferRender();
+			return;
+		}
 		fitMode = 'custom';
 		scale = Math.max(0.25, scale * 0.8);
 	}
@@ -682,7 +698,7 @@
 				const baseVp = page.getViewport({ scale: 1 });
 				const fitW = (containerW / pagesAcross) / baseVp.width;
 				const fitH = containerH / baseVp.height;
-				renderScale = Math.min(fitW, fitH);
+				renderScale = Math.min(fitW, fitH) * paginatedZoom;
 			}
 			const viewport = page.getViewport({ scale: renderScale });
 			const dpr = window.devicePixelRatio || 1;
@@ -1046,7 +1062,7 @@
 			const pagesAcross = effectiveSpread === 'dual' ? 2 : 1;
 			const fitW = (containerW / pagesAcross) / vp.width;
 			const fitH = containerH / vp.height;
-			dimScale = Math.min(fitW, fitH);
+			dimScale = Math.min(fitW, fitH) * paginatedZoom;
 		}
 		return {
 			width: vp.width * dimScale,
@@ -1124,7 +1140,7 @@
 		bookAuthor={book.metadata?.author as string | undefined}
 		{currentPage}
 		totalPages={numPages}
-		{scale}
+		scale={settings.flow === 'paginated' ? paginatedZoom : scale}
 		{fitMode}
 		spreadMode={effectiveSpread}
 		{darkMode}
