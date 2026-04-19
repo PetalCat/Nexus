@@ -217,8 +217,11 @@
 	function zoomIn() {
 		if (settings.flow === 'paginated') {
 			paginatedZoom = Math.min(5.0, paginatedZoom * 1.25);
+			console.log('[PdfReader] zoomIn paginated', paginatedZoom, 'rendered=', [...renderedPages], 'renderingPages=', [...renderingPages]);
 			invalidateAllPages();
+			console.log('[PdfReader] after invalidate rendered=', [...renderedPages]);
 			scheduleBufferRender();
+			console.log('[PdfReader] after scheduleBufferRender queue=', [...renderQueue]);
 			return;
 		}
 		fitMode = 'custom';
@@ -659,7 +662,11 @@
 
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
-		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
+		console.log('[PdfReader] renderPage entry', pageNum, 'paginatedZoom=', paginatedZoom);
+		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) {
+			console.log('[PdfReader] renderPage early-return', pageNum, { rendered: renderedPages.has(pageNum), rendering: renderingPages.has(pageNum) });
+			return;
+		}
 
 		// bind:this with array-indexing inside snippets is unreliable in
 		// Svelte 5 — the array slot can read empty here even when the canvas
