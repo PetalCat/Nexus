@@ -6,6 +6,7 @@
 	// HeroConstellation is available but not used in default flow (future flourish)
 	import RightRailBlock from '$lib/components/books/system/RightRailBlock.svelte';
 	import ProgressThread from '$lib/components/books/system/ProgressThread.svelte';
+	import BookCover from '$lib/components/books/system/BookCover.svelte';
 	import ProseStat from '$lib/components/books/system/ProseStat.svelte';
 	import Ornament from '$lib/components/books/system/Ornament.svelte';
 	import SectionHeader from '$lib/components/books/system/SectionHeader.svelte';
@@ -132,6 +133,14 @@
 
 	// New derived fields from Task 9 loader
 	const streakCount = $derived(data.streak14?.filter(Boolean).length ?? 0);
+
+	function currentPageLabel(book: { progress?: number; metadata?: Record<string, unknown> }): string {
+		const pct = Math.round((book.progress ?? 0) * 100);
+		const pages = (book.metadata?.pages as number | undefined) ?? 0;
+		if (pct <= 0) return 'not started';
+		const page = pages > 0 ? Math.round((book.progress ?? 0) * pages) : null;
+		return page != null ? `page ${page} · ${pct}%` : `${pct}%`;
+	}
 </script>
 
 <svelte:head><title>Books — Nexus</title></svelte:head>
@@ -400,7 +409,56 @@
 			</section>
 
 			<aside class="rail" aria-label="Reading sidebar">
-				<!-- rail blocks populated in Task 11 -->
+				<RightRailBlock label="Continue">
+					{#snippet children()}
+						{#if data.currentBook}
+							<div class="qr-row">
+								<BookCover book={data.currentBook} size="xs" showProgress={false} />
+								<div class="qr-info">
+									<div class="qr-title">{data.currentBook.title}</div>
+									<div class="qr-meta">{currentPageLabel(data.currentBook)}</div>
+								</div>
+								<a class="qr-btn" href="/books/read/{data.currentBook.id}">Open</a>
+							</div>
+						{:else if data.total > 0}
+							<a class="qr-cta" href="#library">Pick something from the library →</a>
+						{:else}
+							<div class="qr-empty">Nothing yet.</div>
+						{/if}
+					{/snippet}
+				</RightRailBlock>
+
+				<RightRailBlock label="Year progress">
+					{#snippet children()}
+						<div class="yp-row">
+							<span class="yp-big">{data.yearProgress.booksThisYear}</span>
+							<span class="yp-unit">/ {data.yearProgress.goal} books</span>
+						</div>
+						<ProgressThread value={data.yearProgress.goal > 0 ? data.yearProgress.booksThisYear / data.yearProgress.goal : 0} />
+					{/snippet}
+				</RightRailBlock>
+
+				<RightRailBlock label="Last 14 days">
+					{#snippet children()}
+						<div class="streak">
+							{#each data.streak14 as hit, i (i)}
+								<span class="s" class:on={hit}></span>
+							{/each}
+						</div>
+					{/snippet}
+				</RightRailBlock>
+
+				{#if data.recentHighlight}
+					{@const hl = data.recentHighlight}
+					<RightRailBlock label="Recent highlight" linkText="All highlights" linkHref="/books/notes">
+						{#snippet children()}
+							<div class="hl-quote">"{hl.text}"</div>
+							<div class="hl-cite">
+								{hl.bookTitle}{hl.chapter ? ` · ${hl.chapter}` : ''}
+							</div>
+						{/snippet}
+					</RightRailBlock>
+				{/if}
 			</aside>
 		</div>
 
@@ -543,4 +601,24 @@
 		.deep-links { grid-template-columns: 1fr; padding: 16px; }
 		.divider { padding: 8px 16px; }
 	}
+
+	/* right rail block styles */
+	.qr-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+	.qr-info { min-width: 0; }
+	.qr-title { font-family: var(--font-display); font-style: italic; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--cream); }
+	.qr-meta { font: 9px/1 var(--font-mono); color: var(--faint); letter-spacing: .12em; margin-top: 3px; text-transform: uppercase; }
+	.qr-btn { padding: 5px 10px; border-radius: 100px; background: var(--accent); color: var(--void); font: 700 10px/1 var(--font-mono); letter-spacing: .1em; text-decoration: none; }
+	.qr-cta, .qr-empty { font: 11px/1.4 var(--font-display); font-style: italic; color: var(--muted); text-decoration: none; }
+	.qr-cta:hover { color: var(--accent-lt); }
+
+	.yp-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+	.yp-big { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1; color: var(--cream); }
+	.yp-unit { font: 10px/1 var(--font-mono); color: var(--muted); letter-spacing: .1em; }
+
+	.streak { display: flex; gap: 3px; }
+	.streak .s { flex: 1; height: 8px; background: var(--raised); border-radius: 1px; }
+	.streak .s.on { background: var(--accent); box-shadow: 0 0 4px rgba(212, 162, 83, .4); }
+
+	.hl-quote { font-family: var(--font-display); font-style: italic; font-size: 12px; line-height: 1.5; color: rgba(240, 235, 227, .82); }
+	.hl-cite { font: 9px/1 var(--font-mono); color: var(--faint); letter-spacing: .12em; margin-top: 6px; text-transform: uppercase; }
 </style>
