@@ -172,23 +172,29 @@
 
 <style>
 	.sidebar {
-		width: 190px;
-		min-width: 190px;
-		background: var(--color-deep);
-		border-right: 1px solid rgba(240, 235, 227, 0.04);
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: min(320px, 88vw);
+		background: #181514;
+		border-right: 1px solid rgba(240, 235, 227, 0.06);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		transition: transform 0.2s ease, width 0.2s ease, min-width 0.2s ease;
 		font-family: var(--font-body);
-		z-index: 55;
+		z-index: 71;
+		box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45);
+		animation: toc-drawer-in 220ms ease-out;
 	}
 
 	.sidebar-hidden {
-		transform: translateX(-100%);
-		width: 0;
-		min-width: 0;
-		border-right: none;
+		display: none;
+	}
+
+	@keyframes toc-drawer-in {
+		from { transform: translateX(-100%); }
+		to { transform: translateX(0); }
 	}
 
 	/* ── Tabs ────────────────────────────────────────── */

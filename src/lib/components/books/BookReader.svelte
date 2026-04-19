@@ -894,43 +894,50 @@
 	<div class="hairline-fill" style="width: {currentProgress * 100}%"></div>
 </div>
 
-<!-- TOC Sidebar -->
+<!-- TOC Drawer -->
 {#if showToc}
-	<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => showToc = false} onkeydown={(e) => { if (e.key === 'Escape') showToc = false; }} role="button" tabindex="-1" aria-label="Close table of contents">
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="absolute bottom-0 left-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-r border-cream/[0.06] p-4"
-			style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);"
-			onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
-		>
-			<div class="mb-4 flex items-center justify-between">
-				<h2 class="text-sm font-semibold tracking-wide text-cream/90">Contents</h2>
-				<button onclick={() => showToc = false} class="rounded-lg p-1.5 text-cream/50 hover:bg-cream/[0.06] hover:text-cream">
-					<X size={16} strokeWidth={1.5} />
-				</button>
-			</div>
-			<nav class="space-y-0.5">
-				{#each toc as chapter}
-					<button
-						class="block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors {currentChapter === chapter.label ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-cream/60 hover:bg-cream/[0.04] hover:text-cream'}"
-						onclick={() => goToChapter(chapter.href)}
-					>
-						{chapter.label}
-					</button>
-					{#if chapter.subitems}
-						{#each chapter.subitems as sub}
-							<button
-								class="block w-full rounded-lg px-3 py-1.5 pl-6 text-left text-xs transition-colors {currentChapter === sub.label ? 'text-[var(--color-accent)]' : 'text-cream/40 hover:text-cream/60'}"
-								onclick={() => goToChapter(sub.href)}
-							>
-								{sub.label}
-							</button>
-						{/each}
-					{/if}
-				{/each}
-			</nav>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="toc-drawer-scrim"
+		onclick={() => (showToc = false)}
+		onkeydown={(e) => e.key === 'Escape' && (showToc = false)}
+		role="button"
+		tabindex="-1"
+		aria-label="Close table of contents"
+	></div>
+	<aside
+		class="toc-drawer"
+		class:toc-drawer-open={showToc}
+		role="dialog"
+		aria-label="Table of contents"
+	>
+		<div class="mb-4 flex items-center justify-between">
+			<h2 class="text-sm font-semibold tracking-wide text-cream/90">Contents</h2>
+			<button onclick={() => showToc = false} class="rounded-lg p-1.5 text-cream/50 hover:bg-cream/[0.06] hover:text-cream">
+				<X size={16} strokeWidth={1.5} />
+			</button>
 		</div>
-	</div>
+		<nav class="space-y-0.5">
+			{#each toc as chapter}
+				<button
+					class="block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors {currentChapter === chapter.label ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-cream/60 hover:bg-cream/[0.04] hover:text-cream'}"
+					onclick={() => goToChapter(chapter.href)}
+				>
+					{chapter.label}
+				</button>
+				{#if chapter.subitems}
+					{#each chapter.subitems as sub}
+						<button
+							class="block w-full rounded-lg px-3 py-1.5 pl-6 text-left text-xs transition-colors {currentChapter === sub.label ? 'text-[var(--color-accent)]' : 'text-cream/40 hover:text-cream/60'}"
+							onclick={() => goToChapter(sub.href)}
+						>
+							{sub.label}
+						</button>
+					{/each}
+				{/if}
+			{/each}
+		</nav>
+	</aside>
 {/if}
 
 <!-- Settings Panel -->
@@ -1353,5 +1360,37 @@
 		height: 4px;
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.08);
+	}
+
+	/* ── TOC overlay drawer ────────────────────────────────── */
+	.toc-drawer-scrim {
+		position: fixed;
+		inset: 0;
+		background: rgba(13, 11, 10, 0.45);
+		z-index: 70;
+		animation: toc-scrim-in 180ms ease-out;
+		cursor: default;
+	}
+	.toc-drawer {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: min(320px, 88vw);
+		background: #181514;
+		border-right: 1px solid rgba(240, 235, 227, 0.06);
+		z-index: 71;
+		overflow-y: auto;
+		padding: 18px 4px 18px 18px;
+		box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45);
+		animation: toc-drawer-in 220ms ease-out;
+	}
+	@keyframes toc-scrim-in {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+	@keyframes toc-drawer-in {
+		from { transform: translateX(-100%); }
+		to { transform: translateX(0); }
 	}
 </style>
