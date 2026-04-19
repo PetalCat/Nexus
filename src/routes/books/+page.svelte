@@ -132,7 +132,6 @@
 
 	// New derived fields from Task 9 loader
 	const streakCount = $derived(data.streak14?.filter(Boolean).length ?? 0);
-	const nightsCount = $derived(streakCount);
 </script>
 
 <svelte:head><title>Books — Nexus</title></svelte:head>
@@ -155,7 +154,7 @@
 	{:else if data.currentBook}
 		<HeroCinematic book={data.currentBook} />
 	{:else}
-		<HeroLiterary totalBooks={data.total} {nightsCount} currentBook={data.currentBook ?? null} />
+		<HeroLiterary totalBooks={data.total} {streakCount} currentBook={data.currentBook ?? null} />
 	{/if}
 
 	<!-- 2 + 3. Main + rail grid -->
@@ -409,7 +408,7 @@
 		<div class="divider">
 			<ProseStat>
 				{#snippet children()}
-					Forty-two nights in flight this season · a streak of <strong>{streakCount}</strong>.
+					{data.total} books on the shelves · a streak of <strong>{streakCount}</strong> day{streakCount === 1 ? '' : 's'}.
 					<a class="more-link" href="/books/stats">More in stats →</a>
 				{/snippet}
 			</ProseStat>
@@ -419,7 +418,7 @@
 		<div class="deep-links">
 			<a class="deep-card" href="/books/stats">
 				<div class="deep-title">Stats &amp; habits</div>
-				<div class="deep-sub">Goal ring · genre bars · year-of-nights calendar</div>
+				<div class="deep-sub">Goal ring · genre bars · reading calendar</div>
 				<span class="deep-arrow">→</span>
 			</a>
 			<a class="deep-card" href="/books/notes">
@@ -434,7 +433,7 @@
 			<Ornament variant="cluster" />
 			<ProseStat>
 				{#snippet children()}
-					You've been reading at Nexus for <strong>{streakCount}</strong> nights this season.
+					<strong>{streakCount}</strong> day{streakCount === 1 ? '' : 's'} of reading at Nexus this season.
 				{/snippet}
 			</ProseStat>
 		</footer>

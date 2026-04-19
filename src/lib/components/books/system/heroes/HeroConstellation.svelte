@@ -15,9 +15,9 @@
   const chapter = $derived(book.metadata?.chapter as string | number | undefined);
   const chapterLabel = $derived(chapter != null ? `CH ${chapter}` : 'CH —');
 
-  // Last session time — from metadata if available, else a static placeholder label
+  // Last session time — from metadata if available, else em-dash placeholder
   const lastSession = $derived(
-    (book.metadata?.lastSessionTime as string | undefined) ?? 'LAST NIGHT'
+    (book.metadata?.lastSessionTime as string | undefined) ?? '—'
   );
 
   // Constellation: 9 hand-picked points, 8 connecting lines
@@ -73,7 +73,7 @@
     <!-- Left column -->
     <div class="col-left">
       <h1>
-        Tonight, <em>{book.title}</em>.
+        <em>{book.title}</em>.
       </h1>
 
       <p class="subtitle">
