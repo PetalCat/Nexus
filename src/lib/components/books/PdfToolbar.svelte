@@ -2,7 +2,7 @@
 	import {
 		ArrowLeft, PanelLeft, ZoomIn, ZoomOut, Sun, Moon, Search,
 		ChevronUp, ChevronDown, Bookmark, Keyboard, Maximize,
-		BookOpen, File
+		BookOpen, File, Settings
 	} from 'lucide-svelte';
 
 	interface Props {
@@ -33,6 +33,7 @@
 		onBookmark: () => void;
 		onToggleShortcuts: () => void;
 		onFullscreen: () => void;
+		onSettings: () => void;
 	}
 
 	let {
@@ -62,7 +63,8 @@
 		onSearchPrev,
 		onBookmark,
 		onToggleShortcuts,
-		onFullscreen
+		onFullscreen,
+		onSettings
 	}: Props = $props();
 
 	let localSearchValue = $state('');
@@ -233,6 +235,11 @@
 		title="Bookmark this page"
 	>
 		<Bookmark size={18} strokeWidth={1.5} fill={isBookmarked ? 'var(--color-warm)' : 'none'} />
+	</button>
+
+	<!-- Reader settings -->
+	<button class="tb-btn" onclick={onSettings} title="Reader settings">
+		<Settings size={18} strokeWidth={1.5} />
 	</button>
 
 	<!-- Shortcuts -->

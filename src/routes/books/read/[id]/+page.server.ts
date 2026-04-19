@@ -57,10 +57,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	// Resume position (EPUB CFI or PDF page) lives in play_sessions.position.
 	const savedPosition: string | undefined = sessionRow?.position ?? undefined;
 
-	// Determine format to read — default to EPUB, allow ?format=pdf etc
+	// Determine format to read — default to EPUB, allow ?format=pdf etc.
+	// Calibre adapter returns metadata.formats as CalibreFormat[] ({name, downloadUrl}),
+	// not string[]. Other adapters could legitimately produce strings, so accept both.
 	const requestedFormat = (url.searchParams.get('format') ?? 'epub').toLowerCase();
-	const availableFormats = (item.metadata?.formats as string[]) ?? [];
-	const format = availableFormats.map(f => f.toLowerCase()).includes(requestedFormat) ? requestedFormat : 'epub';
+	const rawFormats = (item.metadata?.formats as Array<string | { name?: string }> | undefined) ?? [];
+	const availableFormats = rawFormats
+		.map(f => (typeof f === 'string' ? f : f?.name ?? ''))
+		.filter(Boolean)
+		.map(s => s.toLowerCase());
+	const format = availableFormats.includes(requestedFormat) ? requestedFormat : 'epub';
 	const bookUrl = format === 'epub'
 		? `/api/books/${params.id}/read`
 		: `/api/books/${params.id}/download/${format}?view=true`;
@@ -70,7 +76,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		serviceId: calibreConfig.id,
 		bookUrl,
 		format,
-		availableFormats: availableFormats.map(f => f.toLowerCase()),
+		availableFormats,
 		savedPosition,
 		progress: sessionRow?.progress ?? 0,
 		bookmarks,
