@@ -1061,29 +1061,23 @@
 	// remount. This action runs *after* the canvas is in the DOM and the ref
 	// has been written, which is the only reliable signal to start rendering.
 	function onCanvasMount(node: HTMLCanvasElement, pageNum: number) {
-		console.log('[PdfReader] onCanvasMount', pageNum, { hasDoc: !!pdfDoc, loading });
+		console.log('[PdfReader] onCanvasMount fire', pageNum);
+		// Cache the canvas immediately so renderPage can find it via array
+		// indexing without relying on bind:this timing.
+		canvasRefs[pageNum - 1] = node;
+		// Try to render immediately if PDF is ready; if not, the existing
+		// loading-time scheduleBufferRender / paginated-mode $effect will
+		// retry once pdfDoc is set.
 		const tryRender = () => {
-			console.log('[PdfReader] tryRender RAF', pageNum, { hasDoc: !!pdfDoc, loading, flow: settings.flow });
+			console.log('[PdfReader] tryRender exec', pageNum, { hasDoc: !!pdfDoc, loading });
 			if (!pdfDoc || loading) return;
-			if (settings.flow === 'paginated') {
-				renderedPages.delete(pageNum);
-				enqueueRender(pageNum);
-			} else {
-				enqueueRender(pageNum);
-			}
+			if (settings.flow === 'paginated') renderedPages.delete(pageNum);
+			enqueueRender(pageNum);
 		};
-		// Defer one frame so dims/scale settle.
-		const raf = requestAnimationFrame(tryRender);
-		return {
-			update(newPageNum: number) {
-				cancelAnimationFrame(raf);
-				pageNum = newPageNum;
-				requestAnimationFrame(tryRender);
-			},
-			destroy() {
-				cancelAnimationFrame(raf);
-			}
-		};
+		// queueMicrotask is more reliable than RAF — RAF inside a Svelte action
+		// can be cancelled by the action's own destroy() during the synchronous
+		// commit phase.
+		queueMicrotask(tryRender);
 	}
 
 	// Dark mode filter for pages
