@@ -1025,9 +1025,22 @@
 		/>
 	</div>
 
-	<!-- ── Content area (sidebar + viewport) ──────────────────── -->
+	<!-- ── TOC drawer scrim ───────────────────────────────────── -->
+	{#if showSidebar}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="toc-drawer-scrim"
+			onclick={() => (showSidebar = false)}
+			onkeydown={(e) => e.key === 'Escape' && (showSidebar = false)}
+			role="button"
+			tabindex="-1"
+			aria-label="Close table of contents"
+		></div>
+	{/if}
+
+	<!-- ── Content area (viewport only) ───────────────────────── -->
 	<div class="content-area">
-		<!-- ── Sidebar ─────────────────────────────────────────── -->
+		<!-- ── Sidebar (overlay drawer) ───────────────────────── -->
 		<PdfSidebar
 			visible={showSidebar}
 			totalPages={numPages}
@@ -1580,5 +1593,19 @@
 
 	.note-save:hover {
 		opacity: 0.9;
+	}
+
+	/* ── TOC overlay drawer scrim ──────────────────────────── */
+	.toc-drawer-scrim {
+		position: fixed;
+		inset: 0;
+		background: rgba(13, 11, 10, 0.45);
+		z-index: 70;
+		animation: toc-scrim-in 180ms ease-out;
+		cursor: default;
+	}
+	@keyframes toc-scrim-in {
+		from { opacity: 0; }
+		to { opacity: 1; }
 	}
 </style>
