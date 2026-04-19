@@ -37,7 +37,7 @@
 	<title>Reading: {data.book.title} — Nexus</title>
 </svelte:head>
 
-<div class="fixed inset-0 z-50 bg-[var(--color-void)]">
+<div class="books-surface fixed inset-0 z-50 bg-[var(--color-void)]">
 	{#if loadError}
 		<div class="flex h-full items-center justify-center text-sm text-muted">{loadError}</div>
 	{:else if Reader}

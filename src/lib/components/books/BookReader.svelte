@@ -117,6 +117,43 @@
 
 	const anyPanelOpen = $derived(showToc || showSettings || showBookmarks || showSearch || showFormatMenu);
 
+	// ── Chrome auto-hide ──
+	let chromeVisible = $state(true);
+	let lastActivity = $state(Date.now());
+
+	$effect(() => {
+		if (!browser) return;
+		const interval = setInterval(() => {
+			if (Date.now() - lastActivity > 2000 && !anyPanelOpen) {
+				chromeVisible = false;
+			}
+		}, 250);
+		return () => clearInterval(interval);
+	});
+
+	// Keep chrome forced visible whenever a panel is open
+	$effect(() => {
+		if (anyPanelOpen) chromeVisible = true;
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		function onActivity(e: Event) {
+			lastActivity = Date.now();
+			chromeVisible = true;
+		}
+		window.addEventListener('pointermove', onActivity);
+		window.addEventListener('pointerdown', onActivity);
+		window.addEventListener('wheel', onActivity);
+		window.addEventListener('keydown', onActivity);
+		return () => {
+			window.removeEventListener('pointermove', onActivity);
+			window.removeEventListener('pointerdown', onActivity);
+			window.removeEventListener('wheel', onActivity);
+			window.removeEventListener('keydown', onActivity);
+		};
+	});
+
 	const themes: Record<string, { bg: string; text: string; link: string }> = {
 		dark: { bg: '#181514', text: '#f0ebe3', link: '#d4a253' },
 		light: { bg: '#faf8f5', text: '#1a1a1a', link: '#b8862e' },
@@ -703,6 +740,7 @@
 	class:opacity-0={!showToolbar}
 	class:pointer-events-none={!showToolbar}
 	class:-translate-y-full={!showToolbar}
+	class:hidden-chrome={!chromeVisible}
 	style="background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);"
 >
 	<button onclick={closeReader} class="rounded-lg p-2 text-cream/70 transition-colors hover:text-cream" title="Back (Esc)">
@@ -822,6 +860,7 @@
 	class:opacity-0={!showToolbar}
 	class:pointer-events-none={!showToolbar}
 	class:translate-y-full={!showToolbar}
+	class:hidden-chrome-bottom={!chromeVisible}
 >
 	<div class="flex items-center gap-2 px-4 pb-1 pt-2" style="background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);">
 		<button onclick={prevPage} class="rounded p-1 text-cream/50 transition-colors hover:text-cream" aria-label="Previous page">
@@ -848,6 +887,11 @@
 			<TimeEstimate {remainingPages} />
 		</div>
 	{/if}
+</div>
+
+<!-- Hairline progress strip (always visible) -->
+<div class="hairline" aria-hidden="true">
+	<div class="hairline-fill" style="width: {currentProgress * 100}%"></div>
 </div>
 
 <!-- TOC Sidebar -->
@@ -1231,6 +1275,36 @@
 {/if}
 
 <style>
+	/* ── Chrome auto-hide ──────────────────────────────────── */
+	.hidden-chrome {
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(-6px);
+		transition: opacity .3s ease, transform .3s ease;
+	}
+	.hidden-chrome-bottom {
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(6px);
+		transition: opacity .3s ease, transform .3s ease;
+	}
+
+	/* ── Hairline progress strip ───────────────────────────── */
+	.hairline {
+		position: fixed;
+		inset: auto 0 0 0;
+		height: 2px;
+		background: rgba(240, 235, 227, 0.06);
+		z-index: 100;
+		pointer-events: none;
+	}
+	.hairline-fill {
+		height: 100%;
+		background: var(--accent, #d4a253);
+		box-shadow: 0 0 6px rgba(212, 162, 83, .5);
+		transition: width .3s ease;
+	}
+
 	/* Settings panel label style */
 	.settings-label {
 		display: block;
