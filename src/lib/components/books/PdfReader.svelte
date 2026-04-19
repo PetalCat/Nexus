@@ -217,11 +217,7 @@
 	function zoomIn() {
 		if (settings.flow === 'paginated') {
 			paginatedZoom = Math.min(5.0, paginatedZoom * 1.25);
-			console.log('[PdfReader] zoomIn paginated', paginatedZoom, 'rendered=', [...renderedPages], 'renderingPages=', [...renderingPages]);
 			invalidateAllPages();
-			console.log('[PdfReader] after invalidate rendered=', [...renderedPages]);
-			scheduleBufferRender();
-			console.log('[PdfReader] after scheduleBufferRender queue=', [...renderQueue]);
 			return;
 		}
 		fitMode = 'custom';
@@ -232,7 +228,6 @@
 		if (settings.flow === 'paginated') {
 			paginatedZoom = Math.max(0.25, paginatedZoom * 0.8);
 			invalidateAllPages();
-			scheduleBufferRender();
 			return;
 		}
 		fitMode = 'custom';
@@ -653,7 +648,14 @@
 
 	// ── Invalidate all rendered pages (for scale change) ──────────
 	function invalidateAllPages() {
-		for (const pageNum of [...renderedPages]) {
+		// Pages that finished rendering AND pages currently in flight both need
+		// to be invalidated when scale changes. cleanupPage handles both —
+		// cancels any active render task and clears the canvas — so iterate
+		// the union of both sets.
+		const pages = new Set<number>();
+		for (const p of renderedPages) pages.add(p);
+		for (const p of renderingPages) pages.add(p);
+		for (const pageNum of pages) {
 			cleanupPage(pageNum);
 		}
 		renderQueue = [];
@@ -662,11 +664,7 @@
 
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
-		console.log('[PdfReader] renderPage entry', pageNum, 'paginatedZoom=', paginatedZoom);
-		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) {
-			console.log('[PdfReader] renderPage early-return', pageNum, { rendered: renderedPages.has(pageNum), rendering: renderingPages.has(pageNum) });
-			return;
-		}
+		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
 
 		// bind:this with array-indexing inside snippets is unreliable in
 		// Svelte 5 — the array slot can read empty here even when the canvas
