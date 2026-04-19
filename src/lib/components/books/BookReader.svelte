@@ -12,6 +12,9 @@
 	import ReaderProgressBar from './ReaderProgressBar.svelte';
 	import TimeEstimate from './TimeEstimate.svelte';
 	import KeyboardShortcuts from './KeyboardShortcuts.svelte';
+	import PaginatedViewport from './PaginatedViewport.svelte';
+	import ReaderSettingsPanel from './ReaderSettingsPanel.svelte';
+	import { loadReaderSettings, persistReaderSettings, DEFAULT_READER_SETTINGS, type ReaderSettings } from './reader-settings';
 
 	interface Props {
 		epubUrl: string;
@@ -104,34 +107,38 @@
 		{ label: 'Shortcuts', key: '?' }
 	];
 
-	// Reader settings (persisted in localStorage)
-	let readerTheme = $state<'dark' | 'light' | 'sepia' | 'oled'>('dark');
-	let fontFamily = $state<'serif' | 'sans' | 'mono' | 'display'>('serif');
-	let fontSize = $state(18);
-	let lineHeight = $state(1.6);
-	let margins = $state<'narrow' | 'medium' | 'wide'>('medium');
-	let textAlign = $state<'start' | 'justify'>('start');
-	let flow = $state<'paginated' | 'scrolled'>('paginated');
+	// Reader settings (persisted in localStorage via shared module)
+	let settings = $state<ReaderSettings>({ ...DEFAULT_READER_SETTINGS });
+
+	// Derived aliases — keeps existing template references working; all writes
+	// go back into `settings` so there is a single source of truth.
+	const readerTheme = $derived(settings.theme);
+	const fontFamily = $derived(settings.fontFamily);
+	const fontSize = $derived(settings.fontSize);
+	const lineHeight = $derived(settings.lineHeight);
+	const margins = $derived(settings.margins);
+	const textAlign = $derived(settings.textAlign);
+	const flow = $derived(settings.flow);
 
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const anyPanelOpen = $derived(showToc || showSettings || showBookmarks || showSearch || showFormatMenu);
 
-	const themes: Record<string, { bg: string; text: string; link: string }> = {
+	const themes: Record<ReaderSettings['theme'], { bg: string; text: string; link: string }> = {
 		dark: { bg: '#181514', text: '#f0ebe3', link: '#d4a253' },
 		light: { bg: '#faf8f5', text: '#1a1a1a', link: '#b8862e' },
 		sepia: { bg: '#f4ecd8', text: '#5b4636', link: '#8b6914' },
 		oled: { bg: '#000000', text: '#b0b0b0', link: '#d4a253' }
 	};
 
-	const fonts: Record<string, string> = {
+	const fonts: Record<ReaderSettings['fontFamily'], string> = {
 		serif: "Georgia, 'Times New Roman', serif",
 		sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
 		mono: "'JetBrains Mono', 'Fira Code', monospace",
 		display: "'Playfair Display', Georgia, serif"
 	};
 
-	const marginValues: Record<string, string> = {
+	const marginValues: Record<ReaderSettings['margins'], string> = {
 		narrow: '2%',
 		medium: '6%',
 		wide: '12%'
@@ -144,30 +151,15 @@
 		pink: 'rgba(251, 113, 133, 0.3)'
 	};
 
-	// ── Settings persistence ──
-	function loadSettings() {
-		if (!browser) return;
-		try {
-			const saved = localStorage.getItem('nexus-reader-settings');
-			if (saved) {
-				const s = JSON.parse(saved);
-				if (s.theme && s.theme in themes) readerTheme = s.theme;
-				if (s.fontFamily && s.fontFamily in fonts) fontFamily = s.fontFamily;
-				if (s.fontSize) fontSize = s.fontSize;
-				if (s.lineHeight) lineHeight = s.lineHeight;
-				if (s.margins && s.margins in marginValues) margins = s.margins;
-				if (s.textAlign === 'start' || s.textAlign === 'justify') textAlign = s.textAlign;
-				if (s.flow) flow = s.flow;
-			}
-		} catch { /* ignore */ }
-	}
+	// ── Settings persistence (via shared module) ──
+	// Writes are persisted via $effect below; reads happen lazily in
+	// initFoliateReader so the reader hydrates with whatever's in localStorage.
 
-	function persistSettings() {
+	$effect(() => {
+		// Persist on every change. `persistReaderSettings` merges into stored state.
 		if (!browser) return;
-		localStorage.setItem('nexus-reader-settings', JSON.stringify({
-			theme: readerTheme, fontFamily, fontSize, lineHeight, margins, textAlign, flow
-		}));
-	}
+		persistReaderSettings(settings);
+	});
 
 	// ── Build CSS for foliate-js renderer ──
 	function getReaderCSS(): string {
@@ -218,7 +210,6 @@
 	function applyStyles() {
 		if (!view?.renderer?.setStyles) return;
 		view.renderer.setStyles(getReaderCSS());
-		persistSettings();
 	}
 
 	// ── Flatten TOC for display ──
@@ -507,9 +498,8 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (showSearch && e.key !== 'Escape') return;
 		if (showNoteInput && e.key !== 'Escape') return;
+		// ArrowLeft/Right are owned by PaginatedViewport (gated by settings.inputs.keyboard).
 		switch (e.key) {
-			case 'ArrowLeft': e.preventDefault(); prevPage(); break;
-			case 'ArrowRight': e.preventDefault(); nextPage(); break;
 			case 'Escape':
 				e.preventDefault();
 				if (showAnnotationPopup) dismissAnnotationPopup();
@@ -528,7 +518,8 @@
 
 	// ── Svelte action for foliate-js lifecycle ──
 	function initFoliateReader(node: HTMLElement) {
-		loadSettings();
+		// Hydrate settings from localStorage before the view opens
+		settings = loadReaderSettings();
 
 		// Sync initial prop values
 		currentProgress = initialProgress;
@@ -684,12 +675,11 @@
 		if (view && ready) applyStyles();
 	});
 
-	// Handle flow change
+	// Handle flow + direction changes — drive the foliate renderer directly.
 	$effect(() => {
-		if (!view || !ready) return;
-		void flow;
-		view.renderer.setAttribute('flow', flow);
-		persistSettings();
+		if (!view?.renderer) return;
+		view.renderer.setAttribute('flow', settings.flow);
+		view.renderer.setAttribute('dir', settings.direction);
 	});
 
 	const progressPercent = $derived(Math.round(currentProgress * 100));
@@ -790,12 +780,22 @@
 	style="background-color: {themes[readerTheme].bg};"
 	onmousemove={handleReaderMouseMove}
 >
-	<!-- foliate-js container -->
-	<div
-		use:initFoliateReader
-		class="absolute overflow-hidden"
-		style="top: 0; bottom: 0; left: 0; right: 0;"
-	></div>
+	<!-- foliate-js container, wrapped by PaginatedViewport for shared input/animation behavior -->
+	<div class="absolute" style="top: 0; bottom: 0; left: 0; right: 0;">
+		<PaginatedViewport
+			{settings}
+			onPrev={() => view?.prev()}
+			onNext={() => view?.next()}
+			onToggleUI={() => { showSettings = !showSettings; }}
+		>
+			{#snippet children(_ctx: { effectiveSpread: 'single' | 'dual'; animationKey: number })}
+				<div
+					use:initFoliateReader
+					class="h-full w-full overflow-hidden"
+				></div>
+			{/snippet}
+		</PaginatedViewport>
+	</div>
 
 	<!-- Click zone overlay for navigation (only outside the iframe) -->
 	<button
@@ -912,7 +912,7 @@
 					{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'oled', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
 						<button
 							class="flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[10px] transition-all {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/40 hover:border-cream/20 hover:text-cream/60'}"
-							onclick={() => { readerTheme = key as typeof readerTheme; }}
+							onclick={() => { settings.theme = key as ReaderSettings['theme']; }}
 						>
 							<span
 								class="h-5 w-5 rounded-full border-2"
@@ -932,7 +932,7 @@
 						<button
 							class="rounded-lg border px-2 py-2 text-xs transition-all {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 							style="font-family: {font};"
-							onclick={() => { fontFamily = key as typeof fontFamily; }}
+							onclick={() => { settings.fontFamily = key as ReaderSettings['fontFamily']; }}
 						>{label}</button>
 					{/each}
 				</div>
@@ -946,7 +946,7 @@
 				</label>
 				<div class="flex items-center gap-3">
 					<Type size={12} class="shrink-0 text-cream/30" />
-					<input id="reader-font-size" type="range" min="12" max="36" step="1" bind:value={fontSize} class="reader-range flex-1" />
+					<input id="reader-font-size" type="range" min="12" max="36" step="1" bind:value={settings.fontSize} class="reader-range flex-1" />
 					<Type size={20} class="shrink-0 text-cream/30" />
 				</div>
 			</div>
@@ -957,7 +957,7 @@
 					<span>Line Height</span>
 					<span class="normal-case tracking-normal text-cream/60">{lineHeight.toFixed(1)}</span>
 				</label>
-				<input id="reader-line-height" type="range" min="1.0" max="2.0" step="0.1" bind:value={lineHeight} class="reader-range w-full" />
+				<input id="reader-line-height" type="range" min="1.0" max="2.0" step="0.1" bind:value={settings.lineHeight} class="reader-range w-full" />
 			</div>
 
 			<!-- Margins -->
@@ -967,7 +967,7 @@
 					{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'medium', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
 						<button
 							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {margins === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-							onclick={() => { margins = key as typeof margins; }}
+							onclick={() => { settings.margins = key as ReaderSettings['margins']; }}
 						>{label}</button>
 					{/each}
 				</div>
@@ -979,33 +979,21 @@
 				<div class="flex gap-2">
 					<button
 						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'start' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { textAlign = 'start'; }}
+						onclick={() => { settings.textAlign = 'start'; }}
 					>
 						<AlignLeft size={13} strokeWidth={1.5} /> Left
 					</button>
 					<button
 						class="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-all {textAlign === 'justify' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { textAlign = 'justify'; }}
+						onclick={() => { settings.textAlign = 'justify'; }}
 					>
 						<AlignJustify size={13} strokeWidth={1.5} /> Justified
 					</button>
 				</div>
 			</div>
 
-			<!-- Reading Mode -->
-			<div>
-				<span class="settings-label">Reading Mode</span>
-				<div class="flex gap-2">
-					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'paginated' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { flow = 'paginated'; }}
-					>Paginated</button>
-					<button
-						class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {flow === 'scrolled' ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
-						onclick={() => { flow = 'scrolled'; }}
-					>Scrolled</button>
-				</div>
-			</div>
+			<!-- Shared paginated / flow / spread / inputs / direction panel -->
+			<ReaderSettingsPanel bind:settings variant="epub" />
 		</div>
 	</div>
 {/if}
