@@ -654,7 +654,19 @@
 
 		try {
 			const page = await pdfDoc.getPage(pageNum);
-			const viewport = page.getViewport({ scale });
+			// In paginated mode, fit each page to the viewport (halved for dual);
+			// in scrolled mode, the user-controlled scale governs.
+			let renderScale = scale;
+			if (settings.flow === 'paginated' && viewportEl) {
+				const containerW = Math.max(0, viewportEl.clientWidth - 80);
+				const containerH = Math.max(0, viewportEl.clientHeight - 40);
+				const pagesAcross = effectiveSpread === 'dual' ? 2 : 1;
+				const baseVp = page.getViewport({ scale: 1 });
+				const fitW = (containerW / pagesAcross) / baseVp.width;
+				const fitH = containerH / baseVp.height;
+				renderScale = Math.min(fitW, fitH);
+			}
+			const viewport = page.getViewport({ scale: renderScale });
 			const dpr = window.devicePixelRatio || 1;
 
 			// Size the canvas
@@ -1006,9 +1018,50 @@
 	function getPageDims(pageIdx: number): { width: number; height: number } {
 		const vp = pageViewports[pageIdx];
 		if (!vp) return { width: 600, height: 800 };
+		// In paginated dual mode, halve the per-page width so two pages fit side
+		// by side. In paginated single mode, scale-down so a single page fills
+		// the viewport without overflow.
+		let dimScale = scale;
+		if (settings.flow === 'paginated' && viewportEl) {
+			const containerW = Math.max(0, viewportEl.clientWidth - 80);
+			const containerH = Math.max(0, viewportEl.clientHeight - 40);
+			const pagesAcross = effectiveSpread === 'dual' ? 2 : 1;
+			const fitW = (containerW / pagesAcross) / vp.width;
+			const fitH = containerH / vp.height;
+			dimScale = Math.min(fitW, fitH);
+		}
 		return {
-			width: vp.width * scale,
-			height: vp.height * scale
+			width: vp.width * dimScale,
+			height: vp.height * dimScale
+		};
+	}
+
+	// Fire renderPage when each canvas actually mounts. bind:this with array
+	// indexing inside a snippet is fragile in Svelte 5 — the array slot can be
+	// observed empty by an effect that fires on the same tick as the snippet
+	// remount. This action runs *after* the canvas is in the DOM and the ref
+	// has been written, which is the only reliable signal to start rendering.
+	function onCanvasMount(node: HTMLCanvasElement, pageNum: number) {
+		const tryRender = () => {
+			if (!pdfDoc || loading) return;
+			if (settings.flow === 'paginated') {
+				renderedPages.delete(pageNum);
+				enqueueRender(pageNum);
+			} else {
+				enqueueRender(pageNum);
+			}
+		};
+		// Defer one frame so dims/scale settle.
+		const raf = requestAnimationFrame(tryRender);
+		return {
+			update(newPageNum: number) {
+				cancelAnimationFrame(raf);
+				pageNum = newPageNum;
+				requestAnimationFrame(tryRender);
+			},
+			destroy() {
+				cancelAnimationFrame(raf);
+			}
 		};
 	}
 
@@ -1032,7 +1085,10 @@
 		style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
 		bind:this={pageWrappers[pageNum - 1]}
 	>
-		<canvas bind:this={canvasRefs[pageNum - 1]}></canvas>
+		<canvas
+			bind:this={canvasRefs[pageNum - 1]}
+			use:onCanvasMount={pageNum}
+		></canvas>
 		<div class="text-layer" bind:this={textLayerRefs[pageNum - 1]}></div>
 		{#if !renderedPages.has(pageNum)}
 			<div class="page-placeholder">
