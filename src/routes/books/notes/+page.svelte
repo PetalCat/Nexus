@@ -1,237 +1,688 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import type { UnifiedMedia } from '$lib/adapters/types';
+	import BookCover from '$lib/components/books/system/BookCover.svelte';
+	import RightRailBlock from '$lib/components/books/system/RightRailBlock.svelte';
+	import Ornament from '$lib/components/books/system/Ornament.svelte';
+	import ProseStat from '$lib/components/books/system/ProseStat.svelte';
 
 	let { data }: { data: PageData } = $props();
 
-	let filterColor = $state('all');
-	let sortBy = $state<'date' | 'book'>('date');
-	let searchText = $state('');
+	// Filter state — All / Highlights / Notes
+	let typeFilter = $state<'all' | 'highlights' | 'notes'>('all');
+	let searchText = $state(''); // TODO: filter wiring — input accepts value but is unused in v1
 
-	const colorOptions = ['all', 'yellow', 'green', 'blue', 'pink'] as const;
+	// TODO: filter wiring — segment groups for By book / Chronological / Random are visual-only in v1
+	let sortMode = $state<'book' | 'chron' | 'random'>('book');
 
-	const colorMap: Record<string, string> = {
-		yellow: '#d4a253',
-		green: '#3d8f84',
-		blue: '#5b8dca',
-		pink: '#c45c5c'
-	};
-
-	const filteredHighlights = $derived.by(() => {
-		let h = data.highlights;
-		if (filterColor !== 'all') h = h.filter(x => x.color === filterColor);
-		if (searchText) {
-			const q = searchText.toLowerCase();
-			h = h.filter(x => x.text.toLowerCase().includes(q) || (x.note?.toLowerCase().includes(q)));
-		}
-		if (sortBy === 'book') {
-			h = [...h].sort((a, b) => a.bookId.localeCompare(b.bookId));
-		}
-		return h;
+	const visibleGroups = $derived.by(() => {
+		return data.groups.filter(g => {
+			if (typeFilter === 'highlights') return g.highlights.length > 0;
+			if (typeFilter === 'notes') return g.notes.length > 0;
+			return true;
+		});
 	});
 
-	const notesByBook = $derived.by(() => {
-		const map = new Map<string, typeof data.notes>();
-		for (const n of data.notes) {
-			const key = n.bookId;
-			if (!map.has(key)) map.set(key, []);
-			map.get(key)!.push(n);
-		}
-		return map;
-	});
+	const totalVisible = $derived(
+		visibleGroups.reduce((acc, g) => {
+			if (typeFilter === 'highlights') return acc + g.highlights.length;
+			if (typeFilter === 'notes') return acc + g.notes.length;
+			return acc + g.highlights.length + g.notes.length;
+		}, 0)
+	);
 
-	function relativeTime(ts: number) {
-		const diff = Date.now() - ts;
-		const mins = Math.floor(diff / 60000);
-		if (mins < 1) return 'just now';
-		if (mins < 60) return `${mins}m ago`;
-		const hrs = Math.floor(mins / 60);
-		if (hrs < 24) return `${hrs}h ago`;
-		const days = Math.floor(hrs / 24);
-		if (days < 30) return `${days}d ago`;
-		const months = Math.floor(days / 30);
-		return `${months}mo ago`;
+	/** Build a minimal UnifiedMedia-shaped object for BookCover */
+	function bookToMedia(book: { id: string; title: string; author?: string; poster?: string | null }): UnifiedMedia {
+		return {
+			id: book.id,
+			sourceId: book.id,
+			serviceId: '',
+			serviceType: 'calibre',
+			type: 'book',
+			title: book.title,
+			poster: book.poster ?? undefined
+		};
 	}
 
-	function exportMarkdown() {
-		let md = '# Reading Notes & Highlights\n\n';
-		const byBook = new Map<string, typeof filteredHighlights>();
-		for (const h of filteredHighlights) {
-			const key = h.bookId;
-			if (!byBook.has(key)) byBook.set(key, []);
-			byBook.get(key)!.push(h);
-		}
-		for (const [bookId, items] of byBook) {
-			md += `## ${bookId}\n\n`;
-			for (const h of items) {
-				md += `> ${h.text}\n\n`;
-				if (h.note) md += `*${h.note}*\n\n`;
-				if (h.chapter) md += `Chapter: ${h.chapter}\n\n`;
-				md += `---\n\n`;
-			}
-		}
-		const blob = new Blob([md], { type: 'text/markdown' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = 'reading-notes.md';
-		a.click();
-		URL.revokeObjectURL(url);
+	/** Format a Unix-ms timestamp as "Apr 7, 3:42pm" */
+	function formatDate(ts: number): string {
+		const d = new Date(ts);
+		const mon = d.toLocaleString('en-US', { month: 'short' });
+		const day = d.getDate();
+		let hr = d.getHours();
+		const min = String(d.getMinutes()).padStart(2, '0');
+		const ampm = hr >= 12 ? 'pm' : 'am';
+		hr = hr % 12 || 12;
+		return `${mon} ${day}, ${hr}:${min}${ampm}`;
 	}
 
-	function copyToClipboard() {
-		let text = '';
-		for (const h of filteredHighlights) {
-			text += `"${h.text}"`;
-			if (h.note) text += `\n  Note: ${h.note}`;
-			text += '\n\n';
-		}
-		navigator.clipboard.writeText(text);
+	/** Accent the last word of a title with the accent color */
+	function accentLastWord(title: string): string {
+		const parts = title.trim().split(/\s+/);
+		if (parts.length <= 1) return `<em>${title}</em>`;
+		const last = parts.pop()!;
+		return `${parts.join(' ')} <em>${last}</em>`;
 	}
 </script>
 
 <svelte:head>
-	<title>Notes & Highlights - Nexus</title>
+	<title>Marginalia — Nexus</title>
 </svelte:head>
 
-<div class="px-3 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-8">
-	<!-- Header -->
-	<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-		<div>
-			<h1 class="font-[var(--font-display)] text-2xl font-bold text-[var(--color-cream)]">Notes & Highlights</h1>
-			<p class="mt-1 text-sm text-[var(--color-muted)]">
-				{data.highlights.length} highlight{data.highlights.length !== 1 ? 's' : ''}
-				· {data.notes.length} note{data.notes.length !== 1 ? 's' : ''}
-			</p>
-		</div>
-		<div class="flex gap-2">
-			<button onclick={exportMarkdown} class="rounded-lg bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-cream)]">
-				Export Markdown
-			</button>
-			<button onclick={copyToClipboard} class="rounded-lg bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-cream)]">
-				Copy to Clipboard
-			</button>
-		</div>
-	</div>
+<div class="notes-page">
 
-	<!-- Filter bar -->
-	<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-		<!-- Color filter -->
-		<div class="flex items-center gap-2">
-			<span class="text-xs text-[var(--color-muted)]">Color</span>
-			<div class="flex gap-1 rounded-lg bg-[var(--color-surface)] p-1">
-				{#each colorOptions as c}
-					<button
-						onclick={() => filterColor = c}
-						class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {filterColor === c
-							? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
-							: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-					>
-						{#if c !== 'all'}
-							<span class="mr-1 inline-block h-2 w-2 rounded-full" style="background: {colorMap[c]}"></span>
-						{/if}
-						{c[0].toUpperCase() + c.slice(1)}
-					</button>
-				{/each}
-			</div>
+	<!-- ─── Page head ─────────────────────────────────────────────────── -->
+	<header class="page-head">
+		<span class="mono-tag">◇ FROM THE PAGES YOU'VE FOLDED</span>
+		<h1>The <em>marginalia</em>.</h1>
+		<p class="subtitle">
+			Every line you've underlined, every note you've scribbled, brought together.
+			{data.totalHighlights} highlight{data.totalHighlights !== 1 ? 's' : ''} and
+			{data.totalNotes} note{data.totalNotes !== 1 ? 's' : ''} across
+			{data.totalBooks} book{data.totalBooks !== 1 ? 's' : ''}.
+			Searchable, filterable, yours.
+		</p>
+	</header>
+
+	<!-- ─── Toolbar ───────────────────────────────────────────────────── -->
+	<div class="toolbar">
+		<!-- Type filter -->
+		<div class="seg-group">
+			<button
+				class="seg"
+				class:seg-active={typeFilter === 'all'}
+				onclick={() => typeFilter = 'all'}
+			>All</button>
+			<button
+				class="seg"
+				class:seg-active={typeFilter === 'highlights'}
+				onclick={() => typeFilter = 'highlights'}
+			>Highlights</button>
+			<button
+				class="seg"
+				class:seg-active={typeFilter === 'notes'}
+				onclick={() => typeFilter = 'notes'}
+			>Notes</button>
 		</div>
 
-		<!-- Sort -->
-		<div class="flex items-center gap-2">
-			<span class="text-xs text-[var(--color-muted)]">Sort</span>
-			<div class="flex gap-1 rounded-lg bg-[var(--color-surface)] p-1">
-				<button
-					onclick={() => sortBy = 'date'}
-					class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {sortBy === 'date'
-						? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
-						: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-				>Date</button>
-				<button
-					onclick={() => sortBy = 'book'}
-					class="rounded-md px-2.5 py-1 text-xs font-medium transition-all {sortBy === 'book'
-						? 'bg-[var(--color-raised)] text-[var(--color-cream)]'
-						: 'text-[var(--color-muted)] hover:text-[var(--color-cream)]'}"
-				>Book</button>
-			</div>
+		<!-- Sort mode — visual only in v1 -->
+		<!-- TODO: filter wiring — chron/random sort not implemented -->
+		<div class="seg-group">
+			<button
+				class="seg"
+				class:seg-active={sortMode === 'book'}
+				onclick={() => sortMode = 'book'}
+			>By book</button>
+			<button
+				class="seg"
+				class:seg-active={sortMode === 'chron'}
+				onclick={() => sortMode = 'chron'}
+			>Chronological</button>
+			<button
+				class="seg"
+				class:seg-active={sortMode === 'random'}
+				onclick={() => sortMode = 'random'}
+			>Random</button>
 		</div>
 
-		<!-- Search -->
+		<!-- Search (value bound, wiring deferred to v2) -->
+		<!-- TODO: filter wiring — search input not yet applied -->
 		<input
+			class="search-input"
 			bind:value={searchText}
-			class="input w-full text-sm sm:ml-auto sm:w-52"
-			placeholder="Search highlights..."
+			placeholder="Search marginalia…"
 		/>
+
+		<span class="entry-count">{totalVisible} entr{totalVisible !== 1 ? 'ies' : 'y'}</span>
 	</div>
 
-	<!-- Highlights grid -->
-	{#if filteredHighlights.length === 0 && data.notes.length === 0}
-		<div class="flex flex-col items-center justify-center py-24 text-center">
-			<div class="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface)] text-[var(--color-muted)]">
-				<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-				</svg>
-			</div>
-			<p class="font-medium">No notes or highlights yet</p>
-			<p class="mt-1 text-sm text-[var(--color-muted)]">Highlight text while reading to build your collection.</p>
-			<a href="/books" class="btn btn-primary mt-4 text-sm">Browse Books</a>
-		</div>
-	{:else}
-		{#if filteredHighlights.length > 0}
-			<section class="mb-10">
-				<h2 class="mb-4 text-base font-semibold text-[var(--color-cream)]">Highlights</h2>
-				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-					{#each filteredHighlights as h (h.id)}
-						{@const borderColor = colorMap[h.color ?? 'yellow'] ?? colorMap.yellow}
-						<a
-							href="/books/read/{h.bookId}?service={h.serviceId}&cfi={encodeURIComponent(h.cfi)}"
-							class="group block rounded-xl bg-[var(--color-raised)] p-4 transition-all hover:bg-[var(--color-surface)] hover:shadow-[var(--shadow-card)]"
-						>
-							<!-- Quoted text -->
-							<div
-								class="mb-3 border-l-[3px] pl-3 text-sm italic leading-relaxed text-[var(--color-cream)]"
-								style="border-color: {borderColor}"
-							>
-								<p class="line-clamp-4">{h.text}</p>
-							</div>
+	<!-- ─── Main + rail ───────────────────────────────────────────────── -->
+	<div class="content-grid">
 
-							<!-- Note -->
-							{#if h.note}
-								<p class="mb-3 text-xs text-[var(--color-muted)] leading-relaxed">{h.note}</p>
-							{/if}
-
-							<!-- Meta -->
-							<div class="flex items-center justify-between text-[10px] text-[var(--color-faint)]">
-								<div class="flex items-center gap-2">
-									{#if h.chapter}
-										<span class="rounded bg-[var(--color-surface)] px-1.5 py-0.5">{h.chapter}</span>
-									{/if}
-									<span>Book {h.bookId}</span>
-								</div>
-								<span>{relativeTime(h.createdAt)}</span>
-							</div>
-						</a>
-					{/each}
+		<!-- Main column -->
+		<main class="main-col">
+			{#if visibleGroups.length === 0}
+				<div class="empty-state">
+					<Ornament />
+					<p class="empty-text">No marginalia yet. Highlight in the reader to start.</p>
 				</div>
-			</section>
-		{/if}
-
-		<!-- Notes section grouped by book -->
-		{#if notesByBook.size > 0}
-			<section>
-				<h2 class="mb-4 text-base font-semibold text-[var(--color-cream)]">Notes</h2>
-				{#each [...notesByBook] as [bookId, bookNotes] (bookId)}
-					<div class="mb-6">
-						<h3 class="mb-3 text-sm font-medium text-[var(--color-accent)]">Book {bookId}</h3>
-						<div class="space-y-2">
-							{#each bookNotes as note (note.id)}
-								<div class="rounded-xl bg-[var(--color-raised)] p-4">
-									<p class="text-sm text-[var(--color-cream)] whitespace-pre-wrap">{note.content}</p>
-									<p class="mt-2 text-[10px] text-[var(--color-faint)]">{relativeTime(note.updatedAt)}</p>
-								</div>
-							{/each}
+			{:else}
+				{#each visibleGroups as group (group.bookId)}
+					{@const cards = [
+						...(typeFilter !== 'notes' ? group.highlights.map(h => ({ kind: 'hl' as const, h })) : []),
+						...(typeFilter !== 'highlights' ? group.notes.map(n => ({ kind: 'nt' as const, n })) : [])
+					]}
+					<section class="book-group">
+						<!-- Book head row -->
+						<div class="book-head">
+							<a href="/books/{group.book.id}" class="cover-link" aria-label="Open {group.book.title}">
+								<BookCover book={bookToMedia(group.book)} size="sm" />
+							</a>
+							<div class="book-meta">
+								<h2 class="book-title">{@html accentLastWord(group.book.title)}</h2>
+								{#if group.book.author}
+									<p class="book-author">{group.book.author}</p>
+								{/if}
+							</div>
+							<div class="book-right">
+								<span class="book-count">{group.total}</span>
+								<a class="book-link" href="/books/{group.book.id}">Open book →</a>
+							</div>
 						</div>
-					</div>
+
+						<!-- Cards grid -->
+						{#if cards.length > 0}
+							<div class="cards-grid">
+								{#each cards as card (card.kind === 'hl' ? `hl-${card.h.id}` : `nt-${card.n.id}`)}
+									{#if card.kind === 'hl'}
+										{@const h = card.h}
+										<article class="qcard highlight">
+											<span class="glyph">"</span>
+											<p class="qtext">{h.text}</p>
+											{#if h.note}
+												<p class="qnote">⟶ {h.note}</p>
+											{/if}
+											<footer class="qmeta">
+												CH {h.chapter ?? '—'} · {formatDate(h.createdAt)}
+											</footer>
+										</article>
+									{:else}
+										{@const n = card.n}
+										<article class="qcard note">
+											<span class="glyph">§</span>
+											<p class="qtext">{n.content}</p>
+											<footer class="qmeta">
+												CH {n.chapter ?? '—'} · {formatDate(n.createdAt)}
+											</footer>
+										</article>
+									{/if}
+								{/each}
+							</div>
+						{/if}
+					</section>
 				{/each}
-			</section>
-		{/if}
-	{/if}
+			{/if}
+		</main>
+
+		<!-- Right rail -->
+		<aside class="right-rail">
+			<RightRailBlock label="This year">
+				<div class="rail-stat">
+					<span class="rail-big">{data.thisYear}</span>
+					<span class="rail-unit">entries</span>
+				</div>
+				<p class="rail-sub">{data.totalHighlights} HIGHLIGHTS · {data.totalNotes} NOTES</p>
+			</RightRailBlock>
+
+			<RightRailBlock label="Tags">
+				<div class="tag-cloud">
+					{#each data.tagCloud as { tag, count } (tag)}
+						<span class="tag-chip">
+							{tag}
+							<span class="tag-badge">{count}</span>
+						</span>
+					{/each}
+					{#if data.tagCloud.length === 0}
+						<span class="rail-empty">No tags yet</span>
+					{/if}
+				</div>
+			</RightRailBlock>
+
+			<RightRailBlock label="Books">
+				<ul class="rail-book-list">
+					{#each data.groups as g (g.bookId)}
+						<li>
+							<a class="rail-book-link" href="/books/{g.book.id}">{g.book.title}</a>
+						</li>
+					{/each}
+					{#if data.groups.length === 0}
+						<li class="rail-empty">None yet</li>
+					{/if}
+				</ul>
+			</RightRailBlock>
+
+			<RightRailBlock label="Export">
+				<div class="export-labels">
+					<span class="export-label">MARKDOWN</span>
+					<span class="export-label">JSON</span>
+					<span class="export-label">CSV</span>
+				</div>
+			</RightRailBlock>
+		</aside>
+	</div>
+
+	<!-- ─── Footer ────────────────────────────────────────────────────── -->
+	<footer class="page-footer">
+		<Ornament />
+		<ProseStat>
+			<em>"We read to know we're not alone." — C.S. Lewis</em>
+		</ProseStat>
+	</footer>
+
 </div>
+
+<style>
+	/* ── Layout ─────────────────────────────────────────────────────────── */
+	.notes-page {
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 48px 24px 80px;
+	}
+
+	.content-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 280px;
+		gap: 48px;
+		align-items: start;
+	}
+
+	@media (max-width: 1023px) {
+		.content-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.right-rail {
+			order: -1;
+		}
+	}
+
+	/* ── Page head ──────────────────────────────────────────────────────── */
+	.page-head {
+		margin-bottom: 40px;
+	}
+
+	.mono-tag {
+		font: 9px/1 var(--font-mono);
+		letter-spacing: .28em;
+		color: var(--accent);
+		text-transform: uppercase;
+		display: block;
+		margin-bottom: 12px;
+	}
+
+	.page-head h1 {
+		font-family: var(--font-display);
+		font-size: clamp(42px, 7vw, 72px);
+		font-weight: 400;
+		line-height: .95;
+		letter-spacing: -.02em;
+		color: var(--cream);
+		margin: 0 0 18px;
+	}
+
+	.page-head h1 em {
+		font-style: italic;
+		color: var(--accent);
+	}
+
+	.subtitle {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 15px;
+		color: var(--muted);
+		line-height: 1.6;
+		max-width: 640px;
+		margin: 0;
+	}
+
+	/* ── Toolbar ────────────────────────────────────────────────────────── */
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 36px;
+	}
+
+	.seg-group {
+		display: flex;
+		background: var(--raised);
+		border: 1px solid rgba(240, 235, 227, .07);
+		border-radius: 6px;
+		padding: 2px;
+		gap: 2px;
+	}
+
+	.seg {
+		font: 10px/1 var(--font-mono);
+		letter-spacing: .14em;
+		text-transform: uppercase;
+		padding: 6px 12px;
+		border-radius: 4px;
+		border: none;
+		background: transparent;
+		color: var(--muted);
+		cursor: pointer;
+		transition: background 120ms, color 120ms;
+	}
+
+	.seg:hover {
+		color: var(--cream);
+	}
+
+	.seg-active {
+		background: var(--surface);
+		color: var(--cream);
+	}
+
+	.search-input {
+		font: 12px/1 var(--font-body);
+		padding: 7px 12px;
+		background: var(--raised);
+		border: 1px solid rgba(240, 235, 227, .08);
+		border-radius: 6px;
+		color: var(--cream);
+		outline: none;
+		width: 180px;
+		transition: border-color 120ms;
+	}
+
+	.search-input:focus {
+		border-color: var(--accent-dim);
+	}
+
+	.search-input::placeholder {
+		color: var(--faint);
+	}
+
+	.entry-count {
+		margin-left: auto;
+		font: 10px/1 var(--font-mono);
+		letter-spacing: .18em;
+		color: var(--faint);
+		text-transform: uppercase;
+	}
+
+	/* ── Empty state ────────────────────────────────────────────────────── */
+	.empty-state {
+		padding: 80px 0;
+		text-align: center;
+	}
+
+	.empty-text {
+		font-family: var(--font-display);
+		font-style: italic;
+		color: var(--muted);
+		margin-top: 20px;
+	}
+
+	/* ── Book group ─────────────────────────────────────────────────────── */
+	.book-group {
+		margin-bottom: 48px;
+		padding-bottom: 48px;
+		border-bottom: 1px solid rgba(240, 235, 227, .05);
+	}
+
+	.book-group:last-child {
+		border-bottom: none;
+	}
+
+	.book-head {
+		display: grid;
+		grid-template-columns: 60px 1fr auto;
+		gap: 16px;
+		align-items: start;
+		margin-bottom: 20px;
+	}
+
+	.cover-link {
+		display: block;
+		text-decoration: none;
+	}
+
+	.book-meta {
+		min-width: 0;
+	}
+
+	.book-title {
+		font-family: var(--font-display);
+		font-size: 20px;
+		font-weight: 700;
+		letter-spacing: -.01em;
+		color: var(--cream);
+		margin: 0 0 4px;
+		line-height: 1.15;
+	}
+
+	:global(.book-title em) {
+		color: var(--accent);
+		font-style: italic;
+	}
+
+	.book-author {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 13px;
+		color: var(--muted);
+		margin: 0;
+	}
+
+	.book-right {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 6px;
+		padding-top: 2px;
+		flex-shrink: 0;
+	}
+
+	.book-count {
+		font: 22px/1 var(--font-display);
+		font-weight: 700;
+		color: var(--accent);
+	}
+
+	.book-link {
+		font: 9px/1 var(--font-mono);
+		letter-spacing: .2em;
+		color: var(--accent-dim);
+		text-decoration: none;
+		text-transform: uppercase;
+		transition: color 120ms;
+	}
+
+	.book-link:hover {
+		color: var(--accent);
+	}
+
+	/* ── Cards grid ─────────────────────────────────────────────────────── */
+	.cards-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 14px;
+	}
+
+	@media (max-width: 640px) {
+		.cards-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	/* ── Quote cards ────────────────────────────────────────────────────── */
+	.qcard {
+		position: relative;
+		border-radius: 6px;
+		padding: 18px 18px 14px;
+		overflow: hidden;
+	}
+
+	.qcard.highlight {
+		background: rgba(212, 162, 83, .07);
+		border: 1px solid rgba(212, 162, 83, .15);
+	}
+
+	.qcard.note {
+		background: var(--raised);
+		border: 1px solid rgba(240, 235, 227, .06);
+		border-left: 3px solid var(--steel);
+	}
+
+	.glyph {
+		position: absolute;
+		top: 6px;
+		right: 12px;
+		font-family: var(--font-display);
+		font-size: 52px;
+		line-height: 1;
+		color: rgba(212, 162, 83, .12);
+		pointer-events: none;
+		user-select: none;
+	}
+
+	.qcard.note .glyph {
+		color: rgba(61, 143, 132, .12);
+		font-size: 36px;
+		top: 8px;
+		right: 10px;
+	}
+
+	.qtext {
+		font-family: var(--font-display);
+		font-size: 14px;
+		line-height: 1.6;
+		color: var(--cream);
+		margin: 0 0 10px;
+		position: relative;
+	}
+
+	.qcard.highlight .qtext {
+		font-style: italic;
+	}
+
+	.qcard.note .qtext {
+		font-style: normal;
+		font-size: 13px;
+	}
+
+	.qnote {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 12px;
+		color: var(--accent-lt);
+		margin: 0 0 10px;
+		opacity: .85;
+	}
+
+	.qmeta {
+		font: 10px/1 var(--font-mono);
+		letter-spacing: .12em;
+		color: var(--faint);
+		text-transform: uppercase;
+	}
+
+	/* ── Right rail ─────────────────────────────────────────────────────── */
+	.right-rail {
+		position: sticky;
+		top: 24px;
+	}
+
+	.rail-stat {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+
+	.rail-big {
+		font-family: var(--font-display);
+		font-size: 40px;
+		font-weight: 700;
+		color: var(--accent);
+		line-height: 1;
+	}
+
+	.rail-unit {
+		font: 10px/1 var(--font-mono);
+		letter-spacing: .2em;
+		color: var(--muted);
+		text-transform: uppercase;
+	}
+
+	.rail-sub {
+		font: 9px/1 var(--font-mono);
+		letter-spacing: .15em;
+		color: var(--faint);
+		text-transform: uppercase;
+		margin: 0;
+	}
+
+	.tag-cloud {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.tag-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font: 10px/1 var(--font-mono);
+		letter-spacing: .12em;
+		text-transform: uppercase;
+		color: var(--muted);
+		background: var(--raised);
+		border: 1px solid rgba(240, 235, 227, .08);
+		border-radius: 3px;
+		padding: 4px 8px;
+	}
+
+	.tag-badge {
+		background: var(--surface);
+		color: var(--accent);
+		border-radius: 2px;
+		padding: 1px 5px;
+		font-size: 9px;
+	}
+
+	.rail-book-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.rail-book-link {
+		font-family: var(--font-display);
+		font-style: italic;
+		font-size: 13px;
+		color: var(--muted);
+		text-decoration: none;
+		transition: color 120ms;
+		display: block;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.rail-book-link:hover {
+		color: var(--cream);
+	}
+
+	.rail-empty {
+		font: 11px/1 var(--font-mono);
+		color: var(--faint);
+	}
+
+	.export-labels {
+		display: flex;
+		gap: 10px;
+	}
+
+	.export-label {
+		font: 9px/1 var(--font-mono);
+		letter-spacing: .2em;
+		color: var(--faint);
+		text-transform: uppercase;
+		border: 1px solid rgba(240, 235, 227, .08);
+		border-radius: 3px;
+		padding: 4px 8px;
+		cursor: default;
+	}
+
+	/* ── Footer ─────────────────────────────────────────────────────────── */
+	.page-footer {
+		margin-top: 64px;
+		text-align: center;
+	}
+</style>
