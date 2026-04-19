@@ -5,6 +5,7 @@ import { getDb, schema } from '$lib/db';
 import { eq, and, sql } from 'drizzle-orm';
 import type { PageServerLoad } from './$types';
 import type { UnifiedMedia } from '$lib/adapters/types';
+import { computeStreak14, pickCurrentBook, computeYearProgress } from '$lib/server/books/landing';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = locals.user?.id;
@@ -14,7 +15,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const status = url.searchParams.get('status') ?? '';
 	const tab = url.searchParams.get('tab') ?? 'all';
 
-	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, recentlyAdded: [] as UnifiedMedia[], continueReading: [] as UnifiedMedia[], hasBookService: false, serviceStatus: 'unconfigured' as 'unconfigured' | 'online' | 'offline', serviceError: undefined as string | undefined, readingStats: { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 } };
+	const empty = { items: [] as UnifiedMedia[], total: 0, sortBy, tab, categories: [] as string[], series: [] as any[], authors: [] as any[], category, author, status, featuredBook: null as UnifiedMedia | null, hasBookService: false, serviceStatus: 'unconfigured' as 'unconfigured' | 'online' | 'offline', serviceError: undefined as string | undefined, currentBook: null as UnifiedMedia | null, streak14: Array<boolean>(14).fill(false), yearProgress: { booksThisYear: 0, goal: 40 }, recentHighlight: null as { text: string; bookTitle: string; chapter?: string; bookId: string } | null };
 
 	const calibreConfig = getConfigsForMediaType('book')[0];
 	if (!calibreConfig) return empty;
@@ -114,40 +115,51 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const heroCandidate = filtered.filter(i => i.poster && i.description);
 	const featuredBook = heroCandidate.length > 0 ? heroCandidate[Math.floor(Math.random() * heroCandidate.length)] : null;
 
-	// Recently added (by Calibre ID descending)
-	const recentlyAdded = [...allBooks]
-		.sort((a, b) => (parseInt(b.sourceId) || 0) - (parseInt(a.sourceId) || 0))
-		.slice(0, 20);
+	// Derived fields: currentBook, streak14, yearProgress, recentHighlight
+	const now = Date.now();
+	let currentBook: UnifiedMedia | null = null;
+	let streak14: boolean[] = Array<boolean>(14).fill(false);
+	let yearProgress = { booksThisYear: 0, goal: 40 };
+	let recentHighlight: { text: string; bookTitle: string; chapter?: string; bookId: string } | null = null;
 
-	// Continue reading
-	const continueReading = allBooks.filter(i => i.progress && i.progress > 0 && i.progress < 1);
-
-	// Reading stats
-	let readingStats = { booksThisYear: 0, pagesThisMonth: 0, currentStreak: 0 };
 	if (userId) {
 		const db = getDb();
-		const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
-
-		const booksThisYearRows = db.select({
+		const fullSessions = db.select({
 			mediaId: schema.playSessions.mediaId,
-			updatedAt: schema.playSessions.updatedAt
+			updatedAt: schema.playSessions.updatedAt,
+			durationMs: schema.playSessions.durationMs,
+			progress: schema.playSessions.progress,
+			completed: schema.playSessions.completed,
+			endedAt: schema.playSessions.endedAt
 		})
 			.from(schema.playSessions)
 			.where(and(
 				eq(schema.playSessions.userId, userId),
 				eq(schema.playSessions.mediaType, 'book'),
-				eq(schema.playSessions.completed, 1)
+				eq(schema.playSessions.serviceId, calibreConfig.id)
 			))
 			.all();
-		const booksThisYear = new Set(
-			booksThisYearRows.filter(r => r.updatedAt >= yearStart).map(r => r.mediaId)
-		).size;
 
-		// pages_read is not tracked in the unified play_sessions model; this
-		// reports 0 until the reader actually emits a page-delta signal.
-		const pagesThisMonth = 0;
+		streak14 = computeStreak14(fullSessions, now);
+		yearProgress = computeYearProgress(fullSessions, now);
 
-		readingStats = { booksThisYear, pagesThisMonth, currentStreak: 0 };
+		const currentId = pickCurrentBook(fullSessions, now);
+		if (currentId) currentBook = allBooks.find(b => b.sourceId === currentId) ?? null;
+
+		if (currentBook && adapter?.getServiceData) {
+			try {
+				const highlights = await adapter.getServiceData(calibreConfig, 'highlights', { bookId: currentBook.sourceId }, userCred) as any[];
+				if (highlights && highlights.length > 0) {
+					const h = highlights[0];
+					recentHighlight = {
+						text: h.text ?? h.quote ?? '',
+						bookTitle: currentBook.title,
+						chapter: h.chapter,
+						bookId: currentBook.id
+					};
+				}
+			} catch { /* highlights are optional */ }
+		}
 	}
 
 	return {
@@ -165,8 +177,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		author,
 		status,
 		featuredBook,
-		recentlyAdded,
-		continueReading,
-		readingStats
+		currentBook,
+		streak14,
+		yearProgress,
+		recentHighlight
 	};
 };
