@@ -1074,6 +1074,7 @@
 		onBookmark={handleBookmark}
 		onToggleShortcuts={() => (showShortcuts = !showShortcuts)}
 		onFullscreen={toggleFullscreen}
+		onSettings={() => (showSettings = !showSettings)}
 	/>
 
 	<!-- ── Content area (sidebar + viewport) ──────────────────── -->
