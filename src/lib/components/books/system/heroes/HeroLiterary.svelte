@@ -5,11 +5,11 @@
 
   let {
     totalBooks,
-    nightsCount,
+    streakCount,
     currentBook = null
   }: {
     totalBooks: number;
-    nightsCount: number;
+    streakCount: number;
     currentBook?: UnifiedMedia | null;
   } = $props();
 </script>
@@ -27,8 +27,8 @@
     </h1>
 
     <p class="subtitle">
-      {totalBooks} titles in flight. A streak of {nightsCount} nights. Somewhere between the page you
-      closed last and the one still open, you've been here all along.
+      {totalBooks} titles on the shelves.{streakCount > 0 ? ` A ${streakCount}-day streak.` : ''}
+      Somewhere between the page you closed last and the one still open, you've been here all along.
     </p>
 
     {#if currentBook}
