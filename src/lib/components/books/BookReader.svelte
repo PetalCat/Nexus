@@ -128,19 +128,19 @@
 		dark: { bg: '#181514', text: '#f0ebe3', link: '#d4a253' },
 		light: { bg: '#faf8f5', text: '#1a1a1a', link: '#b8862e' },
 		sepia: { bg: '#f4ecd8', text: '#5b4636', link: '#8b6914' },
-		night: { bg: '#000000', text: '#b0b0b0', link: '#d4a253' }
+		oled: { bg: '#000000', text: '#b0b0b0', link: '#d4a253' }
 	};
 
 	const fonts: Record<ReaderSettings['fontFamily'], string> = {
 		serif: "Georgia, 'Times New Roman', serif",
 		sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
 		mono: "'JetBrains Mono', 'Fira Code', monospace",
-		dyslexic: "'OpenDyslexic', 'Playfair Display', Georgia, serif"
+		display: "'Playfair Display', Georgia, serif"
 	};
 
 	const marginValues: Record<ReaderSettings['margins'], string> = {
 		narrow: '2%',
-		normal: '6%',
+		medium: '6%',
 		wide: '12%'
 	};
 
@@ -910,7 +910,7 @@
 			<div class="mb-5">
 				<span class="settings-label">Theme</span>
 				<div class="grid grid-cols-4 gap-2">
-					{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'night', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
+					{#each [{ key: 'light', label: 'Light', bg: '#faf8f5', ring: '#ccc' }, { key: 'sepia', label: 'Sepia', bg: '#f4ecd8', ring: '#c4a96a' }, { key: 'dark', label: 'Dark', bg: '#181514', ring: '#555' }, { key: 'oled', label: 'OLED', bg: '#000000', ring: '#333' }] as { key, label, bg, ring } (key)}
 						<button
 							class="flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[10px] transition-all {readerTheme === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/40 hover:border-cream/20 hover:text-cream/60'}"
 							onclick={() => { settings.theme = key as ReaderSettings['theme']; }}
@@ -929,7 +929,7 @@
 			<div class="mb-5">
 				<span class="settings-label">Font</span>
 				<div class="grid grid-cols-4 gap-1.5">
-					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: 'system-ui, sans-serif' }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }, { key: 'dyslexic', label: 'Display', font: "'Playfair Display', Georgia, serif" }] as { key, label, font } (key)}
+					{#each [{ key: 'serif', label: 'Serif', font: 'Georgia, serif' }, { key: 'sans', label: 'Sans', font: 'system-ui, sans-serif' }, { key: 'mono', label: 'Mono', font: "'JetBrains Mono', monospace" }, { key: 'display', label: 'Display', font: "'Playfair Display', Georgia, serif" }] as { key, label, font } (key)}
 						<button
 							class="rounded-lg border px-2 py-2 text-xs transition-all {fontFamily === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 							style="font-family: {font};"
@@ -965,7 +965,7 @@
 			<div class="mb-5">
 				<span class="settings-label">Margins</span>
 				<div class="flex gap-2">
-					{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'normal', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
+					{#each [{ key: 'narrow', label: 'Narrow' }, { key: 'medium', label: 'Medium' }, { key: 'wide', label: 'Wide' }] as { key, label } (key)}
 						<button
 							class="flex-1 rounded-lg border px-3 py-2 text-xs transition-all {margins === key ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'border-cream/[0.08] text-cream/50 hover:border-cream/20 hover:text-cream/70'}"
 							onclick={() => { settings.margins = key as ReaderSettings['margins']; }}

@@ -1,6 +1,6 @@
-export type ReaderThemeName = 'light' | 'dark' | 'sepia' | 'night';
-export type FontFamilyName = 'serif' | 'sans' | 'mono' | 'dyslexic';
-export type MarginName = 'narrow' | 'normal' | 'wide';
+export type ReaderThemeName = 'light' | 'dark' | 'sepia' | 'oled';
+export type FontFamilyName = 'serif' | 'sans' | 'mono' | 'display';
+export type MarginName = 'narrow' | 'medium' | 'wide';
 
 export interface ReaderSettings {
 	theme: ReaderThemeName;
@@ -25,7 +25,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
 	fontFamily: 'serif',
 	fontSize: 18,
 	lineHeight: 1.5,
-	margins: 'normal',
+	margins: 'medium',
 	textAlign: 'start',
 	flow: 'paginated',
 	spread: 'auto',
@@ -41,9 +41,9 @@ const SPREAD_VALUES = new Set(['auto', 'single', 'dual'] as const);
 const ANIM_VALUES = new Set(['slide', 'fade', 'none'] as const);
 const DIR_VALUES = new Set(['ltr', 'rtl'] as const);
 const ALIGN_VALUES = new Set(['start', 'justify'] as const);
-const THEME_VALUES = new Set(['light', 'dark', 'sepia', 'night'] as const);
-const FONT_VALUES = new Set(['serif', 'sans', 'mono', 'dyslexic'] as const);
-const MARGIN_VALUES = new Set(['narrow', 'normal', 'wide'] as const);
+const THEME_VALUES = new Set(['light', 'dark', 'sepia', 'oled'] as const);
+const FONT_VALUES = new Set(['serif', 'sans', 'mono', 'display'] as const);
+const MARGIN_VALUES = new Set(['narrow', 'medium', 'wide'] as const);
 
 function pick<T extends string>(value: unknown, allowed: Set<T>, fallback: T): T {
 	return typeof value === 'string' && allowed.has(value as T) ? (value as T) : fallback;
