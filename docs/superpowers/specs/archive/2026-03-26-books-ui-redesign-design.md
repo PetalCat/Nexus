@@ -1,5 +1,7 @@
 # Books UI Redesign — Design Spec
 
+*Superseded by `docs/superpowers/specs/2026-04-18-books-redesign-design.md`.*
+
 **Date:** 2026-03-26
 **Scope:** Library page, book detail page, PDF reader (new), EPUB reader (rewrite)
 **Direction:** Hybrid — streaming-service library + premium reader experience
