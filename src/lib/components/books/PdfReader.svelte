@@ -643,7 +643,6 @@
 
 	// ── Page rendering ─────────────────────────────────────────────
 	async function renderPage(pageNum: number) {
-		console.log('[PdfReader] renderPage', pageNum, { hasDoc: !!pdfDoc, hasPdfjs: !!pdfjs, alreadyRendered: renderedPages.has(pageNum), inFlight: renderingPages.has(pageNum) });
 		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
 
 		// bind:this with array-indexing inside snippets is unreliable in
@@ -1060,24 +1059,18 @@
 	// observed empty by an effect that fires on the same tick as the snippet
 	// remount. This action runs *after* the canvas is in the DOM and the ref
 	// has been written, which is the only reliable signal to start rendering.
+	// Cache the canvas immediately on mount and kick off a render. bind:this
+	// with array indexing inside a snippet doesn't reliably populate the
+	// array slot before downstream effects observe it; this action does.
+	// queueMicrotask is used instead of requestAnimationFrame because RAF
+	// inside a Svelte action can be cancelled during the commit phase.
 	function onCanvasMount(node: HTMLCanvasElement, pageNum: number) {
-		console.log('[PdfReader] onCanvasMount fire', pageNum);
-		// Cache the canvas immediately so renderPage can find it via array
-		// indexing without relying on bind:this timing.
 		canvasRefs[pageNum - 1] = node;
-		// Try to render immediately if PDF is ready; if not, the existing
-		// loading-time scheduleBufferRender / paginated-mode $effect will
-		// retry once pdfDoc is set.
-		const tryRender = () => {
-			console.log('[PdfReader] tryRender exec', pageNum, { hasDoc: !!pdfDoc, loading });
+		queueMicrotask(() => {
 			if (!pdfDoc || loading) return;
 			if (settings.flow === 'paginated') renderedPages.delete(pageNum);
 			enqueueRender(pageNum);
-		};
-		// queueMicrotask is more reliable than RAF — RAF inside a Svelte action
-		// can be cancelled by the action's own destroy() during the synchronous
-		// commit phase.
-		queueMicrotask(tryRender);
+		});
 	}
 
 	// Dark mode filter for pages
