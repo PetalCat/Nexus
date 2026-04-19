@@ -100,9 +100,11 @@ All three driven by the single `pageAnimation` setting; no per-format implementa
 
 ## Persistence
 
-Extend `userReaderPrefs` (already used by EPUB reader for theme/font/etc.) to include the new fields. Migrate existing rows: any row with the old `flow` field carries through; missing fields fall back to defaults at read time.
+Reader settings are persisted **client-side** in `localStorage` under the key `nexus-reader-settings`. The EPUB reader already uses this key for theme/font/etc. The PDF reader currently has no persistence; it will adopt the same key and shape.
 
-No schema migration needed for SQLite — the existing column is JSON; we extend the shape and tolerate missing keys.
+Storage shape extends the existing JSON object with the new fields. Reads tolerate missing keys (fall back to defaults), so existing users keep their theme/font/etc. without a migration. Writes always emit the full shape.
+
+A single helper module (`src/lib/components/books/reader-settings.ts`) owns the schema, defaults, load, and persist functions. Both readers consume it — no inline `localStorage.getItem('nexus-reader-settings')` reads elsewhere.
 
 ## Format-Default Bug Fix
 
