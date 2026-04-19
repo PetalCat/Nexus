@@ -925,11 +925,19 @@
 	});
 
 	// ── Render visible page(s) in paginated mode on currentPage change ──
+	// PaginatedViewport wraps the page-card snippet in {#key animationKey} so
+	// each navigation destroys and remounts the canvas. The render cache
+	// (renderedPages) survives that remount, so on revisit we'd skip the
+	// re-render and show an empty canvas. Evict the visible pages first, then
+	// enqueue, so they always paint onto the freshly-mounted canvas.
 	$effect(() => {
 		const page = currentPage;
 		const dual = effectiveSpread === 'dual';
+		const flow = settings.flow;
 		if (!pdfDoc || loading) return;
-		if (settings.flow !== 'paginated') return;
+		if (flow !== 'paginated') return;
+		renderedPages.delete(page);
+		if (dual && page + 1 <= numPages) renderedPages.delete(page + 1);
 		// Let the DOM mount the new page wrapper(s) before enqueueing.
 		requestAnimationFrame(() => {
 			enqueueRender(page);

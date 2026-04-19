@@ -56,11 +56,17 @@
 	data-direction={settings.direction}
 	{...inputs.swipeHandlers}
 >
-	{#key animationKey}
-		<div class="reader-page-layer">
-			{@render children({ effectiveSpread, animationKey })}
-		</div>
-	{/key}
+	<!--
+		Do NOT wrap children in {#key animationKey}. EPUB's foliate-js host
+		is the same DOM node across pages; remounting it kills the iframe
+		mid-load and throws "Cannot read properties of null (reading 'head')".
+		Animations are driven by the CSS class plus the natural remount that
+		happens in PDF paginated mode (the page-card snippet keys on
+		currentPage and remounts each navigation).
+	-->
+	<div class="reader-page-layer">
+		{@render children({ effectiveSpread, animationKey })}
+	</div>
 	{#if settings.flow === 'paginated' && settings.inputs.tapZones}
 		<div class="reader-tap-overlay" {...inputs.tapHandlers} aria-hidden="true"></div>
 	{/if}
