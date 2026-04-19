@@ -498,9 +498,8 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (showSearch && e.key !== 'Escape') return;
 		if (showNoteInput && e.key !== 'Escape') return;
+		// ArrowLeft/Right are owned by PaginatedViewport (gated by settings.inputs.keyboard).
 		switch (e.key) {
-			case 'ArrowLeft': e.preventDefault(); prevPage(); break;
-			case 'ArrowRight': e.preventDefault(); nextPage(); break;
 			case 'Escape':
 				e.preventDefault();
 				if (showAnnotationPopup) dismissAnnotationPopup();
