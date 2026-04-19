@@ -123,6 +123,43 @@
 	let observer: IntersectionObserver | null = null;
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 	let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// ── Chrome auto-hide ──
+	let chromeVisible = $state(true);
+	let lastActivity = $state(Date.now());
+
+	$effect(() => {
+		if (!browser) return;
+		const interval = setInterval(() => {
+			if (Date.now() - lastActivity > 2000 && !showSidebar) {
+				chromeVisible = false;
+			}
+		}, 250);
+		return () => clearInterval(interval);
+	});
+
+	// Keep chrome forced visible whenever the sidebar is open
+	$effect(() => {
+		if (showSidebar) chromeVisible = true;
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		function onActivity(e: Event) {
+			lastActivity = Date.now();
+			chromeVisible = true;
+		}
+		window.addEventListener('pointermove', onActivity);
+		window.addEventListener('pointerdown', onActivity);
+		window.addEventListener('wheel', onActivity);
+		window.addEventListener('keydown', onActivity);
+		return () => {
+			window.removeEventListener('pointermove', onActivity);
+			window.removeEventListener('pointerdown', onActivity);
+			window.removeEventListener('wheel', onActivity);
+			window.removeEventListener('keydown', onActivity);
+		};
+	});
 	let renderQueue: number[] = [];
 	let isProcessingQueue = false;
 	const MAX_CONCURRENT_RENDERS = 3;
@@ -956,35 +993,37 @@
 	role="presentation"
 >
 	<!-- ── Top Toolbar ─────────────────────────────────────────── -->
-	<PdfToolbar
-		visible={showToolbar}
-		bookTitle={book.title}
-		bookAuthor={book.metadata?.author as string | undefined}
-		{currentPage}
-		totalPages={numPages}
-		{scale}
-		{fitMode}
-		{spreadMode}
-		{darkMode}
-		{showSidebar}
-		{searchQuery}
-		{searchResultCount}
-		{searchIndex}
-		{isBookmarked}
-		onBack={closeReader}
-		onToggleSidebar={() => (showSidebar = !showSidebar)}
-		onZoomIn={zoomIn}
-		onZoomOut={zoomOut}
-		onFitMode={handleFitMode}
-		onSpreadMode={handleSpreadMode}
-		onDarkMode={handleDarkMode}
-		onSearch={handleSearch}
-		onSearchNext={handleSearchNext}
-		onSearchPrev={handleSearchPrev}
-		onBookmark={handleBookmark}
-		onToggleShortcuts={() => (showShortcuts = !showShortcuts)}
-		onFullscreen={toggleFullscreen}
-	/>
+	<div class:hidden-chrome={!chromeVisible}>
+		<PdfToolbar
+			visible={showToolbar}
+			bookTitle={book.title}
+			bookAuthor={book.metadata?.author as string | undefined}
+			{currentPage}
+			totalPages={numPages}
+			{scale}
+			{fitMode}
+			{spreadMode}
+			{darkMode}
+			{showSidebar}
+			{searchQuery}
+			{searchResultCount}
+			{searchIndex}
+			{isBookmarked}
+			onBack={closeReader}
+			onToggleSidebar={() => (showSidebar = !showSidebar)}
+			onZoomIn={zoomIn}
+			onZoomOut={zoomOut}
+			onFitMode={handleFitMode}
+			onSpreadMode={handleSpreadMode}
+			onDarkMode={handleDarkMode}
+			onSearch={handleSearch}
+			onSearchNext={handleSearchNext}
+			onSearchPrev={handleSearchPrev}
+			onBookmark={handleBookmark}
+			onToggleShortcuts={() => (showShortcuts = !showShortcuts)}
+			onFullscreen={toggleFullscreen}
+		/>
+	</div>
 
 	<!-- ── Content area (sidebar + viewport) ──────────────────── -->
 	<div class="content-area">
@@ -1117,6 +1156,7 @@
 		<div
 			class="toolbar-bottom"
 			class:toolbar-hidden={!showToolbar}
+			class:hidden-chrome-bottom={!chromeVisible}
 		>
 			<ReaderProgressBar
 				{progress}
@@ -1130,6 +1170,11 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- ── Hairline progress strip (always visible) ─────────── -->
+	<div class="hairline" aria-hidden="true">
+		<div class="hairline-fill" style="width: {progress * 100}%"></div>
+	</div>
 
 	<!-- ── Annotation Popup ───────────────────────────────────── -->
 	{#if showAnnotationPopup}
@@ -1359,6 +1404,36 @@
 
 	.error-retry:hover {
 		opacity: 0.9;
+	}
+
+	/* ── Chrome auto-hide ──────────────────────────────────── */
+	.hidden-chrome {
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(-6px);
+		transition: opacity .3s ease, transform .3s ease;
+	}
+	.hidden-chrome-bottom {
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(6px);
+		transition: opacity .3s ease, transform .3s ease;
+	}
+
+	/* ── Hairline progress strip ───────────────────────────── */
+	.hairline {
+		position: fixed;
+		inset: auto 0 0 0;
+		height: 2px;
+		background: rgba(240, 235, 227, 0.06);
+		z-index: 100;
+		pointer-events: none;
+	}
+	.hairline-fill {
+		height: 100%;
+		background: var(--accent, #d4a253);
+		box-shadow: 0 0 6px rgba(212, 162, 83, .5);
+		transition: width .3s ease;
 	}
 
 	/* ── Bottom toolbar ─────────────────────────────────── */
