@@ -1,3 +1,4 @@
+import { redirect } from '@sveltejs/kit';
 import { getConfigsForMediaType } from '$lib/server/services';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { registry } from '$lib/adapters/registry';
@@ -8,6 +9,12 @@ import type { UnifiedMedia } from '$lib/adapters/types';
 import { computeStreak14, pickCurrentBook, computeYearProgress } from '$lib/server/books/landing';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
+	// Redirect old ?tab=series&series=Name query-param links to the new dedicated route
+	const seriesParam = url.searchParams.get('series');
+	if (url.searchParams.get('tab') === 'series' && seriesParam) {
+		throw redirect(302, `/books/series/${encodeURIComponent(seriesParam)}`);
+	}
+
 	const userId = locals.user?.id;
 	const sortBy = url.searchParams.get('sort') ?? 'title';
 	const category = url.searchParams.get('category') ?? '';
