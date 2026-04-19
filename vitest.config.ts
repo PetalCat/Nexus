@@ -6,6 +6,7 @@ export default defineConfig({
 	test: {
 		include: ['src/**/__tests__/**/*.test.ts'],
 		environment: 'node',
+		setupFiles: ['src/test-setup/localstorage-shim.ts'],
 		globals: false,
 		alias: {
 			'$lib': resolve('./src/lib'),
