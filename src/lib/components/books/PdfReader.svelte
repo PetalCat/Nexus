@@ -7,7 +7,7 @@
 	// actual module load until initPdf() runs. See the `pdfjs` variable
 	// below for the lazily-loaded module handle.
 	import type { PDFDocumentProxy, PageViewport, RenderTask } from 'pdfjs-dist';
-	import { Loader2 } from 'lucide-svelte';
+	import { Loader2, X } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import PdfToolbar from './PdfToolbar.svelte';
 	import PdfSidebar from './PdfSidebar.svelte';
@@ -18,6 +18,14 @@
 	import KeyboardShortcuts from './KeyboardShortcuts.svelte';
 	import PdfMinimap from './PdfMinimap.svelte';
 	import MarginNotes from './MarginNotes.svelte';
+	import PaginatedViewport from './PaginatedViewport.svelte';
+	import ReaderSettingsPanel from './ReaderSettingsPanel.svelte';
+	import {
+		type ReaderSettings,
+		loadReaderSettings,
+		persistReaderSettings,
+		resolveSpread
+	} from './reader-settings';
 
 	// ── Props ──────────────────────────────────────────────────────
 	interface Props {
@@ -57,7 +65,10 @@
 	let fitMode = $state<'width' | 'page' | 'custom'>('width');
 	let showToolbar = $state(true);
 	let showSidebar = $state(false);
-	let spreadMode = $state<'single' | 'dual'>('single');
+	let showSettings = $state(false);
+	let settings = $state<ReaderSettings>(loadReaderSettings());
+	let viewportWidth = $state<number>(browser ? window.innerWidth : 1024);
+	const effectiveSpread = $derived(resolveSpread(settings.spread, viewportWidth));
 	let darkMode = $state<'light' | 'dark' | 'sepia'>('light');
 	let showRuler = $state(false);
 	let showShortcuts = $state(false);
@@ -164,8 +175,11 @@
 	}
 
 	function goToPage(page: number) {
-		if (page < 1 || page > numPages || !viewportEl) return;
-		if (spreadMode === 'dual') {
+		if (page < 1 || page > numPages) return;
+		currentPage = page;
+		if (settings.flow === 'paginated') return;
+		if (!viewportEl) return;
+		if (effectiveSpread === 'dual') {
 			// Find the pair container that contains this page
 			const pairIdx = page === 1 ? 0 : Math.ceil((page - 1) / 2);
 			const pairEl = viewportEl.querySelector(`[data-pair="${pairIdx}"]`);
@@ -182,7 +196,17 @@
 
 	/** In dual mode, jump by 2 pages; in single mode, jump by 1 */
 	function pageStep(): number {
-		return spreadMode === 'dual' ? 2 : 1;
+		return effectiveSpread === 'dual' ? 2 : 1;
+	}
+
+	function goPrevPage() {
+		const step = effectiveSpread === 'dual' ? 2 : 1;
+		currentPage = Math.max(1, currentPage - step);
+	}
+
+	function goNextPage() {
+		const step = effectiveSpread === 'dual' ? 2 : 1;
+		currentPage = Math.min(numPages, currentPage + step);
 	}
 
 	// ── Zoom functions ────────────────────────────────────────────
@@ -200,7 +224,7 @@
 		if (!pdfDoc || pageViewports.length === 0) return;
 		const vp = pageViewports[0];
 		const containerWidth = (viewportEl?.clientWidth ?? 800) - 80;
-		if (spreadMode === 'dual') {
+		if (effectiveSpread === 'dual') {
 			// Fit two pages side-by-side with 16px gap
 			scale = (containerWidth - 16) / (2 * vp.width);
 		} else {
@@ -215,7 +239,7 @@
 		const containerWidth = viewportEl.clientWidth - 80;
 		const containerHeight = viewportEl.clientHeight - 80;
 		let scaleW: number;
-		if (spreadMode === 'dual') {
+		if (effectiveSpread === 'dual') {
 			scaleW = (containerWidth - 16) / (2 * vp.width);
 		} else {
 			scaleW = containerWidth / vp.width;
@@ -231,10 +255,7 @@
 	}
 
 	function handleSpreadMode(mode: 'single' | 'dual') {
-		spreadMode = mode;
-		// Recalculate scale for the new spread mode
-		if (fitMode === 'width') fitWidth();
-		else if (fitMode === 'page') fitPage();
+		settings.spread = mode;
 	}
 
 	function handleDarkMode(mode: 'light' | 'dark' | 'sepia') {
@@ -445,11 +466,14 @@
 				break;
 			case 'ArrowDown':
 			case 'PageDown':
+				// In paginated mode, PaginatedViewport's keyboard handler owns nav keys.
+				if (settings.flow === 'paginated' && settings.inputs.keyboard) break;
 				e.preventDefault();
 				goToPage(currentPage + pageStep());
 				break;
 			case 'ArrowUp':
 			case 'PageUp':
+				if (settings.flow === 'paginated' && settings.inputs.keyboard) break;
 				e.preventDefault();
 				goToPage(currentPage - pageStep());
 				break;
@@ -501,6 +525,8 @@
 	// ── Scroll tracking ────────────────────────────────────────────
 	function handleScroll() {
 		if (!viewportEl || numPages === 0) return;
+		// Scroll tracking only applies in scrolled mode.
+		if (settings.flow !== 'scrolled') return;
 
 		// Debounce scroll tracking
 		if (scrollTimer) clearTimeout(scrollTimer);
@@ -548,8 +574,19 @@
 	}
 
 	function scheduleBufferRender() {
-		const start = Math.max(1, currentPage - BUFFER_PAGES);
-		const end = Math.min(numPages, currentPage + BUFFER_PAGES);
+		// In paginated mode we only render the current page (and optionally the
+		// second page of a dual spread). Keep a 1-page buffer on either side so
+		// quick navigation doesn't flash a placeholder.
+		let start: number;
+		let end: number;
+		if (settings.flow === 'paginated') {
+			const span = effectiveSpread === 'dual' ? 1 : 0;
+			start = Math.max(1, currentPage - 1);
+			end = Math.min(numPages, currentPage + span + 1);
+		} else {
+			start = Math.max(1, currentPage - BUFFER_PAGES);
+			end = Math.min(numPages, currentPage + BUFFER_PAGES);
+		}
 
 		// Clean up pages outside the buffer
 		for (const pageNum of renderedPages) {
@@ -805,7 +842,7 @@
 			if (wrapper) observer.observe(wrapper);
 		}
 		// In dual mode, also observe pair containers
-		if (spreadMode === 'dual') {
+		if (effectiveSpread === 'dual') {
 			const pairs = viewportEl.querySelectorAll('[data-pair]');
 			for (const pair of pairs) {
 				observer.observe(pair);
@@ -857,18 +894,47 @@
 		}
 	});
 
-	// ── Re-setup observer on spread mode change ──────────────────
+	// ── Re-setup observer on spread/flow change ──────────────────
 	$effect(() => {
-		// Track spreadMode to re-observe when layout changes
-		const _mode = spreadMode;
+		// Track effectiveSpread + flow to re-observe when layout changes
+		const _spread = effectiveSpread;
+		const _flow = settings.flow;
+		void _spread; void _flow;
 		if (!pdfDoc || loading) return;
-		// Wait for DOM to update after spread mode switch
+		// Wait for DOM to update after layout switch
 		requestAnimationFrame(() => {
 			if (observer) {
 				observer.disconnect();
 			}
 			setupObserver();
 			invalidateAllPages();
+		});
+	});
+
+	// ── Persist reader settings ──────────────────────────────────
+	$effect(() => {
+		persistReaderSettings(settings);
+	});
+
+	// ── Track viewport width for auto spread ─────────────────────
+	$effect(() => {
+		if (!browser) return;
+		const onResize = () => { viewportWidth = window.innerWidth; };
+		window.addEventListener('resize', onResize);
+		return () => window.removeEventListener('resize', onResize);
+	});
+
+	// ── Render visible page(s) in paginated mode on currentPage change ──
+	$effect(() => {
+		const page = currentPage;
+		const dual = effectiveSpread === 'dual';
+		if (!pdfDoc || loading) return;
+		if (settings.flow !== 'paginated') return;
+		// Let the DOM mount the new page wrapper(s) before enqueueing.
+		requestAnimationFrame(() => {
+			enqueueRender(page);
+			if (dual && page + 1 <= numPages) enqueueRender(page + 1);
+			scheduleBufferRender();
 		});
 	});
 
@@ -950,6 +1016,30 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#snippet pageCard(pageNum: number)}
+	{@const dims = getPageDims(pageNum - 1)}
+	<div
+		class="page-wrapper"
+		data-page={pageNum}
+		style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
+		bind:this={pageWrappers[pageNum - 1]}
+	>
+		<canvas bind:this={canvasRefs[pageNum - 1]}></canvas>
+		<div class="text-layer" bind:this={textLayerRefs[pageNum - 1]}></div>
+		{#if !renderedPages.has(pageNum)}
+			<div class="page-placeholder">
+				<span class="page-placeholder-num">{pageNum}</span>
+			</div>
+		{/if}
+		{#if localBookmarks.has(pageNum)}
+			<div class="bookmark-ribbon"></div>
+		{/if}
+		{#if highlightedPages.has(pageNum)}
+			<div class="highlight-indicator"></div>
+		{/if}
+	</div>
+{/snippet}
+
 <div
 	class="pdf-reader"
 	onmousemove={handleMouseMove}
@@ -964,7 +1054,7 @@
 		totalPages={numPages}
 		{scale}
 		{fitMode}
-		{spreadMode}
+		spreadMode={effectiveSpread}
 		{darkMode}
 		{showSidebar}
 		{searchQuery}
@@ -1029,64 +1119,44 @@
 					<p class="error-detail">{loadError}</p>
 					<button onclick={() => initPdf()} class="error-retry">Retry</button>
 				</div>
+			{:else if settings.flow === 'paginated'}
+				<PaginatedViewport
+					{settings}
+					onPrev={goPrevPage}
+					onNext={goNextPage}
+					onToggleUI={() => { showSettings = !showSettings; }}
+				>
+					{#snippet children({ effectiveSpread: es })}
+						<div class="pages-container pages-paginated" class:spread-dual={es === 'dual'}>
+							{#if es === 'dual'}
+								<div class="page-pair">
+									{@render pageCard(currentPage)}
+									{#if currentPage + 1 <= numPages}
+										{@render pageCard(currentPage + 1)}
+									{/if}
+								</div>
+							{:else}
+								{@render pageCard(currentPage)}
+							{/if}
+						</div>
+					{/snippet}
+				</PaginatedViewport>
+			{:else if effectiveSpread === 'dual'}
+				<div class="pages-container spread-dual">
+					{#each pagePairs as pair, pairIdx (pairIdx)}
+						<div class="page-pair" data-pair={pairIdx}>
+							{#each pair as pageNum (pageNum)}
+								{@render pageCard(pageNum)}
+							{/each}
+						</div>
+					{/each}
+				</div>
 			{:else}
-				{#if spreadMode === 'dual'}
-					<div class="pages-container spread-dual">
-						{#each pagePairs as pair, pairIdx (pairIdx)}
-							<div class="page-pair" data-pair={pairIdx}>
-								{#each pair as pageNum (pageNum)}
-									{@const dims = getPageDims(pageNum - 1)}
-									<div
-										class="page-wrapper"
-										data-page={pageNum}
-										style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
-										bind:this={pageWrappers[pageNum - 1]}
-									>
-										<canvas bind:this={canvasRefs[pageNum - 1]}></canvas>
-										<div class="text-layer" bind:this={textLayerRefs[pageNum - 1]}></div>
-										{#if !renderedPages.has(pageNum)}
-											<div class="page-placeholder">
-												<span class="page-placeholder-num">{pageNum}</span>
-											</div>
-										{/if}
-										{#if localBookmarks.has(pageNum)}
-											<div class="bookmark-ribbon"></div>
-										{/if}
-										{#if highlightedPages.has(pageNum)}
-											<div class="highlight-indicator"></div>
-										{/if}
-									</div>
-								{/each}
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="pages-container">
-						{#each Array(numPages) as _, i (i)}
-							{@const dims = getPageDims(i)}
-							<div
-								class="page-wrapper"
-								data-page={i + 1}
-								style="width: {dims.width}px; height: {dims.height}px; filter: {pageFilter};"
-								bind:this={pageWrappers[i]}
-							>
-								<canvas bind:this={canvasRefs[i]}></canvas>
-								<div class="text-layer" bind:this={textLayerRefs[i]}></div>
-								{#if !renderedPages.has(i + 1)}
-									<div class="page-placeholder">
-										<span class="page-placeholder-num">{i + 1}</span>
-									</div>
-								{/if}
-								{#if localBookmarks.has(i + 1)}
-									<div class="bookmark-ribbon"></div>
-								{/if}
-								{#if highlightedPages.has(i + 1)}
-									<div class="highlight-indicator"></div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
+				<div class="pages-container">
+					{#each Array(numPages) as _, i (i)}
+						{@render pageCard(i + 1)}
+					{/each}
+				</div>
 			{/if}
 
 			<!-- ── Reading Ruler ──────────────────────────────────── -->
@@ -1159,6 +1229,22 @@
 			<div class="note-actions">
 				<button class="note-btn note-cancel" onclick={() => { showNoteInput = false; noteInputText = ''; }}>Cancel</button>
 				<button class="note-btn note-save" onclick={submitNote}>Save Note</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ── Settings Drawer ────────────────────────────────────── -->
+	{#if showSettings}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="fixed inset-0 z-[70] bg-black/40" onclick={() => (showSettings = false)} onkeydown={(e) => { if (e.key === 'Escape') showSettings = false; }} role="button" tabindex="-1" aria-label="Close settings">
+			<div class="absolute bottom-0 right-0 top-0 w-80 max-w-[85vw] overflow-y-auto border-l border-cream/[0.06] p-5" style="background: rgba(20, 18, 16, 0.97); backdrop-filter: blur(24px);" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="dialog" tabindex="-1" aria-label="Reader settings">
+				<div class="mb-5 flex items-center justify-between">
+					<h2 class="text-sm font-semibold tracking-wide text-cream/90">Reading Settings</h2>
+					<button onclick={() => (showSettings = false)} class="rounded-lg p-1.5 text-cream/50 hover:bg-cream/[0.06] hover:text-cream" aria-label="Close">
+						<X size={16} strokeWidth={1.5} />
+					</button>
+				</div>
+				<ReaderSettingsPanel bind:settings variant="pdf" />
 			</div>
 		</div>
 	{/if}
@@ -1505,5 +1591,12 @@
 
 	.note-save:hover {
 		opacity: 0.9;
+	}
+
+	/* ── Paginated single-page centering ───────────────────── */
+	.pages-paginated {
+		justify-content: center;
+		min-height: 100%;
+		padding: 24px 40px;
 	}
 </style>
