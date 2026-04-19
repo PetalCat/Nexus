@@ -645,9 +645,27 @@
 	async function renderPage(pageNum: number) {
 		if (!pdfDoc || !pdfjs || renderedPages.has(pageNum) || renderingPages.has(pageNum)) return;
 
+		// bind:this with array-indexing inside snippets is unreliable in
+		// Svelte 5 — the array slot can read empty here even when the canvas
+		// is fully mounted. Fall back to a DOM lookup keyed off data-page,
+		// which works for both paginated and scrolled modes since both
+		// render `<div class="page-wrapper" data-page={n}>`.
 		const idx = pageNum - 1;
-		const canvas = canvasRefs[idx];
-		const textDiv = textLayerRefs[idx];
+		let canvas = canvasRefs[idx];
+		let textDiv = textLayerRefs[idx];
+		if (!canvas || !textDiv) {
+			const wrapper = document.querySelector<HTMLElement>(`.page-wrapper[data-page="${pageNum}"]`);
+			if (wrapper) {
+				const c = wrapper.querySelector('canvas') as HTMLCanvasElement | null;
+				const t = wrapper.querySelector('.text-layer') as HTMLDivElement | null;
+				if (c && t) {
+					canvas = c;
+					textDiv = t;
+					canvasRefs[idx] = c;
+					textLayerRefs[idx] = t;
+				}
+			}
+		}
 		if (!canvas || !textDiv) return;
 
 		renderingPages.add(pageNum);
