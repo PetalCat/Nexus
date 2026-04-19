@@ -15,6 +15,12 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		throw redirect(302, `/books/series/${encodeURIComponent(seriesParam)}`);
 	}
 
+	// Redirect old ?tab=authors&author=Name query-param links to the new dedicated route
+	const authorParam = url.searchParams.get('author');
+	if (url.searchParams.get('tab') === 'authors' && authorParam) {
+		throw redirect(302, `/books/authors/${encodeURIComponent(authorParam)}`);
+	}
+
 	const userId = locals.user?.id;
 	const sortBy = url.searchParams.get('sort') ?? 'title';
 	const category = url.searchParams.get('category') ?? '';
