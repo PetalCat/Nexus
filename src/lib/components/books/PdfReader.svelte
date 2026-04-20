@@ -7,6 +7,10 @@
 	// actual module load until initPdf() runs. See the `pdfjs` variable
 	// below for the lazily-loaded module handle.
 	import type { PDFDocumentProxy, PageViewport, RenderTask } from 'pdfjs-dist';
+	// Vite emits this as a hashed asset in the build output, so the worker
+	// is guaranteed to exist in production without relying on postinstall
+	// copying into static/.
+	import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 	import { Loader2, X } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import PdfToolbar from './PdfToolbar.svelte';
@@ -808,7 +812,7 @@
 				}
 			}
 
-			pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+			pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 			const loadingTask = pdfjs.getDocument(fileUrl);
 			loadingTask.onProgress = (data: { loaded: number; total: number }) => {
