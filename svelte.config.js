@@ -15,12 +15,15 @@ const config = {
 			mode: 'auto',
 			directives: {
 				'default-src': ['self'],
-				'script-src': ['self', 'unsafe-inline'],
+				'script-src': ['self', 'unsafe-inline', 'blob:', 'https://static.cloudflareinsights.com'],
 				'style-src': ['self', 'unsafe-inline'],
 				'img-src': ['self', 'data:', 'blob:', 'http:', 'https:'],
 				'font-src': ['self', 'data:'],
 				'media-src': ['self', 'blob:'],
-				'connect-src': ['self', 'ws:'],
+				'connect-src': ['self', 'ws:', 'wss:', 'https://cloudflareinsights.com'],
+				'worker-src': ['self', 'blob:'],
+				'frame-src': ['self', 'blob:'],
+				'child-src': ['self', 'blob:'],
 				'frame-ancestors': ['none']
 			}
 		}
