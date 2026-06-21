@@ -150,15 +150,18 @@ pub async fn stream(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
     };
     let suffix = query_param(&query, "suffix");
 
-    // Identity binding: prefer the seam-stamped X-Nexus-User header; fall back to
-    // the back-compat "legacy" user. The implicit assertion (and thus the tag)
-    // is reconstructed from this — a token minted for a different user fails.
-    let expected_user = req
+    // Identity binding: the seam-stamped X-Nexus-User header IS the authority for
+    // reconstructing the implicit assertion. FAIL CLOSED if absent (adversarial
+    // review: the old "legacy" default collapsed cross-user binding).
+    let expected_user = match req
         .headers()
         .get("x-nexus-user")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("legacy")
-        .to_string();
+        .filter(|s| !s.is_empty())
+    {
+        Some(u) => u.to_string(),
+        None => return json_error(StatusCode::FORBIDDEN, "missing user identity"),
+    };
 
     let grant = match session::verify_grant(&grant_token, &expected_user, 0) {
         Ok(g) => g,

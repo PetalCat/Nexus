@@ -8,7 +8,14 @@ use socket2::{Domain, Socket, Type};
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+/// Seam↔proxy shared secret (defense-in-depth, adversarial review). Only the
+/// SvelteKit seam knows NEXUS_PROXY_AUTH; every request except /healthz and CORS
+/// preflight must present it, so a process that gains loopback access can't forge
+/// `x-nexus-user`. Empty/unset disables the check (back-compat).
+static PROXY_AUTH: LazyLock<Option<String>> =
+    LazyLock::new(|| env::var("NEXUS_PROXY_AUTH").ok().filter(|s| !s.is_empty()));
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
@@ -40,6 +47,23 @@ async fn handle(
             .header("content-type", "text/plain")
             .body(nexus_stream_proxy::proxy::full_body("ok"))
             .unwrap());
+    }
+
+    // Seam↔proxy shared-secret gate: reject anything that didn't come through the
+    // SvelteKit seam (which alone holds NEXUS_PROXY_AUTH and stamps x-nexus-user),
+    // so a process that gains loopback access can't forge identity.
+    if let Some(expected) = PROXY_AUTH.as_ref() {
+        let ok = req
+            .headers()
+            .get("x-nexus-proxy-auth")
+            .and_then(|v| v.to_str().ok())
+            == Some(expected.as_str());
+        if !ok {
+            return Ok(Response::builder()
+                .status(403)
+                .body(nexus_stream_proxy::proxy::full_body("forbidden"))
+                .unwrap());
+        }
     }
 
     // Jellyfin-style entry: POST /session (verify grant, register inline cred,

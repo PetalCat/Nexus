@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { deriveStreamPaserkKey, mintGrant, type StreamGrant } from '$lib/server/stream-grant';
@@ -43,6 +44,15 @@ export type HeldCredTable = Record<string, HeldCred>;
 let currentPaserkKey: string | null = null;
 const KID_CURRENT = 'k0';
 
+/** Per-boot seam↔proxy shared secret. The seam attaches it as `x-nexus-proxy-auth`
+ *  so the Rust proxy rejects anything that didn't come through the seam (defense
+ *  in depth for the identity header — adversarial review). */
+let proxyAuthSecret: string | null = null;
+/** The seam reads this to authenticate to the Rust proxy. Null until started. */
+export function getProxyAuthSecret(): string | null {
+	return proxyAuthSecret;
+}
+
 export interface StartStreamProxyOptions {
 	/** Legacy Invidious instance URL (kept for the Invidious entry routes). */
 	invidiousUrl: string;
@@ -86,6 +96,8 @@ export function startStreamProxy(opts: StartStreamProxyOptions): void {
 	// parses it directly — it never re-derives.
 	const paserkCurrent = deriveStreamPaserkKey(secret);
 	currentPaserkKey = paserkCurrent;
+	// Fresh per-boot seam↔proxy secret (the seam + proxy share one process boot).
+	proxyAuthSecret = randomBytes(32).toString('hex');
 	const paserkPrevious = opts.previousStreamSecret
 		? deriveStreamPaserkKey(opts.previousStreamSecret)
 		: undefined;
@@ -105,6 +117,8 @@ export function startStreamProxy(opts: StartStreamProxyOptions): void {
 				// zero-downtime rotation (verify tries current then previous).
 				NEXUS_STREAM_PASETO_KEY: paserkCurrent,
 				...(paserkPrevious ? { NEXUS_STREAM_PASETO_KEY_PREVIOUS: paserkPrevious } : {}),
+				// Seam↔proxy shared secret — the seam attaches it as x-nexus-proxy-auth.
+				NEXUS_PROXY_AUTH: proxyAuthSecret,
 				// Per-backend held service creds. JSON: { backend: { base_url,
 				// auth_header_name, auth_header_value } }.
 				NEXUS_STREAM_HELD_CREDS: heldCredsJson,
@@ -214,7 +228,10 @@ export async function createStreamSession(params: {
 		});
 		const res = await fetch(`http://${HOST}:${PORT}/session`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				...(proxyAuthSecret ? { 'x-nexus-proxy-auth': proxyAuthSecret } : {})
+			},
 			body: JSON.stringify({
 				grant,
 				// the user the grant was minted for, so the /session registration

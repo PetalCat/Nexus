@@ -551,13 +551,17 @@ pub async fn handle_v(
         None => return forbidden("missing grant"),
     };
 
-    // Identity binding via the seam-stamped header (back-compat: "legacy").
-    let expected_user = req
+    // Identity binding via the seam-stamped header — FAIL CLOSED if absent
+    // (adversarial review: dropped the "legacy" default that nulled user binding).
+    let expected_user = match req
         .headers()
         .get("x-nexus-user")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("legacy")
-        .to_string();
+        .filter(|s| !s.is_empty())
+    {
+        Some(u) => u.to_string(),
+        None => return forbidden("missing user identity"),
+    };
 
     let grant = match session::verify_grant(&grant_token, &expected_user, 0) {
         Ok(g) => g,

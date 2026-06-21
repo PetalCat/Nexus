@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { getProxyAuthSecret } from '$lib/server/stream-proxy';
 
 /**
  * Reverse-proxy to the local Rust stream-proxy binary at 127.0.0.1:3939 — the
@@ -62,6 +63,10 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	const upstreamUrl = `${RUST_PROXY_ORIGIN}/${path}${url.search}`;
 
 	const headers: Record<string, string> = { 'x-nexus-user': locals.user.id };
+	// Authenticate to the Rust proxy with the per-boot shared secret so it never
+	// trusts an x-nexus-user that didn't come through this seam.
+	const proxyAuth = getProxyAuthSecret();
+	if (proxyAuth) headers['x-nexus-proxy-auth'] = proxyAuth;
 	const range = request.headers.get('range');
 	if (range) headers['range'] = range;
 
