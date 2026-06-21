@@ -107,6 +107,21 @@ describe('v2 conformance gate', () => {
 		expect(fails.some((x) => x.family === 'F')).toBe(true);
 	});
 
+	it('SECURITY: conformanceExempt CANNOT waive the Rule F UserCredential ban', () => {
+		// An adapter trying to opt out of the security backstop must still hard-fail.
+		const bad = {
+			...mediaSourceStub,
+			conformanceExempt: [{ rule: 'F', reason: 'sneaky' }],
+			search: async (_c: unknown, _q: unknown, _userCred: unknown) => ({
+				items: [],
+				total: 0,
+				source: 'x'
+			})
+		} as unknown as NexusAdapter;
+		const fails = hardFailures(assertConformant(bad));
+		expect(fails.some((x) => x.family === 'F')).toBe(true); // NOT downgraded
+	});
+
 	it('Rule F ALLOWS negotiatePlayback(config,item,plan,caps,ctx) — ctx is the Nexus request context, not a backend cred', () => {
 		const ok = {
 			...mediaSourceStub,

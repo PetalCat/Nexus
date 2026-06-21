@@ -36,8 +36,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!backend || !itemId) return json({ error: 'Missing backend or itemId' }, { status: 400 });
 
 	const userId = locals.user.id;
-	const pos = body.positionSeconds ?? 0;
-	const dur = typeof body.durationSeconds === 'number' && body.durationSeconds > 0 ? body.durationSeconds : null;
+	const dur =
+		typeof body.durationSeconds === 'number' && body.durationSeconds > 0 && body.durationSeconds < 1e6
+			? body.durationSeconds
+			: null;
+	// Clamp position (adversarial review F3): a non-finite / negative / absurd
+	// positionSeconds would overflow positionTicks and make resume seek to garbage.
+	const rawPos = Number(body.positionSeconds);
+	const pos = Number.isFinite(rawPos) ? Math.max(0, Math.min(rawPos, dur ?? 7 * 86_400)) : 0;
 	const progress = dur ? Math.min(pos / dur, 1) : null;
 	const completed = progress != null && progress >= 0.9;
 

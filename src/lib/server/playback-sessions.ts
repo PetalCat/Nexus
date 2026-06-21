@@ -39,6 +39,11 @@ function now() {
 	return Date.now();
 }
 
+/** Max concurrent playback sessions per user. Each holds a real backend transcode
+ *  + cred; without a cap, looping negotiate() pins unbounded ffmpeg jobs (DoS —
+ *  adversarial review F2). On overflow we stop the user's OLDEST session. */
+const MAX_SESSIONS_PER_USER = 8;
+
 /** Register a live playback session and return its id. Idempotent per id. */
 export function registerSession(opts: {
 	id: string;
@@ -46,6 +51,16 @@ export function registerSession(opts: {
 	stop: () => Promise<void>;
 	label?: string;
 }): string {
+	// Evict the user's oldest session(s) over the cap before adding a new one.
+	const mine = [...sessions.values()]
+		.filter((s) => s.userId === opts.userId)
+		.sort((a, b) => a.createdAt - b.createdAt);
+	for (let i = 0; i <= mine.length - MAX_SESSIONS_PER_USER; i++) {
+		const victim = mine[i];
+		sessions.delete(victim.id);
+		console.warn(`[playback-sessions] session cap: evicting "${victim.label}"`);
+		void victim.stop().catch(() => {});
+	}
 	sessions.set(opts.id, {
 		id: opts.id,
 		userId: opts.userId,

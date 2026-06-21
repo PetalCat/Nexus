@@ -483,7 +483,13 @@ export function assertConformant(adapter: NexusAdapter): Violation[] {
 			const exemption = exemptions.find(
 				(e) => e.rule === violation.rule || e.rule === violation.family
 			);
-			if (exemption && violation.severity === 'error') {
+			// SECURITY (adversarial review): an adapter could self-exempt the very
+			// rules the gate exists to enforce — Rule E (banned v1 UserCredential
+			// surface), Rule F (arity backstop for the same), and the contract-version
+			// identity check (A). Those are NON-WAIVABLE; only coherence/correctness
+			// (C/D/G) may be downgraded via conformanceExempt.
+			const UNEXEMPTABLE = new Set(['A', 'E', 'F']);
+			if (exemption && violation.severity === 'error' && !UNEXEMPTABLE.has(violation.family)) {
 				out.push({
 					...violation,
 					severity: 'warning',
