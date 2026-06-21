@@ -57,7 +57,11 @@ const oidcProviders =
 							providerId: 'authentik',
 							discoveryUrl: process.env.NEXUS_OIDC_DISCOVERY_URL,
 							clientId: process.env.NEXUS_OIDC_CLIENT_ID,
-							clientSecret: process.env.NEXUS_OIDC_CLIENT_SECRET
+							clientSecret: process.env.NEXUS_OIDC_CLIENT_SECRET,
+							// OIDC requires the openid scope; email/profile populate the
+							// user record. Without these the authorize request sends an
+							// empty scope and the IdP returns no identity.
+							scopes: ['openid', 'email', 'profile']
 						}
 					]
 				})
