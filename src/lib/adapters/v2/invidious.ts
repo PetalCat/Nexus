@@ -27,7 +27,7 @@ import type { ServiceConfig, ServiceHealth } from '../types';
 import type { PlaybackPlan, PlaybackSession, BrowserCaps, SessionLevel, TrackInfo } from '../playback';
 import type { CredentialProbeResult, NexusAdapter } from './contract';
 import { declareAdapter } from './contract';
-import { createStreamSession } from '../../server/stream-proxy';
+import { createStreamSession, mintStreamGrant } from '../../server/stream-proxy';
 
 const baseUrl = (c: ServiceConfig) => c.url.replace(/\/+$/, '');
 
@@ -106,43 +106,13 @@ async function negotiatePlayback(
 	const formatStreams: InvFormat[] = meta.formatStreams ?? [];
 	const adaptiveFormats: InvFormat[] = meta.adaptiveFormats ?? [];
 
-	const picked = pickBestMuxed(formatStreams, plan);
-	if (!picked?.url) {
-		// No muxed progressive stream (modern SABR videos are often DASH-only).
-		// DASH-adaptive on this instance needs in-Docker-network reach to the
-		// companion; surface a clear, honest error rather than a broken player.
-		throw new Error(
-			'Invidious: no progressive (muxed) stream available for this video; DASH-adaptive playback is pending companion-network access'
-		);
-	}
-
-	// Resolve to a full instance URL (local=true url is instance-relative).
-	const upstreamUrl = picked.url.startsWith('http') ? picked.url : `${base}${picked.url}`;
-
-	// Same grant + held-cred proxy spine as Jellyfin. Invidious is public, so no
-	// auth header is injected — the grant is the only authority.
-	const proxy = await createStreamSession({
-		upstreamUrl,
-		authHeaders: {},
-		isHls: false,
-		kind: 'generic',
-		userId: ctx?.nexusUserId
-	});
-	// FAIL CLOSED — never hand back the raw instance /videoplayback URL if the
-	// grant proxy handoff fails (it would bypass the grant + expose the instance
-	// origin). Same leak the Jellyfin load test caught.
-	if (!proxy) {
-		throw new Error('stream proxy handoff failed (fail-closed: refusing to expose the raw instance URL)');
-	}
-
-	// Captions: each WebVTT track routed through its own grant-proxied session so
-	// the browser only ever talks to Nexus (never the instance directly).
+	// Captions (shared by both engines): each WebVTT track routed through its own
+	// grant-proxied session so the browser only ever talks to Nexus.
 	const captionsRaw: { label?: string; languageCode?: string; url?: string }[] = meta.captions ?? [];
 	const subtitleTracks: TrackInfo[] = (
 		await Promise.all(
 			captionsRaw.map(async (c, i): Promise<TrackInfo | null> => {
 				const label = c.label ?? c.languageCode ?? `Caption ${i}`;
-				// Invidious caption url is instance-relative; resolve + proxy it.
 				const capUrl = c.url
 					? c.url.startsWith('http') ? c.url : `${base}${c.url}`
 					: `${base}/api/v1/captions/${encodeURIComponent(videoId)}?label=${encodeURIComponent(label)}`;
@@ -160,7 +130,58 @@ async function negotiatePlayback(
 	).filter((t): t is TrackInfo => t !== null);
 
 	const levels = extractLevels(adaptiveFormats);
-	const sourceHeight = picked.height || (levels[0]?.height ?? undefined);
+	const userId = ctx?.nexusUserId ?? 'legacy';
+
+	// PREFER DASH (adaptive, up to 4K) when the video exposes adaptiveFormats.
+	// Mint a grant for the DASH entry; the Rust proxy fetches + rewrites the MPD
+	// on demand so every segment routes back through the grant (the browser never
+	// touches the instance or googlevideo). Same user-bound copy-paste defense.
+	if (adaptiveFormats.length > 0) {
+		const token = mintStreamGrant({
+			backend: 'invidious',
+			resource_ref: videoId,
+			allowed_hops: 'invidious-dash',
+			// Generous TTL (decision 2): grant covers the whole watch; the player's
+			// reactive recovery re-negotiates if it ever expires mid-stream.
+			exp: Math.floor(Date.now() / 1000) + 6 * 60 * 60,
+			user_id: userId,
+			gen: 0
+		});
+		const dashUrl = `/api/stream-proxy/v/${encodeURIComponent(videoId)}/dash?grant=${encodeURIComponent(token)}`;
+		const session: PlaybackSession = {
+			engine: 'dash',
+			url: dashUrl,
+			mime: 'application/dash+xml',
+			mode: 'direct-play',
+			audioTracks: [{ id: 0, name: 'Default', lang: '' }],
+			subtitleTracks,
+			burnableSubtitleTracks: [],
+			levels: levels.length ? levels : undefined,
+			sourceHeight: levels[0]?.height
+		};
+		// dash.js does its own ABR; re-negotiate only re-issues the grant.
+		session.changeQuality = async (newPlan: PlaybackPlan) =>
+			negotiatePlayback(config, item, { ...plan, ...newPlan }, caps, ctx);
+		return session;
+	}
+
+	// PROGRESSIVE fallback (muxed itag) — for videos with no adaptiveFormats.
+	const picked = pickBestMuxed(formatStreams, plan);
+	if (!picked?.url) {
+		throw new Error('Invidious: no DASH adaptiveFormats and no progressive muxed stream available for this video');
+	}
+	const upstreamUrl = picked.url.startsWith('http') ? picked.url : `${base}${picked.url}`;
+	const proxy = await createStreamSession({
+		upstreamUrl,
+		authHeaders: {},
+		isHls: false,
+		kind: 'generic',
+		userId: ctx?.nexusUserId
+	});
+	// FAIL CLOSED — never hand back the raw instance /videoplayback URL.
+	if (!proxy) {
+		throw new Error('stream proxy handoff failed (fail-closed: refusing to expose the raw instance URL)');
+	}
 
 	const session: PlaybackSession = {
 		engine: 'progressive',
@@ -171,14 +192,10 @@ async function negotiatePlayback(
 		subtitleTracks,
 		burnableSubtitleTracks: [],
 		levels: levels.length ? levels : undefined,
-		sourceHeight
+		sourceHeight: picked.height || (levels[0]?.height ?? undefined)
 	};
-
-	// Quality change re-negotiates a different muxed itag (progressive ceiling is
-	// whatever muxed streams YouTube exposes — typically 720p/360p).
 	session.changeQuality = async (newPlan: PlaybackPlan) =>
 		negotiatePlayback(config, item, { ...plan, ...newPlan }, caps, ctx);
-
 	return session;
 }
 
