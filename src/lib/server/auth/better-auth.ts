@@ -61,7 +61,17 @@ const oidcProviders =
 							// OIDC requires the openid scope; email/profile populate the
 							// user record. Without these the authorize request sends an
 							// empty scope and the IdP returns no identity.
-							scopes: ['openid', 'email', 'profile']
+							scopes: ['openid', 'email', 'profile'],
+							// Our users.username is NOT NULL; OIDC profiles don't carry it
+							// by default. Derive it from Authentik's preferred_username
+							// (unique), falling back to the email local-part / sub.
+							mapProfileToUser: (profile: Record<string, unknown>) => {
+								const pu = (profile.preferred_username as string) ?? undefined;
+								const email = (profile.email as string) ?? undefined;
+								const username = pu ?? email?.split('@')[0] ?? (profile.sub as string);
+								const name = (profile.name as string) ?? username;
+								return { username, displayUsername: name, name, email };
+							}
 						}
 					]
 				})
@@ -87,6 +97,14 @@ export const auth = betterAuth({
 	// (dev / behind a TLS-terminating proxy on http) cookies stay non-Secure.
 	baseURL: process.env.BETTER_AUTH_URL,
 	trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(',').map((s) => s.trim()),
+	// Link an Authentik (OIDC) login to an existing local account with the same
+	// verified email instead of creating a duplicate — Authentik is a trusted IdP.
+	account: {
+		accountLinking: {
+			enabled: true,
+			trustedProviders: ['authentik']
+		}
+	},
 	emailAndPassword: {
 		enabled: true,
 		// Match the existing Nexus register UI policy (6 chars) so client-side
