@@ -83,8 +83,17 @@ async fn handle(
         return Ok(nexus_stream_proxy::handlers::invidious::handle_v(req, invidious_url).await);
     }
 
-    // Legacy Invidious routes (/stats, /proxy?url=...) — dormant unless used.
-    Ok(nexus_stream_proxy::handlers::invidious::handle(req, invidious_url).await)
+    // SECURITY (adversarial review, belt-and-suspenders): the legacy
+    // `invidious::handle` routes (/proxy?url=, /stats, /stream/{id}) are an
+    // open-proxy SSRF + info-leak surface and are NOT used by the v2 paths
+    // (/session, /stream, /v/). Nothing legitimate reaches the proxy except via
+    // the seam, which allowlists only /stream and /v. Refuse anything else
+    // outright so the dormant routes can't be reawakened by a future bypass.
+    let _ = &invidious_url;
+    Ok(Response::builder()
+        .status(404)
+        .body(nexus_stream_proxy::proxy::full_body("not found"))
+        .unwrap())
 }
 
 #[tokio::main]
