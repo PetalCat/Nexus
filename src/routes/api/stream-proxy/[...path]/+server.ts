@@ -1,29 +1,40 @@
 import type { RequestHandler } from './$types';
 
 /**
- * Reverse-proxy to the local Rust stream-proxy binary at 127.0.0.1:3939.
+ * Reverse-proxy to the local Rust stream-proxy binary at 127.0.0.1:3939 — the
+ * enforcement seam.
  *
- * The Rust binary listens on localhost and is not directly reachable by
- * browsers (especially in Docker deployments where port 3939 isn't exposed).
- * This route handler forwards requests through the SvelteKit origin so the
- * browser only ever talks to Nexus.
+ * The Rust binary listens on loopback and is NOT directly reachable by browsers
+ * (in Docker, 3939 isn't exposed). This handler forwards through the SvelteKit
+ * origin so the browser only ever talks to Nexus. The grant rides in the URL
+ * query (`?grant=<paseto>`); the Rust side verifies it, resolves the held
+ * service cred, strips/injects auth, and rewrites HLS manifests. This handler is
+ * deliberately thin: path-preserving forward + Range passthrough + status/header
+ * passthrough + streaming body.
  *
- * The Rust side handles HMAC verification, session lookup, HLS manifest
- * rewriting, and ApiKey stripping. This handler just pipes bytes.
- *
- * URL shape: `/api/stream-proxy/{session_id}[/{suffix}]?sig=...`
- * Upstream:  `http://127.0.0.1:3939/stream/{session_id}[/{suffix}]?sig=...`
+ * URL shape (v2 grant):   /api/stream-proxy/stream?grant=<token>[&suffix=<hex>]
+ *                      →  http://127.0.0.1:3939/stream?grant=<token>[&suffix=<hex>]
+ * Legacy Invidious /v/…:  /api/stream-proxy/v/{id}/...?grant=<token>
+ *                      →  http://127.0.0.1:3939/v/{id}/...?grant=<token>
  */
 const RUST_PROXY_ORIGIN = 'http://127.0.0.1:3939';
 
-export const GET: RequestHandler = async ({ params, url, request }) => {
-	// Session-based routes go to /stream/{path}; the legacy Invidious
-	// /proxy?url=... endpoint goes to /{path} (root-level on the Rust binary).
-	const isLegacyProxy = params.path === 'proxy' || params.path?.startsWith('proxy?');
-	const upstreamPath = isLegacyProxy ? `/${params.path}` : `/stream/${params.path}`;
-	const upstreamUrl = `${RUST_PROXY_ORIGIN}${upstreamPath}${url.search}`;
+const PASSTHROUGH_HEADERS = [
+	'content-type',
+	'content-length',
+	'content-range',
+	'accept-ranges',
+	'etag',
+	'last-modified',
+	'cache-control'
+];
 
-	// Forward Range header for seekable media requests
+export const GET: RequestHandler = async ({ params, url, request }) => {
+	// Path-preserving forward: `/api/stream-proxy/<path>` → `/<path>` on the Rust
+	// binary, carrying the query string verbatim (the grant lives there).
+	const path = params.path ?? '';
+	const upstreamUrl = `${RUST_PROXY_ORIGIN}/${path}${url.search}`;
+
 	const headers: Record<string, string> = {};
 	const range = request.headers.get('range');
 	if (range) headers['range'] = range;
@@ -33,7 +44,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		upstream = await fetch(upstreamUrl, {
 			method: 'GET',
 			headers,
-			// Rust proxy can take a while for large upstream fetches; don't timeout.
+			// Large upstream fetches can be slow; tie the lifetime to the client.
 			signal: request.signal
 		});
 	} catch (e) {
@@ -41,18 +52,8 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		return new Response('stream proxy unavailable', { status: 502 });
 	}
 
-	// Pass through status, selected headers, and body (streaming).
 	const responseHeaders = new Headers();
-	const passthroughHeaders = [
-		'content-type',
-		'content-length',
-		'content-range',
-		'accept-ranges',
-		'etag',
-		'last-modified',
-		'cache-control'
-	];
-	for (const name of passthroughHeaders) {
+	for (const name of PASSTHROUGH_HEADERS) {
 		const value = upstream.headers.get(name);
 		if (value !== null) responseHeaders.set(name, value);
 	}
@@ -63,7 +64,4 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	});
 };
 
-export const HEAD: RequestHandler = async (event) => {
-	// HEAD requests reuse the GET handler (same upstream semantics).
-	return GET(event);
-};
+export const HEAD: RequestHandler = async (event) => GET(event);

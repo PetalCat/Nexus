@@ -230,7 +230,13 @@ export async function createStreamSession(params: {
 			return null;
 		}
 		const body = (await res.json()) as { stream_url: string };
-		const proxyPath = body.stream_url.replace(/^\/stream\//, '/api/stream-proxy/');
+		// The proxy returns a root-relative URL on its own origin (e.g.
+		// `/stream?grant=…` for the v2 grant shape, or `/stream/…` legacy). Re-anchor
+		// it under the SvelteKit reverse-proxy seam so the browser hits
+		// `/api/stream-proxy/stream?grant=…`. Prefix-only — preserves the query
+		// string (where the grant lives) verbatim.
+		const rel = body.stream_url.startsWith('/') ? body.stream_url : `/${body.stream_url}`;
+		const proxyPath = `/api/stream-proxy${rel}`;
 		return { streamUrl: proxyPath };
 	} catch (e) {
 		console.warn('[stream-proxy] /session fetch error:', e);
