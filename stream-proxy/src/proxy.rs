@@ -11,7 +11,21 @@ use std::time::Duration;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    // Ask upstreams NOT to compress. reqwest is built without the gzip/br
+    // features, so it would forward a compressed body verbatim — but downstream
+    // (undici in the SvelteKit seam) strips `content-encoding` off the headers
+    // while handing us the still-compressed `.body` stream, so the browser ends
+    // up with gzip bytes labelled text and parses garbage (caught: gzipped
+    // WebVTT → 0 cues). Forcing identity keeps the whole chain uncompressed.
+    // Media containers (mp4/m4s/ts) are already compressed, so this costs
+    // nothing on the hot streaming path.
+    let mut default_headers = reqwest::header::HeaderMap::new();
+    default_headers.insert(
+        reqwest::header::ACCEPT_ENCODING,
+        reqwest::header::HeaderValue::from_static("identity"),
+    );
     Client::builder()
+        .default_headers(default_headers)
         .redirect(reqwest::redirect::Policy::limited(5))
         .timeout(Duration::from_secs(60))
         // Raise from 32 — segment fanout + prefetch can saturate a smaller pool
@@ -37,7 +51,11 @@ const FORWARDED_REQUEST_HEADERS: &[&str] = &[
     "range",
     "if-none-match",
     "if-modified-since",
-    "accept-encoding",
+    // NOT accept-encoding: the proxy negotiates encoding itself (identity, via
+    // HTTP_CLIENT's default header). Forwarding the browser's `gzip` would make
+    // the upstream compress, but the downstream seam (undici) strips
+    // `content-encoding` while handing us the raw compressed `.body`, so the
+    // browser would receive gzip bytes labelled plain. Keep the chain identity.
 ];
 
 /// Headers we forward from upstream → client. Any other upstream header is dropped.

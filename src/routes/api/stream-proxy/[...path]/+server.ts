@@ -23,6 +23,11 @@ const PASSTHROUGH_HEADERS = [
 	'content-type',
 	'content-length',
 	'content-range',
+	// Transparent-proxy correctness: the Rust proxy forwards the upstream body
+	// bytes verbatim (still gzip/br-encoded when the upstream compressed them).
+	// Without forwarding content-encoding the browser sees compressed bytes
+	// labelled as plain text and parses garbage (caught: gzipped WebVTT → 0 cues).
+	'content-encoding',
 	'accept-ranges',
 	'etag',
 	'last-modified',
