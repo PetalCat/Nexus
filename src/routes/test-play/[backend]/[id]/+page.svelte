@@ -177,15 +177,15 @@
 			const res = await fetch(`/api/play/probe?bytes=${bytes}`, { cache: 'no-store' });
 			if (!res.ok || !res.body) return null;
 			const reader = res.body.getReader();
-			let bytes = 0;
+			let received = 0;
 			for (;;) {
 				const { done, value } = await reader.read();
 				if (done) break;
-				bytes += value.length;
+				received += value.length;
 			}
 			const secs = (performance.now() - t0) / 1000;
-			if (secs <= 0 || bytes === 0) return null;
-			return Math.round((bytes * 8) / secs); // bits per second
+			if (secs <= 0 || received === 0) return null;
+			return Math.round((received * 8) / secs); // bits per second
 		} catch {
 			return null;
 		}
