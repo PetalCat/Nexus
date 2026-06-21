@@ -217,6 +217,9 @@ export async function createStreamSession(params: {
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
 				grant,
+				// the user the grant was minted for, so the /session registration
+				// verifies with the same identity the browser seam will stamp.
+				user_id: userId,
 				upstream_url: params.upstreamUrl,
 				auth_headers: params.authHeaders ?? {},
 				is_hls: params.isHls ?? false,

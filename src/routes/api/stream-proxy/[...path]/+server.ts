@@ -29,13 +29,20 @@ const PASSTHROUGH_HEADERS = [
 	'cache-control'
 ];
 
-export const GET: RequestHandler = async ({ params, url, request }) => {
+export const GET: RequestHandler = async ({ params, url, request, locals }) => {
+	// Enforcement seam: the grant is session-bound. Require an authenticated Nexus
+	// session and stamp the user id so the Rust proxy can verify it against the
+	// grant's user_id — the copy-paste / replay defense. A grant URL pasted into
+	// another browser (no session, or a different user's session) fails here or at
+	// the proxy's X-Nexus-User check.
+	if (!locals.user) return new Response('Unauthorized', { status: 403 });
+
 	// Path-preserving forward: `/api/stream-proxy/<path>` → `/<path>` on the Rust
 	// binary, carrying the query string verbatim (the grant lives there).
 	const path = params.path ?? '';
 	const upstreamUrl = `${RUST_PROXY_ORIGIN}/${path}${url.search}`;
 
-	const headers: Record<string, string> = {};
+	const headers: Record<string, string> = { 'x-nexus-user': locals.user.id };
 	const range = request.headers.get('range');
 	if (range) headers['range'] = range;
 

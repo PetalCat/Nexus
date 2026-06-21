@@ -570,7 +570,8 @@ async function negotiatePlayback(
 	config: ServiceConfig,
 	item: { id: string; type: string; title?: string },
 	plan: PlaybackPlan,
-	caps: BrowserCaps
+	caps: BrowserCaps,
+	ctx?: { nexusUserId?: string }
 ): Promise<PlaybackSession> {
 	const userId = await getUserId(config);
 
@@ -633,7 +634,8 @@ async function negotiatePlayback(
 		upstreamUrl: session.url,
 		authHeaders: authHeaders(config),
 		isHls: session.engine === 'hls',
-		kind: 'jellyfin'
+		kind: 'jellyfin',
+		userId: ctx?.nexusUserId
 	});
 	if (proxy) {
 		session.url = proxy.streamUrl;
@@ -642,7 +644,7 @@ async function negotiatePlayback(
 	// changeQuality re-negotiates (close the prior transcode first to avoid orphans).
 	session.changeQuality = async (newPlan: PlaybackPlan) => {
 		await session.close?.();
-		return negotiatePlayback(config, item, { ...plan, ...newPlan }, caps);
+		return negotiatePlayback(config, item, { ...plan, ...newPlan }, caps, ctx);
 	};
 
 	// close → report stopped + reap the transcode (best-effort).
@@ -833,8 +835,8 @@ export const jellyfinV2 = declareAdapter({
 		}
 	},
 
-	async negotiatePlayback(config, item, plan, caps): Promise<PlaybackSession> {
-		return negotiatePlayback(config, item, plan, caps);
+	async negotiatePlayback(config, item, plan, caps, ctx): Promise<PlaybackSession> {
+		return negotiatePlayback(config, item, plan, caps, ctx);
 	},
 
 	async pollSessions(config): Promise<NexusSession[]> {

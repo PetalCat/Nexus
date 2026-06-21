@@ -40,10 +40,20 @@ struct InlineSession {
     kind: AdapterKind,
 }
 
+fn default_user() -> String {
+    "legacy".to_string()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionBody {
     /// The PASETO v4.local grant minted by Node. Verified before anything else.
     pub grant: String,
+    /// The Nexus user the grant was minted for. The /session registration is
+    /// verified against THIS identity — the same one the browser seam stamps as
+    /// X-Nexus-User at /stream time — so both paths agree. Defaults to "legacy"
+    /// for the pre-binding back-compat callers.
+    #[serde(default = "default_user")]
+    pub user_id: String,
     /// Inline upstream URL (back-compat adapter shape; held server-side).
     pub upstream_url: String,
     #[serde(default)]
@@ -90,13 +100,12 @@ pub async fn create(req: Request<Incoming>) -> Response<BoxBody<Bytes, BoxError>
         }
     };
 
-    // Verify the grant up front. We don't yet know the seam-stamped user here in
-    // the back-compat path, so we bind to the grant's own minted user: the mint
-    // side sets user_id, and the inline path mints with a known user (default
-    // "legacy"). We re-derive the implicit assertion from that. Since the inline
-    // mint uses user "legacy" or the passed userId and gen 0, verify with the
-    // same. If a future seam stamps a header we use it instead.
-    let expected_user = "legacy";
+    // Verify the registration grant against the SAME user the browser seam will
+    // stamp at /stream time (passed in the body by createStreamSession). This is
+    // what keeps /session and /stream agreeing on identity, so the legit user's
+    // grant verifies on both paths while a copy-pasted URL (no/other session)
+    // fails at the seam or the /stream X-Nexus-User check.
+    let expected_user = parsed.user_id.as_str();
     let grant = match session::verify_grant(&parsed.grant, expected_user, 0) {
         Ok(g) => g,
         Err(e) => return verify_reject("/session", e),

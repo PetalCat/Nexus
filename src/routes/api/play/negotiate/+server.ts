@@ -63,7 +63,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			config,
 			{ id: itemId, type: body.type ?? 'movie' },
 			plan,
-			caps
+			caps,
+			{ nexusUserId: locals.user.id }
 		);
 		// Serialize only the wire-relevant fields (drop changeQuality/close fns).
 		return json({

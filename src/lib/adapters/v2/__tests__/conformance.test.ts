@@ -107,6 +107,35 @@ describe('v2 conformance gate', () => {
 		expect(fails.some((x) => x.family === 'F')).toBe(true);
 	});
 
+	it('Rule F ALLOWS negotiatePlayback(config,item,plan,caps,ctx) — ctx is the Nexus request context, not a backend cred', () => {
+		const ok = {
+			...mediaSourceStub,
+			capabilities: { ...mediaSourceStub.capabilities, playback: { progressive: true } },
+			// 5 params: the 5th is the typed Nexus identity ctx (allowed).
+			negotiatePlayback: async (_c: unknown, _i: unknown, _p: unknown, _caps: unknown, _ctx: unknown) =>
+				({ engine: 'progressive', url: '', mime: '' }) as unknown
+		} as unknown as NexusAdapter;
+		const fails = hardFailures(assertConformant(ok));
+		expect(fails.some((x) => x.family === 'F')).toBe(false);
+	});
+
+	it('Rule F still flags negotiatePlayback with a 6th param (ctx + a ported-in extra)', () => {
+		const bad = {
+			...mediaSourceStub,
+			capabilities: { ...mediaSourceStub.capabilities, playback: { progressive: true } },
+			negotiatePlayback: async (
+				_c: unknown,
+				_i: unknown,
+				_p: unknown,
+				_caps: unknown,
+				_ctx: unknown,
+				_userCred: unknown
+			) => ({ engine: 'progressive', url: '', mime: '' }) as unknown
+		} as unknown as NexusAdapter;
+		const fails = hardFailures(assertConformant(bad));
+		expect(fails.some((x) => x.family === 'F')).toBe(true);
+	});
+
 	// ── the rule set really is modular ──────────────────────────────────────
 	it('exposes per-rule modules covering families A–G', () => {
 		const families = new Set(rules.map((r) => r.family));

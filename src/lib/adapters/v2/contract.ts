@@ -285,11 +285,15 @@ export interface NexusAdapter extends AdapterIdentity {
 	search?(config: ServiceConfig, query: string): Promise<import('../types').UnifiedSearchResult>;
 
 	// ── playback ⇒ negotiatePlayback ─────────────────────────────────────────
+	// `ctx.nexusUserId` is Nexus's OWN identity for this request (not a backend
+	// credential) — threaded so the minted stream grant is bound to the session
+	// user (the copy-paste / replay defense).
 	negotiatePlayback?(
 		config: ServiceConfig,
 		item: { id: string; type: string; title?: string },
 		plan: PlaybackPlan,
-		caps: BrowserCaps
+		caps: BrowserCaps,
+		ctx?: { nexusUserId?: string }
 	): Promise<PlaybackSession>;
 
 	// ── sessions ⇒ pollSessions ──────────────────────────────────────────────

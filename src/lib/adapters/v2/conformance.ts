@@ -335,6 +335,14 @@ const RULE_E: ConformanceRule = {
 // runtime, so the backstop is method ARITY: a v1 method took an extra userCred
 // argument, so any core method declaring MORE params than its v2 signature
 // allows is flagged. This catches a ported-in `(config, userCred, …)` method.
+//
+// NOTE on negotiatePlayback's arity of 5: its v2 signature is
+// `(config, item, plan, caps, ctx?: NexusContext)`. The trailing `ctx` is the
+// Nexus REQUEST context (which Nexus user the playback grant binds to) — core
+// to the Nexus-as-identity model, NOT a backend credential. A ported-in
+// per-user *backend* UserCredential is still banned, but by the TYPE contract
+// (Rule E banned-v1-surface + the contract's structural Omit), which is the
+// primary defense the comment above already names this arity check a backstop to.
 const MAX_ARITY: Record<string, number> = {
 	ping: 1,
 	probeServiceCredential: 1,
@@ -343,7 +351,7 @@ const MAX_ARITY: Record<string, number> = {
 	getRecentlyAdded: 1,
 	getItem: 2,
 	search: 2,
-	negotiatePlayback: 4,
+	negotiatePlayback: 5,
 	pollSessions: 1,
 	submitRequest: 3,
 	getRequests: 2,
