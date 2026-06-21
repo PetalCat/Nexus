@@ -28,13 +28,18 @@ export async function createHlsEngine(): Promise<PlayerEngine> {
 			// `session.hlsConfig`, applied below. Keeping the base config
 			// free of adapter quirks means Jellyfin, Invidious, and
 			// direct-file HLS all use hls.js's well-tested defaults.
+			// VOD tuning (researched): start-low-then-ramp, deep buffer when the link
+			// allows, but a CAPPED back-buffer — hls.js defaults backBufferLength to
+			// Infinity, which leaks memory on long sessions (Mux QoE writeup). Seed the
+			// bandwidth estimate low (~1 Mbps) so the first pick isn't a blind over-shoot.
 			const baseConfig = {
-				maxBufferLength: 60,
-				maxMaxBufferLength: 120,
-				startLevel: -1,
-				abrEwmaDefaultEstimate: 50_000_000,
+				startLevel: -1, // probe lowest first → fast start + a real bandwidth read
+				maxBufferLength: 30, // forward buffer baseline (s)
+				maxMaxBufferLength: 600, // allow a deep buffer when the link is fat
+				backBufferLength: 90, // CAP back-buffer (default Infinity = memory bloat)
+				abrEwmaDefaultEstimate: 1_000_000, // seed ~1 Mbps, not 50
 				enableWorker: true,
-				lowLatencyMode: false,
+				lowLatencyMode: false, // OFF for VOD
 				debug: false,
 			};
 			hls = new Hls({

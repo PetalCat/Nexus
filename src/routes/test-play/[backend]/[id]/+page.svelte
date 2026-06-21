@@ -51,12 +51,130 @@
 
 	// Measured link bandwidth (bits/sec), probed once; null until measured.
 	let measuredBandwidthBps: number | null = null;
+	// The bandwidth the adapter is currently told to target. Starts at the probed
+	// value; the mid-stream watchdog steps it DOWN on sustained rebuffering and
+	// cautiously back UP after a long healthy window (never above the probe).
+	let effectiveBandwidthBps: number | null = null;
+	const MIN_BANDWIDTH_BPS = 600_000; // floor: ~360p-ish, don't degrade below this
 
-	/** Download a probe payload and measure real throughput → bits/sec. */
-	async function probeBandwidth(): Promise<number | null> {
+	// Adaptation watchdog state (buffer-veto model: throughput proposes, buffer decides).
+	let adaptTimer: ReturnType<typeof setInterval> | null = null;
+	let lastSwitchAt = 0;
+	let lowBufferSince = 0;
+	let healthyBufferSince = 0;
+	let suppressStepUpUntil = 0;
+	let recentStalls: number[] = [];
+
+	function forwardBuffer(): number {
+		if (!video || !video.buffered.length) return 0;
+		const t = video.currentTime;
+		for (let i = 0; i < video.buffered.length; i++) {
+			if (t >= video.buffered.start(i) - 0.5 && t <= video.buffered.end(i)) {
+				return video.buffered.end(i) - t;
+			}
+		}
+		return 0;
+	}
+
+	let adapting = false;
+
+	/** Throughput estimate (bits/sec): prefer the engine's EWMA (free, hls/dash);
+	 *  fall back to a fresh probe for native progressive. "Throughput proposes." */
+	async function measureThroughput(): Promise<number> {
+		const est = engine?.bandwidthEstimate?.() ?? 0;
+		if (est > 0) return est;
+		return (await probeBandwidth(1_000_000)) ?? effectiveBandwidthBps ?? MIN_BANDWIDTH_BPS;
+	}
+
+	/**
+	 * Re-target the stream bitrate from a FRESH throughput read (not a blind step
+	 * off a stale value — that converges far too slowly when a link suddenly
+	 * drops). Down → 70% of measured throughput; up → 85%. Skips the switch if the
+	 * new target isn't meaningfully different (avoid churn). Resumes at position.
+	 */
+	async function adapt(direction: 'down' | 'up') {
+		if (adapting || effectiveBandwidthBps == null) return;
+		adapting = true;
+		try {
+			const tp = await measureThroughput();
+			const target =
+				direction === 'down' ? Math.max(MIN_BANDWIDTH_BPS, tp * 0.7) : tp * 0.85;
+			// Only act if it's actually a meaningful move.
+			if (direction === 'down' && target >= effectiveBandwidthBps * 0.9) {
+				lastSwitchAt = Date.now();
+				lowBufferSince = 0;
+				return;
+			}
+			if (direction === 'up' && target <= effectiveBandwidthBps * 1.25) return;
+			effectiveBandwidthBps = Math.round(target);
+			lastSwitchAt = Date.now();
+			lowBufferSince = 0;
+			healthyBufferSince = 0;
+			if (direction === 'down') suppressStepUpUntil = Date.now() + 60_000;
+			console.log(
+				`[adapt] ${direction} → ${(target / 1e6).toFixed(1)}Mbps (throughput ${(tp / 1e6).toFixed(1)}Mbps)`
+			);
+			await negotiate(lastPlan, { resumeAt: video?.currentTime ?? 0, autoplay: true });
+		} finally {
+			adapting = false;
+		}
+	}
+
+	function startAdaptWatchdog() {
+		stopAdaptWatchdog();
+		adaptTimer = setInterval(() => {
+			if (!video || recovering || loading || adapting || effectiveBandwidthBps == null) return;
+			const now = Date.now();
+			const fwd = forwardBuffer();
+			const sinceSwitch = now - lastSwitchAt;
+			recentStalls = recentStalls.filter((t) => now - t < 10_000);
+
+			// ── STEP DOWN (fast): buffer is the ground truth, throughput sets target ──
+			const critical = fwd < 1.5 && video.currentTime > 1 && !video.paused;
+			if (fwd < 4) {
+				if (!lowBufferSince) lowBufferSince = now;
+			} else {
+				lowBufferSince = 0;
+			}
+			const sustainedLow = lowBufferSince && now - lowBufferSince >= 5_000;
+			const stalling = recentStalls.length >= 2;
+			if (
+				(critical || sustainedLow || stalling) &&
+				(critical || sinceSwitch >= 30_000) &&
+				effectiveBandwidthBps > MIN_BANDWIDTH_BPS
+			) {
+				recentStalls = [];
+				void adapt('down');
+				return;
+			}
+
+			// ── STEP UP (slow, cautious): only after a long healthy window ──
+			if (fwd >= 20) {
+				if (!healthyBufferSince) healthyBufferSince = now;
+			} else {
+				healthyBufferSince = 0;
+			}
+			if (
+				healthyBufferSince &&
+				now - healthyBufferSince >= 30_000 &&
+				now > suppressStepUpUntil &&
+				sinceSwitch >= 30_000
+			) {
+				void adapt('up');
+			}
+		}, 1_000);
+	}
+	function stopAdaptWatchdog() {
+		if (adaptTimer) clearInterval(adaptTimer);
+		adaptTimer = null;
+	}
+
+	/** Download a probe payload and measure real throughput → bits/sec. The
+	 *  re-measure path uses a smaller payload so it doesn't starve a thin link. */
+	async function probeBandwidth(bytes = 4_000_000): Promise<number | null> {
 		try {
 			const t0 = performance.now();
-			const res = await fetch('/api/play/probe?bytes=4000000', { cache: 'no-store' });
+			const res = await fetch(`/api/play/probe?bytes=${bytes}`, { cache: 'no-store' });
 			if (!res.ok || !res.body) return null;
 			const reader = res.body.getReader();
 			let bytes = 0;
@@ -111,6 +229,10 @@
 			engine = createProgressiveEngine();
 		}
 		await engine.attach(video, s);
+		// Wire the engine's stall + fatal-error signals into the adaptive watchdog
+		// and reactive recovery (re-wired per attach since the engine is recreated).
+		engine.onStall?.(() => recentStalls.push(Date.now()));
+		engine.onFatalError?.(() => recover('engine fatal error'));
 	}
 
 	let lastPlan: Record<string, unknown> = {};
@@ -156,9 +278,12 @@
 					backend: data.backend,
 					itemId: data.id,
 					type: 'movie',
-					// Fold the measured link bandwidth into the plan so the adapter picks
-					// the right rendition up front (smart bitrate).
-					plan: measuredBandwidthBps ? { ...plan, measuredBandwidthBps } : plan,
+					// Fold the CURRENT effective bandwidth into the plan so the adapter
+					// picks the right rendition (smart bitrate up front + the watchdog's
+					// mid-stream step-down/up adjust this value before re-negotiating).
+					plan: effectiveBandwidthBps
+						? { ...plan, measuredBandwidthBps: effectiveBandwidthBps }
+						: plan,
 					caps: detectCaps()
 				})
 			});
@@ -217,7 +342,9 @@
 		// bitrate (no rough initial over-shoot). Falls back to no-hint on failure.
 		probeBandwidth().then((bps) => {
 			measuredBandwidthBps = bps;
+			effectiveBandwidthBps = bps;
 			negotiate();
+			startAdaptWatchdog();
 		});
 		// Fast clean-stop on tab close / bfcache. pagehide fires where unload
 		// doesn't (mobile/bfcache); visibilitychange→hidden covers tab switches.
@@ -234,6 +361,7 @@
 		};
 	});
 	onDestroy(() => {
+		stopAdaptWatchdog();
 		engine?.detach();
 		beaconStop();
 	});
@@ -245,7 +373,7 @@
 {#if error}<p style="color:red">ERROR: {error}</p>{/if}
 
 <!-- svelte-ignore a11y_media_has_caption -->
-<video bind:this={video} controls width="800" style="background:#000">
+<video bind:this={video} controls preload="auto" width="800" style="background:#000">
 	{#if session}
 		{#each session.subtitleTracks as t (t.id)}
 			<track
