@@ -3,8 +3,8 @@ use m3u8_rs::{parse_playlist_res, Playlist};
 
 /// Rewrite an HLS playlist for proxy delivery:
 ///
-/// 1. Strip `ApiKey` / `api_key` (both casings) from every URI query so the
-///    held service credential is never handed to the browser.
+/// 1. Strip `ApiKey` / `api_key` / `X-Plex-Token` (all casings) from every URI
+///    query so the held service credential is never handed to the browser.
 /// 2. Rewrite variant / segment / `#EXT-X-MEDIA` (audio+subs) / `#EXT-X-KEY`
 ///    URIs to Nexus-origin grant URLs:
 ///    `{url_prefix}stream?grant=<token>&suffix=<hex(absolute-upstream-url)>`.
@@ -152,7 +152,9 @@ fn strip_auth_query(uri: &str) -> String {
         .split('&')
         .filter(|p| {
             let name = p.split_once('=').map(|(k, _)| k).unwrap_or(p);
-            !name.eq_ignore_ascii_case("apikey") && !name.eq_ignore_ascii_case("api_key")
+            !name.eq_ignore_ascii_case("apikey")
+                && !name.eq_ignore_ascii_case("api_key")
+                && !name.eq_ignore_ascii_case("x-plex-token")
         })
         .collect();
     if kept.is_empty() {
@@ -178,6 +180,21 @@ mod tests {
         );
         assert_eq!(strip_auth_query("/segment.ts?ApiKey=abc"), "/segment.ts");
         assert_eq!(strip_auth_query("/segment.ts"), "/segment.ts");
+    }
+
+    #[test]
+    fn strip_auth_removes_plex_token_casings() {
+        // Plex transcode manifests embed X-Plex-Token on segment URLs; it must be
+        // stripped (case-insensitive) so the held cred never reaches the browser.
+        assert_eq!(
+            strip_auth_query("/segment.ts?foo=1&X-Plex-Token=abc&bar=2"),
+            "/segment.ts?foo=1&bar=2"
+        );
+        assert_eq!(
+            strip_auth_query("/segment.ts?foo=1&x-plex-token=abc&bar=2"),
+            "/segment.ts?foo=1&bar=2"
+        );
+        assert_eq!(strip_auth_query("/segment.ts?X-Plex-Token=abc"), "/segment.ts");
     }
 
     #[test]

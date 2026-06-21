@@ -14,6 +14,21 @@
  */
 
 import type { ServiceConfig } from '$lib/adapters/types';
+import { and, asc, eq } from 'drizzle-orm';
+import { getDb, schema } from '../db';
+
+/** Oldest enabled service of a given type from the DB-backed services table.
+ *  Deterministic tiebreak by createdAt so a duplicate-type config can't make
+ *  playback non-deterministically pick a different credential across writes. */
+function serviceFromDb(type: string): ServiceConfig | null {
+	const row = getDb()
+		.select()
+		.from(schema.services)
+		.where(and(eq(schema.services.type, type), eq(schema.services.enabled, true)))
+		.orderBy(asc(schema.services.createdAt))
+		.get();
+	return (row as ServiceConfig | undefined) ?? null;
+}
 
 /** Build a Jellyfin ServiceConfig from env, or null when not configured. */
 function jellyfinFromEnv(): ServiceConfig | null {
@@ -49,12 +64,22 @@ function invidiousFromEnv(): ServiceConfig | null {
  * Returns null if the backend isn't configured.
  */
 export function resolveServiceConfig(backend: string): ServiceConfig | null {
+	// Env shim keeps precedence for the Phase-0 jellyfin/invidious installs (so
+	// their existing env-based config is unchanged), then fall back to the
+	// DB-backed services table by type. This lets DB-registered backends (Plex,
+	// and jellyfin/invidious once migrated off env) resolve — a step toward
+	// making the services table the single source of truth (#2).
 	switch (backend) {
-		case 'jellyfin':
-			return jellyfinFromEnv();
-		case 'invidious':
-			return invidiousFromEnv();
-		default:
-			return null;
+		case 'jellyfin': {
+			const env = jellyfinFromEnv();
+			if (env) return env;
+			break;
+		}
+		case 'invidious': {
+			const env = invidiousFromEnv();
+			if (env) return env;
+			break;
+		}
 	}
+	return serviceFromDb(backend);
 }
