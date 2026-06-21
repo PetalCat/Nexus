@@ -1,8 +1,10 @@
 import { json } from '@sveltejs/kit';
+import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from './$types';
 import type { BrowserCaps, PlaybackPlan } from '$lib/adapters/playback';
 import { registryV2 } from '$lib/adapters/v2';
 import { resolveServiceConfig } from '$lib/server/v2-services';
+import { registerSession } from '$lib/server/playback-sessions';
 
 /**
  * POST /api/play/negotiate — adapter-agnostic v2 playback negotiation.
@@ -66,8 +68,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			caps,
 			{ nexusUserId: locals.user.id }
 		);
+		// Register a server-side playback session so an abandoned tab gets reaped
+		// (the adapter's close handle is captured here — it's dropped from the
+		// wire response). The player keepalives this id; silence ⇒ backend stop.
+		const playbackSessionId = randomUUID();
+		registerSession({
+			id: playbackSessionId,
+			userId: locals.user.id,
+			label: `${backend}:${itemId}`,
+			stop: async () => {
+				await session.close?.();
+			}
+		});
 		// Serialize only the wire-relevant fields (drop changeQuality/close fns).
 		return json({
+			playbackSessionId,
 			engine: session.engine,
 			kind: session.kind,
 			url: session.url,

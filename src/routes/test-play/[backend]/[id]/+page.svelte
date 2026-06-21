@@ -19,6 +19,36 @@
 	let loading = $state(false);
 	let activeSubIndex = $state<number>(-1);
 
+	// Reaping: keep the server-side playback session alive while playing; stop it
+	// immediately on tab close. Silence ⇒ the server reaper stops the backend.
+	let playbackSessionId: string | null = null;
+	let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+	function startKeepalive(id: string) {
+		stopKeepalive();
+		playbackSessionId = id;
+		keepaliveTimer = setInterval(() => {
+			if (!playbackSessionId) return;
+			fetch('/api/play/heartbeat', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ sessionId: playbackSessionId })
+			}).catch(() => {});
+		}, 10_000);
+	}
+	function stopKeepalive() {
+		if (keepaliveTimer) clearInterval(keepaliveTimer);
+		keepaliveTimer = null;
+	}
+	function beaconStop() {
+		if (!playbackSessionId) return;
+		const body = JSON.stringify({ sessionId: playbackSessionId });
+		// sendBeacon survives pagehide; carries the session cookie.
+		navigator.sendBeacon?.('/api/play/stop', new Blob([body], { type: 'application/json' }));
+		playbackSessionId = null;
+		stopKeepalive();
+	}
+
 	/** Probe what this browser can actually decode (honest profile). */
 	function detectCaps(): BrowserCaps {
 		const v = document.createElement('video');
@@ -76,7 +106,11 @@
 			});
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.error ?? `negotiate → ${res.status}`);
+			// A re-negotiate (quality change) replaces the prior session — stop the
+			// old one so we don't leak a transcode, then keepalive the new one.
+			beaconStop();
 			session = body as PlaybackSession;
+			if (body.playbackSessionId) startKeepalive(body.playbackSessionId);
 			await attachEngine(session);
 			activeSubIndex = -1;
 		} catch (e) {
@@ -110,9 +144,15 @@
 
 	onMount(() => {
 		negotiate();
+		// Fast clean-stop on tab close / bfcache. pagehide fires where unload
+		// doesn't (mobile/bfcache); visibilitychange→hidden covers tab switches.
+		const onHide = () => beaconStop();
+		window.addEventListener('pagehide', onHide);
+		return () => window.removeEventListener('pagehide', onHide);
 	});
 	onDestroy(() => {
 		engine?.detach();
+		beaconStop();
 	});
 </script>
 

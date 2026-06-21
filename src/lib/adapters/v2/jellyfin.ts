@@ -653,9 +653,29 @@ async function negotiatePlayback(
 		return negotiatePlayback(config, item, { ...plan, ...newPlan }, caps, ctx);
 	};
 
-	// close → report stopped + reap the transcode (best-effort).
+	// close → FORCE-KILL the transcode, then report the session stopped.
+	// `Sessions/Playing/Stopped` alone is only a session-state report: Jellyfin
+	// keeps ffmpeg alive as long as segments are requested, so on its own it does
+	// NOT stop an active transcode (caught by the reaper test — a stop while the
+	// client kept pulling left ffmpeg running). `DELETE /Videos/ActiveEncodings`
+	// is the actual kill (deviceId + playSessionId identify the job). Do that
+	// first, then the Stopped report for session bookkeeping. Both best-effort.
 	session.close = async () => {
 		if (!session.playSessionId) return;
+		const deviceId = `nexus-${config.id}`;
+		const psid = encodeURIComponent(session.playSessionId);
+		try {
+			await fetch(
+				`${baseUrl(config)}/Videos/ActiveEncodings?deviceId=${encodeURIComponent(deviceId)}&playSessionId=${psid}`,
+				{
+					method: 'DELETE',
+					headers: { ...authHeaders(config) },
+					signal: AbortSignal.timeout(5000)
+				}
+			);
+		} catch {
+			/* best-effort */
+		}
 		try {
 			await fetch(`${baseUrl(config)}/Sessions/Playing/Stopped`, {
 				method: 'POST',
