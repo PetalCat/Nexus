@@ -74,20 +74,19 @@ async fn hls_session_rewrite_and_proxy_round_trip() {
     assert!(String::from_utf8_lossy(&body).contains("BANDWIDTH=1280000"));
 
     // Rewrite pipeline
-    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "testsess", "testsig", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin).unwrap();
+    let rewritten = nexus_stream_proxy::handlers::hls::rewrite_manifest(&body, "v4.local.TOK", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin).unwrap();
     let s = String::from_utf8_lossy(&rewritten);
     assert!(!s.contains("secret"), "ApiKey must be stripped");
-    assert!(s.contains("/stream/testsess/"), "must rewrite URI to proxy path");
+    assert!(s.contains("grant=v4.local.TOK"), "must carry grant on rewritten URIs");
     assert!(s.contains("BANDWIDTH=1280000"), "must preserve STREAM-INF");
 }
 
 #[test]
-fn hls_rewrite_embeds_sig_query_param() {
-    // The reason C1 slipped past the unit tests: they passed a single
-    // session_id to rewrite_manifest but the router discriminator in main.rs
-    // requires sig= on every hit. This test asserts the rewritten URIs
-    // include the sig query so segment requests route back to the session
-    // handler instead of falling through to the invidious handler.
+fn hls_rewrite_carries_grant_on_every_hop() {
+    // The browser carries the SAME grant back on every child hop — the router in
+    // main.rs discriminates /stream by the presence of grant=. This test asserts
+    // the rewritten URIs embed the grant so segment requests route back to the
+    // session handler instead of falling through to the invidious handler.
     let input = b"#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:6
@@ -95,10 +94,10 @@ fn hls_rewrite_embeds_sig_query_param() {
 /Videos/abc/hls1/main/0.ts?ApiKey=leaky
 #EXT-X-ENDLIST
 ";
-    let out = nexus_stream_proxy::handlers::hls::rewrite_manifest(input, "s1", "mysig123", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin)
+    let out = nexus_stream_proxy::handlers::hls::rewrite_manifest(input, "v4.local.GRANT", "/stream/", "http://upstream/path/master.m3u8", nexus_stream_proxy::session::AdapterKind::Jellyfin)
         .expect("parses and rewrites");
     let s = std::str::from_utf8(&out).unwrap();
-    assert!(s.contains("/stream/s1/"), "rewrites URI to proxy path");
-    assert!(s.contains("?sig=mysig123"), "embeds sig= for router discrimination");
+    assert!(s.contains("stream?grant=v4.local.GRANT"), "rewrites URI to grant path");
+    assert!(s.contains("&suffix="), "hex-encodes upstream as suffix");
     assert!(!s.contains("leaky"), "strips ApiKey");
 }

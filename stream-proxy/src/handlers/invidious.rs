@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::proxy::{empty_body, BoxError};
+use crate::proxy::{cached_or_stream, empty_body, full_body, BoxError};
+use crate::session::{self, HeldCred};
+use std::collections::HashMap;
 
 // ── CDN cache ──────────────────────────────────────────────────────────────
 
@@ -522,6 +524,149 @@ pub async fn handle(
     }
 
     builder.body(tracked_body.boxed()).unwrap()
+}
+
+/// Invidious-style grant entry: `GET /v/{id}/...?grant=<token>`.
+///
+/// Shares the grant-verify + held-cred spine with the Jellyfin `/stream` route.
+/// The grant binds `{backend, resource_ref=videoId, user_id}`; the proxy holds
+/// the Invidious service cred and fetches everything through the instance origin
+/// (`local=true` upstreams), so the injected auth is always the Nexus service
+/// token, never the browser's. Range passthrough + segment cache via
+/// `cached_or_stream`.
+///
+/// Path shapes (the `id` is the videoId the grant authorizes):
+///   /v/{id}                  → progressive/dash entry, resource_ref resolution
+///   /v/{id}/seg/{hex}        → an instance-anchored segment (hex = upstream path)
+///   /v/{id}/captions?label=  → caption proxy
+pub async fn handle_v(
+    req: Request<hyper::body::Incoming>,
+    invidious_url: Arc<String>,
+) -> Response<BoxBody<Bytes, BoxError>> {
+    let path = req.uri().path().to_string();
+    let query = req.uri().query().unwrap_or("").to_string();
+
+    let grant_token = match query.split('&').find_map(|p| p.strip_prefix("grant=")) {
+        Some(g) => urlencoding::decode(g).map(|c| c.into_owned()).unwrap_or_else(|_| g.to_string()),
+        None => return forbidden("missing grant"),
+    };
+
+    // Identity binding via the seam-stamped header (back-compat: "legacy").
+    let expected_user = req
+        .headers()
+        .get("x-nexus-user")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("legacy")
+        .to_string();
+
+    let grant = match session::verify_grant(&grant_token, &expected_user, 0) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("[stream-proxy] /v grant rejected: {e:?}");
+            return forbidden("invalid grant");
+        }
+    };
+
+    // Resolve the held Invidious cred fail-closed. The instance base comes from
+    // the held cred if present, else the env INVIDIOUS_URL (anon/public path —
+    // Invidious content needs no auth).
+    let (base, auth_headers): (String, HashMap<String, String>) =
+        match session::held_cred(&grant.claims.backend) {
+            Some(HeldCred {
+                base_url,
+                auth_header_name,
+                auth_header_value,
+            }) => {
+                let mut h = HashMap::new();
+                if !auth_header_name.is_empty() {
+                    h.insert(auth_header_name, auth_header_value);
+                }
+                (base_url, h)
+            }
+            // No held cred: Invidious content is public; fall back to the env
+            // instance origin. This is still grant-gated (verified above).
+            None => ((*invidious_url).clone(), HashMap::new()),
+        };
+
+    // Parse `/v/{id}/...` — the {id} segment must match the grant's resource_ref
+    // (the videoId the grant authorizes), else reject (resource scoping).
+    let rest = path.trim_start_matches("/v/");
+    let mut parts = rest.splitn(2, '/');
+    let id = parts.next().unwrap_or("");
+    let tail = parts.next().unwrap_or("");
+    if id.is_empty() || id != grant.claims.resource_ref {
+        return forbidden("grant/resource mismatch");
+    }
+
+    // Resolve the upstream URL against the instance origin.
+    let upstream_url = if let Some(hex_path) = tail.strip_prefix("seg/") {
+        // Instance-anchored segment: hex-decode the upstream path.
+        let bytes = match hex::decode(hex_path.split('?').next().unwrap_or(hex_path)) {
+            Ok(b) => b,
+            Err(_) => return bad_request("bad seg hex"),
+        };
+        let sub = match std::str::from_utf8(&bytes) {
+            Ok(s) => s.to_string(),
+            Err(_) => return bad_request("seg not utf-8"),
+        };
+        join_instance(&base, &sub)
+    } else if tail == "captions" {
+        // Caption proxy: /api/v1/captions/{id}?<query minus grant>.
+        let kept = strip_grant(&query);
+        if kept.is_empty() {
+            format!("{}/api/v1/captions/{}", base.trim_end_matches('/'), id)
+        } else {
+            format!("{}/api/v1/captions/{}?{}", base.trim_end_matches('/'), id, kept)
+        }
+    } else {
+        // Entry hit: the resource_ref is treated as an instance-relative path the
+        // adapter baked at mint time (e.g. a DASH manifest or latest_version URL).
+        // For Phase-0 the resource_ref IS the videoId; resolve to the canonical
+        // progressive entry. The adapter-build phase refines this mapping.
+        format!(
+            "{}/latest_version?id={}&local=true",
+            base.trim_end_matches('/'),
+            urlencoding::encode(id)
+        )
+    };
+
+    cached_or_stream(&upstream_url, &auth_headers, req.headers()).await
+}
+
+fn join_instance(base: &str, sub: &str) -> String {
+    if sub.starts_with("http://") || sub.starts_with("https://") {
+        return sub.to_string();
+    }
+    let b = base.trim_end_matches('/');
+    if sub.starts_with('/') {
+        format!("{b}{sub}")
+    } else {
+        format!("{b}/{sub}")
+    }
+}
+
+fn strip_grant(query: &str) -> String {
+    query
+        .split('&')
+        .filter(|p| !p.starts_with("grant="))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn forbidden(msg: &str) -> Response<BoxBody<Bytes, BoxError>> {
+    Response::builder()
+        .status(403)
+        .header("content-type", "application/json")
+        .body(full_body(serde_json::json!({ "error": msg }).to_string()))
+        .unwrap()
+}
+
+fn bad_request(msg: &str) -> Response<BoxBody<Bytes, BoxError>> {
+    Response::builder()
+        .status(400)
+        .header("content-type", "application/json")
+        .body(full_body(serde_json::json!({ "error": msg }).to_string()))
+        .unwrap()
 }
 
 /// Body wrapper that decrements active connections when dropped

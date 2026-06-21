@@ -19,6 +19,13 @@ let started = false;
 export function startStreamProxy(): void {
 	if (started) return;
 	const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
-	startStreamProxyImpl(invConfig?.url ?? 'http://localhost:3000');
+	startStreamProxyImpl({
+		invidiousUrl: invConfig?.url ?? 'http://localhost:3000',
+		// Phase-0: held-cred table is populated once adapters wire their service
+		// creds in; empty here keeps boot working and the proxy fails closed on
+		// any backend it has no held cred for.
+		heldCreds: {},
+		streamSecret: process.env.NEXUS_STREAM_SECRET,
+	});
 	started = true;
 }
