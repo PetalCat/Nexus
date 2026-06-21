@@ -18,6 +18,7 @@ import { startScheduler } from './scheduler';
 import { startStreamProxy } from './proxy';
 import { startWatchdog } from './watchdog';
 import { startLifecycle } from './lifecycle';
+import { seedServicesFromEnv } from './seed-services';
 
 let booted = false;
 
@@ -25,6 +26,7 @@ let booted = false;
 export function boot(): void {
 	if (booted) return;
 	initCrypto();
+	seedServicesFromEnv();
 	startPoller();
 	startScheduler();
 	startWatchdog();

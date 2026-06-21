@@ -64,22 +64,17 @@ function invidiousFromEnv(): ServiceConfig | null {
  * Returns null if the backend isn't configured.
  */
 export function resolveServiceConfig(backend: string): ServiceConfig | null {
-	// Env shim keeps precedence for the Phase-0 jellyfin/invidious installs (so
-	// their existing env-based config is unchanged), then fall back to the
-	// DB-backed services table by type. This lets DB-registered backends (Plex,
-	// and jellyfin/invidious once migrated off env) resolve — a step toward
-	// making the services table the single source of truth (#2).
+	// The DB-backed services table is the source of truth (seeded from env on boot
+	// for jellyfin/invidious — see boot/seed-services.ts), so admin edits in the UI
+	// take effect. The env shim is only a fallback for installs that haven't seeded
+	// a row yet.
+	const fromDb = serviceFromDb(backend);
+	if (fromDb) return fromDb;
 	switch (backend) {
-		case 'jellyfin': {
-			const env = jellyfinFromEnv();
-			if (env) return env;
-			break;
-		}
-		case 'invidious': {
-			const env = invidiousFromEnv();
-			if (env) return env;
-			break;
-		}
+		case 'jellyfin':
+			return jellyfinFromEnv();
+		case 'invidious':
+			return invidiousFromEnv();
 	}
-	return serviceFromDb(backend);
+	return null;
 }

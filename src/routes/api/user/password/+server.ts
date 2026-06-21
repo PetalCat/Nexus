@@ -1,8 +1,14 @@
 import { json, error } from '@sveltejs/kit';
-import { getUserById, verifyPassword, changePassword } from '$lib/server/auth';
+import { auth } from '$lib/server/auth/better-auth';
 import type { RequestHandler } from './$types';
 
-// PUT: Change password
+// PUT: Change password — routed through Better Auth so the new password lands in
+// the `accounts` row that BA login actually verifies against. (The old code wrote
+// the legacy users.passwordHash, which BA login ignores, so a change never took
+// effect for migrated/BA users.) BA verifies the current password via the
+// dual-format verify shim (legacy scrypt OR BA scrypt), then rehashes to BA's
+// format. Service-auth users (no BA credential account) correctly can't change a
+// password they don't have here — they authenticate via their external service.
 export const PUT: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) throw error(401);
 
@@ -14,17 +20,16 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 		throw error(400, 'New password must be at least 6 characters');
 	}
 
-	const user = getUserById(locals.user.id);
-	if (!user) throw error(404, 'User not found');
-
-	// NOTE (BA cutover residual): this verifies + updates the legacy users.passwordHash.
-	// Better Auth users keep their password in `accounts`, so this endpoint should be
-	// re-routed through BA's change-password API (tracked follow-up). For null-hash
-	// (BA/OIDC) users this fails closed — they cannot change a password they don't have here.
-	if (!verifyPassword(currentPassword, user.passwordHash ?? '')) {
+	try {
+		await auth.api.changePassword({
+			body: { currentPassword, newPassword },
+			headers: request.headers
+		});
+	} catch {
+		// BA throws on an incorrect current password, a missing credential account,
+		// or a policy failure. Don't leak which — treat as a rejected change.
 		throw error(403, 'Current password is incorrect');
 	}
 
-	changePassword(locals.user.id, newPassword);
 	return json({ ok: true });
 };
