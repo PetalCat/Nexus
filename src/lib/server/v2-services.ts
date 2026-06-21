@@ -30,6 +30,20 @@ function jellyfinFromEnv(): ServiceConfig | null {
 	};
 }
 
+/** Build an Invidious ServiceConfig from env, or null when not configured.
+ *  Anonymous (public content) — only the instance URL is needed. */
+function invidiousFromEnv(): ServiceConfig | null {
+	const url = process.env.NEXUS_INVIDIOUS_URL;
+	if (!url) return null;
+	return {
+		id: 'invidious',
+		name: 'Invidious',
+		type: 'invidious',
+		url: url.replace(/\/+$/, ''),
+		enabled: true
+	};
+}
+
 /**
  * Resolve the single service config for a v2 backend id. Phase-0: env-backed.
  * Returns null if the backend isn't configured.
@@ -38,6 +52,8 @@ export function resolveServiceConfig(backend: string): ServiceConfig | null {
 	switch (backend) {
 		case 'jellyfin':
 			return jellyfinFromEnv();
+		case 'invidious':
+			return invidiousFromEnv();
 		default:
 			return null;
 	}

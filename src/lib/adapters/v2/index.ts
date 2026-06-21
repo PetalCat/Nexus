@@ -10,6 +10,7 @@
 
 import { registryV2 } from './registry';
 import { jellyfinV2 } from './jellyfin';
+import { invidiousV2 } from './invidious';
 
 let registered = false;
 
@@ -17,6 +18,7 @@ let registered = false;
 export function registerV2Adapters(): void {
 	if (registered) return;
 	registryV2.register(jellyfinV2);
+	registryV2.register(invidiousV2);
 	registered = true;
 }
 
