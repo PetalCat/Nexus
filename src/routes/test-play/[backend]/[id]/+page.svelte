@@ -49,6 +49,30 @@
 		stopKeepalive();
 	}
 
+	// Measured link bandwidth (bits/sec), probed once; null until measured.
+	let measuredBandwidthBps: number | null = null;
+
+	/** Download a probe payload and measure real throughput → bits/sec. */
+	async function probeBandwidth(): Promise<number | null> {
+		try {
+			const t0 = performance.now();
+			const res = await fetch('/api/play/probe?bytes=4000000', { cache: 'no-store' });
+			if (!res.ok || !res.body) return null;
+			const reader = res.body.getReader();
+			let bytes = 0;
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				bytes += value.length;
+			}
+			const secs = (performance.now() - t0) / 1000;
+			if (secs <= 0 || bytes === 0) return null;
+			return Math.round((bytes * 8) / secs); // bits per second
+		} catch {
+			return null;
+		}
+	}
+
 	/** Probe what this browser can actually decode (honest profile). */
 	function detectCaps(): BrowserCaps {
 		const v = document.createElement('video');
@@ -132,7 +156,9 @@
 					backend: data.backend,
 					itemId: data.id,
 					type: 'movie',
-					plan,
+					// Fold the measured link bandwidth into the plan so the adapter picks
+					// the right rendition up front (smart bitrate).
+					plan: measuredBandwidthBps ? { ...plan, measuredBandwidthBps } : plan,
 					caps: detectCaps()
 				})
 			});
@@ -187,7 +213,12 @@
 	];
 
 	onMount(() => {
-		negotiate();
+		// Probe the link first so the very first negotiate already has the right
+		// bitrate (no rough initial over-shoot). Falls back to no-hint on failure.
+		probeBandwidth().then((bps) => {
+			measuredBandwidthBps = bps;
+			negotiate();
+		});
 		// Fast clean-stop on tab close / bfcache. pagehide fires where unload
 		// doesn't (mobile/bfcache); visibilitychange→hidden covers tab switches.
 		const onHide = () => beaconStop();

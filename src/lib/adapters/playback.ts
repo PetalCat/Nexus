@@ -9,6 +9,15 @@ export interface PlaybackPlan {
 	subtitleTrackHint?: number;
 	burnSubIndex?: number;
 	startPositionSeconds?: number;
+	/**
+	 * SOFT bandwidth cap (bits/sec) measured from the client's actual link. Unlike
+	 * targetHeight/maxBitrate (an explicit user quality pick that forces transcode),
+	 * this only sets the server's streaming-bitrate ceiling: the source plays
+	 * DIRECT when it fits under the cap, and transcodes down only when it doesn't.
+	 * This is the "smart bitrate" lever — pick the right rendition up front from
+	 * real bandwidth instead of a static guess, so playback rarely needs to switch.
+	 */
+	measuredBandwidthBps?: number;
 }
 
 // ── Capabilities: what the browser can decode ──────────────────────────

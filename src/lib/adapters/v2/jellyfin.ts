@@ -581,6 +581,10 @@ async function negotiatePlayback(
 	}
 	// Track/quality picks force a re-negotiation because Jellyfin bakes the
 	// default audio/sub at negotiation and can't flip mid-stream.
+	// NOTE: measuredBandwidthBps is deliberately NOT here — it's a SOFT cap that
+	// must still allow direct-play (it sets MaxStreamingBitrate so Jellyfin
+	// transcodes only when the source exceeds the link, but direct-plays when it
+	// fits). Only EXPLICIT quality/track picks force a transcode.
 	const forcingTranscode =
 		!!plan.targetHeight ||
 		!!plan.maxBitrate ||
@@ -603,7 +607,15 @@ async function negotiatePlayback(
 		// Default: zero burn-in. Side-loaded WebVTT, client-side toggle.
 		SubtitleStreamIndex: -1
 	};
-	if (effectivePlan.maxBitrate) body.MaxStreamingBitrate = effectivePlan.maxBitrate;
+	if (effectivePlan.maxBitrate) {
+		// Explicit user quality pick (forces transcode at this bitrate).
+		body.MaxStreamingBitrate = effectivePlan.maxBitrate;
+	} else if (plan.measuredBandwidthBps && plan.measuredBandwidthBps > 0) {
+		// Smart soft cap: 85% of the measured link (headroom for overhead/jitter).
+		// Direct-play stays enabled, so Jellyfin only transcodes if the source
+		// bitrate exceeds this — picking the right rendition up front.
+		body.MaxStreamingBitrate = Math.floor(plan.measuredBandwidthBps * 0.85);
+	}
 	if (plan.startPositionSeconds) {
 		body.StartTimeTicks = Math.round(plan.startPositionSeconds * 10_000_000);
 	}
