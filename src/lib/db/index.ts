@@ -213,6 +213,35 @@ function initDb(db: ReturnType<typeof drizzle>) {
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
 	)`);
 
+	// ── Native media requests (the no-Overseerr path) ──────────
+	db.run(`CREATE TABLE IF NOT EXISTS media_requests (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		media_type TEXT NOT NULL,
+		tmdb_id INTEGER NOT NULL,
+		tvdb_id INTEGER,
+		title TEXT NOT NULL,
+		poster TEXT,
+		year INTEGER,
+		seasons TEXT,
+		status TEXT NOT NULL DEFAULT 'pending',
+		backend TEXT NOT NULL,
+		service_id TEXT NOT NULL,
+		source_request_id TEXT,
+		arr_service_id TEXT,
+		arr_item_id INTEGER,
+		quality_profile_id INTEGER,
+		root_folder_path TEXT,
+		approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+		decline_reason TEXT,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+		updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+		available_at INTEGER
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_media_requests_user ON media_requests(user_id)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_media_requests_status ON media_requests(status)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_requests_unique ON media_requests(user_id, tmdb_id, media_type)`);
+
 	// ── Migrations for existing databases ──────────────────────
 	// ALTER TABLE is idempotent-safe: we catch "duplicate column" errors.
 	const safeAddColumn = (table: string, col: string, typedef: string) => {

@@ -40,6 +40,100 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 	};
 }
 
+/**
+ * Look up movies via Radarr's TMDB proxy. `term` may be a free-text title or a
+ * `tmdb:<id>` token (Radarr resolves the latter to a single exact match). Used
+ * both for discovery search and to obtain the full movie resource needed to POST
+ * a new movie. Returns the raw Radarr lookup resources.
+ */
+export async function radarrLookupMovie(config: ServiceConfig, term: string): Promise<any[]> {
+	const data = await radarrFetch(config, `/movie/lookup?term=${encodeURIComponent(term)}`);
+	return Array.isArray(data) ? data : [];
+}
+
+/** Result of pushing a movie into Radarr. */
+export interface RadarrAddResult {
+	arrItemId: number;
+	qualityProfileId: number;
+	rootFolderPath: string;
+	/** True when the movie already existed in Radarr (no new add performed). */
+	alreadyPresent: boolean;
+}
+
+/**
+ * Add a movie to Radarr by TMDB id and trigger a search.
+ *
+ * Steps:
+ *   1. GET /movie?tmdbId= — if the movie is already in Radarr, return its id
+ *      (idempotent; avoids a 400 "MovieExistsValidator" from the POST).
+ *   2. GET /movie/lookup?term=tmdb:<id> — fetch the full resource to POST.
+ *   3. GET /qualityprofile + /rootfolder — pick the first of each (v1: no
+ *      per-request profile/folder selection).
+ *   4. POST /movie with the looked-up resource + monitoring + search options.
+ */
+export async function radarrRequestMedia(
+	config: ServiceConfig,
+	opts: { tmdbId: number; title?: string }
+): Promise<RadarrAddResult> {
+	const { tmdbId } = opts;
+
+	// 1. Already present?
+	const existing = await radarrFetch(config, `/movie?tmdbId=${tmdbId}`);
+	const existingMovie = Array.isArray(existing) ? existing[0] : existing;
+	if (existingMovie?.id) {
+		return {
+			arrItemId: existingMovie.id,
+			qualityProfileId: existingMovie.qualityProfileId,
+			rootFolderPath: existingMovie.rootFolderPath ?? existingMovie.path,
+			alreadyPresent: true
+		};
+	}
+
+	// 2. Look up the full resource by tmdb id.
+	const lookup = await radarrLookupMovie(config, `tmdb:${tmdbId}`);
+	const resource = lookup.find((m: any) => m.tmdbId === tmdbId) ?? lookup[0];
+	if (!resource) throw new Error(`Radarr lookup found no movie for tmdb:${tmdbId}`);
+
+	// 3. Defaults: first quality profile + first root folder.
+	const [profiles, rootFolders] = await Promise.all([
+		radarrFetch(config, '/qualityprofile'),
+		radarrFetch(config, '/rootfolder')
+	]);
+	const qualityProfileId: number | undefined = Array.isArray(profiles) ? profiles[0]?.id : undefined;
+	const rootFolderPath: string | undefined = Array.isArray(rootFolders) ? rootFolders[0]?.path : undefined;
+	if (qualityProfileId == null) throw new Error('Radarr has no quality profiles configured');
+	if (!rootFolderPath) throw new Error('Radarr has no root folders configured');
+
+	// 4. POST the movie.
+	const body = {
+		...resource,
+		qualityProfileId,
+		rootFolderPath,
+		monitored: true,
+		minimumAvailability: 'released',
+		addOptions: { searchForMovie: true }
+	};
+	const url = new URL(`${config.url}/api/v3/movie`);
+	url.searchParams.set('apikey', config.apiKey ?? '');
+	const res = await fetch(url.toString(), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!res.ok) {
+		const detail = await res.text().catch(() => '');
+		throw new Error(`Radarr add movie → ${res.status} ${detail}`);
+	}
+	const created = await res.json();
+	return {
+		arrItemId: created.id,
+		qualityProfileId,
+		rootFolderPath,
+		alreadyPresent: false
+	};
+}
+
 let radarrQualityCache: { profiles: any[]; formats: any[]; ts: number } | null = null;
 
 async function getRadarrQualityMeta(config: ServiceConfig) {

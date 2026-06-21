@@ -163,6 +163,50 @@ export const requests = sqliteTable('requests', {
 		.default(sql`(datetime('now'))`)
 });
 
+// Native media requests (the "no-Overseerr" path). Coexists with the legacy
+// `requests` table (which has no writers) and with the Overseerr proxy path.
+// A row is created when a user requests a movie/show; an admin approves it,
+// at which point it's pushed into Radarr/Sonarr for download. `backend`
+// distinguishes native rows from Overseerr-proxied rows that may also be
+// mirrored here. JSON-in-text for `seasons` (array of season numbers).
+export const mediaRequests = sqliteTable('media_requests', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	mediaType: text('media_type').notNull(), // 'movie' | 'tv'
+	tmdbId: integer('tmdb_id').notNull(),
+	tvdbId: integer('tvdb_id'),
+	title: text('title').notNull(),
+	poster: text('poster'),
+	year: integer('year'),
+	seasons: text('seasons'), // JSON array of season numbers (TV only)
+	status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'declined' | 'processing' | 'available' | 'failed'
+	backend: text('backend').notNull(), // 'overseerr' | 'native'
+	serviceId: text('service_id').notNull(),
+	sourceRequestId: text('source_request_id'), // Overseerr request id when backend='overseerr'
+	arrServiceId: text('arr_service_id'), // the radarr/sonarr service the item was added to
+	arrItemId: integer('arr_item_id'), // radarr movieId / sonarr seriesId
+	qualityProfileId: integer('quality_profile_id'),
+	rootFolderPath: text('root_folder_path'),
+	approvedBy: text('approved_by').references(() => users.id, { onDelete: 'set null' }),
+	declineReason: text('decline_reason'),
+	createdAt: integer('created_at')
+		.notNull()
+		.default(sql`(strftime('%s','now') * 1000)`),
+	updatedAt: integer('updated_at')
+		.notNull()
+		.default(sql`(strftime('%s','now') * 1000)`),
+	availableAt: integer('available_at')
+}, (table) => [
+	index('idx_media_requests_user').on(table.userId),
+	index('idx_media_requests_status').on(table.status),
+	uniqueIndex('idx_media_requests_unique').on(table.userId, table.tmdbId, table.mediaType),
+]);
+
+export type MediaRequest = typeof mediaRequests.$inferSelect;
+export type NewMediaRequest = typeof mediaRequests.$inferInsert;
+
 // Nexus users — the app's own user accounts
 export const users = sqliteTable('users', {
 	id: text('id').primaryKey(), // UUID

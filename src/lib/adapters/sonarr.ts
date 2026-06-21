@@ -39,6 +39,133 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 	};
 }
 
+/**
+ * Look up series via Sonarr's SkyHook proxy. `term` may be free text or a
+ * `tmdb:<id>` token — SkyHook resolves tmdb→tvdb and returns the full series
+ * resource (including `tvdbId`), which is what Sonarr is keyed on. Returns the
+ * raw Sonarr lookup resources.
+ */
+export async function sonarrLookupSeries(config: ServiceConfig, term: string): Promise<any[]> {
+	const data = await sonarrFetch(config, `/series/lookup?term=${encodeURIComponent(term)}`);
+	return Array.isArray(data) ? data : [];
+}
+
+/** Result of pushing a series into Sonarr. */
+export interface SonarrAddResult {
+	tvdbId: number;
+	arrItemId: number;
+	qualityProfileId: number;
+	rootFolderPath: string;
+	/** True when the series already existed in Sonarr (no new add performed). */
+	alreadyPresent: boolean;
+}
+
+/**
+ * Add a series to Sonarr by TMDB id and trigger a search for missing episodes.
+ *
+ * CRITICAL: Sonarr is keyed on TVDB id, not TMDB id. We resolve tmdb→tvdb via
+ * SkyHook (`/series/lookup?term=tmdb:<id>`), which also returns the full series
+ * resource to POST.
+ *
+ * Steps:
+ *   1. lookup by tmdb:<id> → full resource + tvdbId.
+ *   2. GET /series — if already present (matched by tvdbId), return its id.
+ *   3. GET /qualityprofile + /rootfolder — first of each.
+ *   4. Probe /system/status; only send languageProfileId on Sonarr v3 (v4
+ *      removed language profiles).
+ *   5. POST /series with monitoring + search options.
+ */
+export async function sonarrRequestMedia(
+	config: ServiceConfig,
+	opts: { tmdbId: number; title?: string; seasons?: number[] }
+): Promise<SonarrAddResult> {
+	const { tmdbId } = opts;
+
+	// 1. Resolve tmdb → tvdb + full resource.
+	const lookup = await sonarrLookupSeries(config, `tmdb:${tmdbId}`);
+	const resource = lookup[0];
+	if (!resource) throw new Error(`Sonarr lookup found no series for tmdb:${tmdbId}`);
+	const tvdbId: number = resource.tvdbId;
+	if (!tvdbId) throw new Error(`Sonarr lookup returned no tvdbId for tmdb:${tmdbId}`);
+
+	// 2. Already present? Sonarr's series list is keyed on tvdbId.
+	const allSeries = await sonarrFetch(config, '/series');
+	const existing = Array.isArray(allSeries)
+		? allSeries.find((s: any) => s.tvdbId === tvdbId)
+		: undefined;
+	if (existing?.id) {
+		return {
+			tvdbId,
+			arrItemId: existing.id,
+			qualityProfileId: existing.qualityProfileId,
+			rootFolderPath: existing.rootFolderPath ?? existing.path,
+			alreadyPresent: true
+		};
+	}
+
+	// 3. Defaults: first quality profile + first root folder.
+	const [profiles, rootFolders] = await Promise.all([
+		sonarrFetch(config, '/qualityprofile'),
+		sonarrFetch(config, '/rootfolder')
+	]);
+	const qualityProfileId: number | undefined = Array.isArray(profiles) ? profiles[0]?.id : undefined;
+	const rootFolderPath: string | undefined = Array.isArray(rootFolders) ? rootFolders[0]?.path : undefined;
+	if (qualityProfileId == null) throw new Error('Sonarr has no quality profiles configured');
+	if (!rootFolderPath) throw new Error('Sonarr has no root folders configured');
+
+	// 4. Version probe — Sonarr v4 removed languageProfileId; only send on v3.
+	let isV3 = false;
+	try {
+		const status = await sonarrFetch(config, '/system/status');
+		const version: string = status?.version ?? '';
+		isV3 = version.startsWith('3.');
+	} catch {
+		// If we can't read the version, omit languageProfileId (v4 default).
+	}
+	let languageProfileId: number | undefined;
+	if (isV3) {
+		try {
+			const langProfiles = await sonarrFetch(config, '/languageprofile');
+			languageProfileId = Array.isArray(langProfiles) ? langProfiles[0]?.id : undefined;
+		} catch {
+			/* leave undefined */
+		}
+	}
+
+	// 5. POST the series.
+	const body: Record<string, unknown> = {
+		...resource,
+		qualityProfileId,
+		rootFolderPath,
+		monitored: true,
+		seasonFolder: true,
+		seriesType: 'standard',
+		addOptions: { monitor: 'all', searchForMissingEpisodes: true }
+	};
+	if (languageProfileId != null) body.languageProfileId = languageProfileId;
+
+	const url = new URL(`${config.url}/api/v3/series`);
+	url.searchParams.set('apikey', config.apiKey ?? '');
+	const res = await fetch(url.toString(), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!res.ok) {
+		const detail = await res.text().catch(() => '');
+		throw new Error(`Sonarr add series → ${res.status} ${detail}`);
+	}
+	const created = await res.json();
+	return {
+		tvdbId,
+		arrItemId: created.id,
+		qualityProfileId,
+		rootFolderPath,
+		alreadyPresent: false
+	};
+}
+
 let sonarrQualityCache: { profiles: any[]; formats: any[]; ts: number } | null = null;
 
 async function getSonarrQualityMeta(config: ServiceConfig) {

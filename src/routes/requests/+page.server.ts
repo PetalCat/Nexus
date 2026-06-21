@@ -3,6 +3,7 @@ import { registry } from '$lib/adapters/registry';
 import { getUserCredentialForService } from '$lib/server/auth';
 import { getEnabledConfigs } from '$lib/server/services';
 import { withCache } from '$lib/server/cache';
+import { getNativeRequests, nativeToNexusRequest } from '$lib/server/media-requests';
 import type { NexusRequest, UnifiedMedia } from '$lib/adapters/types';
 import type { PageServerLoad } from './$types';
 
@@ -94,9 +95,28 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const byDate = (a: NexusRequest, b: NexusRequest) =>
 		new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime();
 
+	// Native media_requests rows (the no-Overseerr path) — read live (local DB).
+	const nativeMine = getNativeRequests({ userId, isAdmin: false }).map(nativeToNexusRequest);
+	const nativeAll = isAdmin
+		? getNativeRequests({ userId, isAdmin: true }).map(nativeToNexusRequest)
+		: [];
+
+	// Merge native + Overseerr, deduped by (tmdbId|sourceId, type). Native wins.
+	const mergeRequests = (native: NexusRequest[], overseerr: NexusRequest[]): NexusRequest[] => {
+		const out = [...native];
+		const seen = new Set(native.map((r) => `${r.tmdbId ?? r.sourceId}:${r.type}`));
+		for (const r of overseerr) {
+			const key = `${r.tmdbId ?? r.sourceId}:${r.type}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(r);
+		}
+		return out;
+	};
+
 	return {
-		myRequests: myRequests.sort(byDate),
-		allRequests: allRequests.sort(byDate),
+		myRequests: mergeRequests(nativeMine, myRequests).sort(byDate),
+		allRequests: mergeRequests(nativeAll, allRequests).sort(byDate),
 		initialDiscover: fetchDiscover(),
 		hasLinkedOverseerr,
 		isAdmin,
