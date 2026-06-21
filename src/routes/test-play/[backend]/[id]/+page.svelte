@@ -49,6 +49,57 @@
 		stopKeepalive();
 	}
 
+	// ── Continue-watching: report playback progress into the Nexus play_sessions
+	// store (the same table continue-watching reads), and resume from it on load.
+	let progressTimer: ReturnType<typeof setInterval> | null = null;
+	function reportProgress(isStopped = false) {
+		if (!video || !video.duration || Number.isNaN(video.duration)) return;
+		const payload = JSON.stringify({
+			backend: data.backend,
+			itemId: data.id,
+			positionSeconds: video.currentTime,
+			durationSeconds: video.duration,
+			mediaType: 'movie',
+			isStopped
+		});
+		if (isStopped && navigator.sendBeacon) {
+			navigator.sendBeacon('/api/play/progress', new Blob([payload], { type: 'application/json' }));
+		} else {
+			fetch('/api/play/progress', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: payload,
+				keepalive: isStopped
+			}).catch(() => {});
+		}
+	}
+	function startProgressReporting() {
+		if (progressTimer) clearInterval(progressTimer);
+		progressTimer = setInterval(() => reportProgress(false), 10_000);
+	}
+	function stopProgressReporting() {
+		if (progressTimer) clearInterval(progressTimer);
+		progressTimer = null;
+	}
+	/** GET the saved resume point and seek there (once, on first load). */
+	async function resumeFromSaved() {
+		try {
+			const r = await fetch(
+				`/api/play/progress?backend=${encodeURIComponent(data.backend)}&itemId=${encodeURIComponent(data.id)}`
+			);
+			if (!r.ok) return;
+			const { positionSeconds, completed } = await r.json();
+			if (!completed && positionSeconds > 5 && video) {
+				const seek = () => {
+					try { video.currentTime = positionSeconds; } catch { /* ignore */ }
+					video.removeEventListener('loadedmetadata', seek);
+				};
+				if (video.readyState >= 1) seek();
+				else video.addEventListener('loadedmetadata', seek);
+			}
+		} catch { /* ignore */ }
+	}
+
 	// Measured link bandwidth (bits/sec), probed once; null until measured.
 	let measuredBandwidthBps: number | null = null;
 	// The bandwidth the adapter is currently told to target. Starts at the probed
@@ -340,15 +391,20 @@
 	onMount(() => {
 		// Probe the link first so the very first negotiate already has the right
 		// bitrate (no rough initial over-shoot). Falls back to no-hint on failure.
-		probeBandwidth().then((bps) => {
+		probeBandwidth().then(async (bps) => {
 			measuredBandwidthBps = bps;
 			effectiveBandwidthBps = bps;
-			negotiate();
+			await negotiate();
 			startAdaptWatchdog();
+			await resumeFromSaved(); // resume where you left off (continue-watching)
+			startProgressReporting();
 		});
 		// Fast clean-stop on tab close / bfcache. pagehide fires where unload
 		// doesn't (mobile/bfcache); visibilitychange→hidden covers tab switches.
-		const onHide = () => beaconStop();
+		const onHide = () => {
+			reportProgress(true); // persist final position for continue-watching
+			beaconStop();
+		};
 		window.addEventListener('pagehide', onHide);
 		// Reactive recovery: a progressive range fetch that 403s (expired grant)
 		// surfaces as a <video> error → re-negotiate + resume. (HLS/DASH engines
@@ -362,6 +418,8 @@
 	});
 	onDestroy(() => {
 		stopAdaptWatchdog();
+		stopProgressReporting();
+		reportProgress(true);
 		engine?.detach();
 		beaconStop();
 	});
