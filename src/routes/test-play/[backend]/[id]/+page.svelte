@@ -89,7 +89,39 @@
 		await engine.attach(video, s);
 	}
 
-	async function negotiate(plan: Record<string, unknown> = {}) {
+	let lastPlan: Record<string, unknown> = {};
+	let recovering = false;
+	let recoveryCount = 0;
+
+	/**
+	 * Reactive recovery (decision 2): if the stream errors mid-watch — typically a
+	 * grant that expired (proxy 403) on a range/segment fetch — re-negotiate a
+	 * fresh grant and resume at the same timestamp. Universal: works for
+	 * progressive (single long GET) AND HLS/DASH. Bounded to avoid a hot loop.
+	 */
+	async function recover(reason: string) {
+		if (recovering) return;
+		if (recoveryCount >= 5) {
+			error = `playback failed after ${recoveryCount} recovery attempts (${reason})`;
+			return;
+		}
+		recovering = true;
+		recoveryCount++;
+		const resumeAt = video?.currentTime ?? 0;
+		// Recovery only fires mid-watch (the error already paused the element, so
+		// reading video.paused here is unreliable) — always resume playback.
+		try {
+			await negotiate(lastPlan, { resumeAt, autoplay: true });
+		} finally {
+			recovering = false;
+		}
+	}
+
+	async function negotiate(
+		plan: Record<string, unknown> = {},
+		resume?: { resumeAt: number; autoplay: boolean }
+	) {
+		lastPlan = plan;
 		loading = true;
 		error = null;
 		try {
@@ -113,6 +145,18 @@
 			if (body.playbackSessionId) startKeepalive(body.playbackSessionId);
 			await attachEngine(session);
 			activeSubIndex = -1;
+			// Resume at the prior position after a recovery re-negotiate.
+			if (resume && video) {
+				const seekAndPlay = () => {
+					try {
+						if (resume.resumeAt > 0) video.currentTime = resume.resumeAt;
+					} catch { /* ignore */ }
+					if (resume.autoplay) video.play().catch(() => {});
+					video.removeEventListener('loadeddata', seekAndPlay);
+				};
+				if (video.readyState >= 1) seekAndPlay();
+				else video.addEventListener('loadeddata', seekAndPlay);
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -148,7 +192,15 @@
 		// doesn't (mobile/bfcache); visibilitychange→hidden covers tab switches.
 		const onHide = () => beaconStop();
 		window.addEventListener('pagehide', onHide);
-		return () => window.removeEventListener('pagehide', onHide);
+		// Reactive recovery: a progressive range fetch that 403s (expired grant)
+		// surfaces as a <video> error → re-negotiate + resume. (HLS/DASH engines
+		// would hook their own fatal-error events to call recover() the same way.)
+		const onErr = () => recover('video error');
+		video?.addEventListener('error', onErr);
+		return () => {
+			window.removeEventListener('pagehide', onHide);
+			video?.removeEventListener('error', onErr);
+		};
 	});
 	onDestroy(() => {
 		engine?.detach();
