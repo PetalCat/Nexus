@@ -52,14 +52,24 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	//   stream            (Jellyfin/inline:  /stream?grant=…)
 	//   v/{id}, v/{id}/…  (Invidious:        /v/{id}/dash|seg/…|captions?grant=…)
 	// and EVERY forwarded request MUST carry a ?grant= (the actual authority).
-	const seg0 = path.split('/')[0];
+	// TRAVERSAL/ENCODING GUARD (adversarial review of the allowlist itself): the
+	// allowlist sees the DECODED path, but the upstream is built as a string that
+	// fetch() re-normalizes — so `v%2f..%2fproxy` (or a literal `..`) would collapse
+	// to `/proxy` and reach the ungated SSRF route AFTER passing the seg0 check.
+	// Reject any path with a `..`/`.` segment, an empty segment, or a stray `%`
+	// (no smuggled encoded slashes), so the path that's checked == the path that's
+	// forwarded == the path the Rust proxy routes on.
+	const segs = path.split('/');
+	const cleanPath =
+		!path.includes('%') && segs.every((s) => s.length > 0 && s !== '.' && s !== '..');
+	const seg0 = segs[0];
 	const allowed = path === 'stream' || seg0 === 'v';
-	if (!allowed || !url.searchParams.has('grant')) {
+	if (!cleanPath || !allowed || !url.searchParams.has('grant')) {
 		return new Response('Forbidden', { status: 403 });
 	}
 
-	// Path-preserving forward of the allowlisted path, carrying the query string
-	// verbatim (the grant lives there).
+	// Path-preserving forward of the now-clean, allowlisted path (no `..` left for
+	// fetch to normalize), carrying the query string verbatim (the grant lives there).
 	const upstreamUrl = `${RUST_PROXY_ORIGIN}/${path}${url.search}`;
 
 	const headers: Record<string, string> = { 'x-nexus-user': locals.user.id };
