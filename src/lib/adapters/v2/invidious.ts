@@ -43,6 +43,7 @@ interface InvFormat {
 	container?: string;
 	qualityLabel?: string;
 	resolution?: string;
+	height?: number;
 	bitrate?: string | number;
 	url?: string;
 }

@@ -6,7 +6,7 @@
 // is passed in when available so Invidious-bound streams can be served if a
 // service is configured later.
 
-import { startStreamProxy as startStreamProxyImpl } from '$lib/server/stream-proxy';
+import { startStreamProxy as startStreamProxyImpl, type HeldCredTable } from '$lib/server/stream-proxy';
 import { getEnabledConfigs } from '$lib/server/services';
 
 let started = false;
@@ -26,7 +26,7 @@ export function startStreamProxy(): void {
 	// public, so no auth header is injected (empty name/value).
 	const invidiousUrl =
 		process.env.NEXUS_INVIDIOUS_URL ?? invConfig?.url ?? 'http://localhost:3000';
-	const heldCreds = process.env.NEXUS_INVIDIOUS_URL
+	const heldCreds: HeldCredTable = process.env.NEXUS_INVIDIOUS_URL
 		? {
 				invidious: {
 					base_url: process.env.NEXUS_INVIDIOUS_URL.replace(/\/+$/, ''),

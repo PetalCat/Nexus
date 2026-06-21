@@ -121,7 +121,8 @@ describeLive('Jellyfin v2 adapter — live integration', () => {
 			config,
 			{ id: directId, type: 'movie' },
 			plan,
-			BROWSER_CAPS
+			BROWSER_CAPS,
+			{ nexusUserId: 'test-user' }
 		);
 
 		// eslint-disable-next-line no-console
@@ -170,7 +171,8 @@ describeLive('Jellyfin v2 adapter — live integration', () => {
 			config,
 			{ id: transcodeId, type: 'movie' },
 			{},
-			BROWSER_CAPS
+			BROWSER_CAPS,
+			{ nexusUserId: 'test-user' }
 		);
 
 		// eslint-disable-next-line no-console

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -107,7 +107,13 @@ export function startStreamProxy(opts: StartStreamProxyOptions): void {
 	function launch() {
 		console.log(`[stream-proxy] Starting Rust proxy on ${HOST}:${PORT}`);
 
-		proxyProcess = spawn(binaryPath!, {
+		// spawn(command, args, options): pass an empty args array so the options
+		// object (with `env`) lands in the right overload slot. Capture a non-null
+		// local for the listener wiring; the module-level `proxyProcess` is widened
+		// to ChildProcess|null (the exit handler nulls it).
+		// Typed as SpawnOptions so the (command, options) overload is selected — an
+		// untyped literal with a `stdio` array gets misread as the `args` parameter.
+		const spawnOpts: SpawnOptions = {
 			env: {
 				...process.env,
 				STREAM_PORT: String(PORT),
@@ -118,26 +124,28 @@ export function startStreamProxy(opts: StartStreamProxyOptions): void {
 				NEXUS_STREAM_PASETO_KEY: paserkCurrent,
 				...(paserkPrevious ? { NEXUS_STREAM_PASETO_KEY_PREVIOUS: paserkPrevious } : {}),
 				// Seam↔proxy shared secret — the seam attaches it as x-nexus-proxy-auth.
-				NEXUS_PROXY_AUTH: proxyAuthSecret,
+				NEXUS_PROXY_AUTH: proxyAuthSecret ?? undefined,
 				// Per-backend held service creds. JSON: { backend: { base_url,
 				// auth_header_name, auth_header_value } }.
 				NEXUS_STREAM_HELD_CREDS: heldCredsJson,
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
-		});
+		};
+		const proc = spawn(binaryPath!, spawnOpts);
+		proxyProcess = proc;
 
-		proxyProcess.stdout?.on('data', (data: Buffer) => {
+		proc.stdout?.on('data', (data: Buffer) => {
 			const msg = data.toString().trim();
 			if (msg) {
 				console.log(msg);
 				if (msg.includes('Rust video proxy on')) restartAttempts = 0;
 			}
 		});
-		proxyProcess.stderr?.on('data', (data: Buffer) => {
+		proc.stderr?.on('data', (data: Buffer) => {
 			const msg = data.toString().trim();
 			if (msg) console.error(msg);
 		});
-		proxyProcess.on('exit', (code, signal) => {
+		proc.on('exit', (code, signal) => {
 			proxyProcess = null;
 			if (!restarting) {
 				const delay = Math.min(2000 * 2 ** restartAttempts, MAX_RESTART_DELAY);

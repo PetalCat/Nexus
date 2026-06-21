@@ -20,6 +20,9 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 			// VOD ABR (researched): start LOW and ramp up (fast startup beats a
 			// high-quality stall), buffer-aware dynamic strategy, fast-switch so an
 			// up-shift replaces the buffered low-q segments with high-q immediately.
+			// `as any`: the installed dash.js types lag the runtime — ABRStrategy and
+			// stableBufferTime are valid settings at these paths but missing from the
+			// shipped .d.ts. Casting keeps the (tested) runtime config intact.
 			player.updateSettings({
 				streaming: {
 					abr: {
@@ -34,7 +37,8 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 						bufferToKeep: 20,
 					},
 				},
-			});
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			} as any);
 
 			function refreshLevels() {
 				try {
