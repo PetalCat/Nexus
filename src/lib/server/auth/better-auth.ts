@@ -15,15 +15,29 @@
 // forced reset); Better Auth rehashes to its format on next successful login.
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { admin, username } from 'better-auth/plugins';
+import { username } from 'better-auth/plugins';
 import { genericOAuth } from 'better-auth/plugins';
+import { sveltekitCookies } from 'better-auth/svelte-kit';
+import { verifyPassword as baVerifyPassword } from 'better-auth/crypto';
+import { getRequestEvent } from '$app/server';
 import { scryptSync, timingSafeEqual } from 'node:crypto';
-import { getDb } from '../../db';
+import { getDb, schema } from '../../db';
+
+// Fail-closed secret validation, independent of NODE_ENV (Better Auth only hard-
+// fails on a missing/weak secret when isProduction, otherwise silently signs with
+// a PUBLIC default — forgeable sessions). Refuse to start without a real secret.
+const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
+if (!BETTER_AUTH_SECRET || BETTER_AUTH_SECRET.length < 32) {
+	throw new Error(
+		'[auth] BETTER_AUTH_SECRET must be set to a random string of at least 32 characters.'
+	);
+}
 
 /** Verify a legacy `${salt}:${hash}` scrypt password (the pre-Better-Auth format
  *  from ../auth.ts — scrypt, 64-byte key). Used during migration so existing
  *  users authenticate without a reset; Better Auth rehashes on success. */
 export function verifyLegacyScrypt(password: string, stored: string): boolean {
+	if (!stored || stored.length < 10) return false;
 	const [salt, hash] = stored.split(':');
 	if (!salt || !hash) return false;
 	const attempt = scryptSync(password, salt, 64);
@@ -51,18 +65,60 @@ const oidcProviders =
 		: [];
 
 export const auth = betterAuth({
-	database: drizzleAdapter(getDb(), { provider: 'sqlite', usePlural: true }),
-	secret: process.env.BETTER_AUTH_SECRET,
+	// Map BA's models to our tables explicitly: reuse the existing `users` (keeps
+	// all the per-user-state FKs pointing at users.id), and use the DISTINCT
+	// `auth_sessions` so BA doesn't clobber the legacy `sessions` during cutover.
+	database: drizzleAdapter(getDb(), {
+		provider: 'sqlite',
+		schema: {
+			user: schema.users,
+			session: schema.authSessions,
+			account: schema.accounts,
+			verification: schema.verifications
+		}
+	}),
+	secret: BETTER_AUTH_SECRET,
+	// baseURL drives Better Auth's Secure-cookie derivation + CSRF origin check.
+	// Set it to the public https URL in prod (BETTER_AUTH_URL); over plain http
+	// (dev / behind a TLS-terminating proxy on http) cookies stay non-Secure.
+	baseURL: process.env.BETTER_AUTH_URL,
+	trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(',').map((s) => s.trim()),
 	emailAndPassword: {
 		enabled: true,
-		// Verify legacy scrypt rows; Better Auth's own scrypt covers new/rehashed
-		// passwords. (Returning true here triggers BA's rehash-on-login.)
+		// Match the existing Nexus register UI policy (6 chars) so client-side
+		// validation and Better Auth agree; BA defaults to 8 and would otherwise
+		// reject 6–7 char passwords the form accepted.
+		minPasswordLength: 6,
+		// Password hashing is left to Better Auth (its own scrypt, via
+		// better-auth/crypto) — we do NOT override `hash`, so new/registered users
+		// get BA-format hashes. Verification must accept BOTH formats: legacy rows
+		// migrated from the hand-rolled auth.ts use node scrypt (r=8) while BA's
+		// own hashes use different params (r=16); the two are the same `salt:hash`
+		// shape but not cross-verifiable. Try BA's native verifier first, then fall
+		// back to the legacy scrypt shim. Both are constant-time internally.
 		password: {
-			verify: async ({ password, hash }: { password: string; hash: string }) =>
-				verifyLegacyScrypt(password, hash)
+			verify: async ({ password, hash }: { password: string; hash: string }) => {
+				// Reject empty/short hashes outright (callers pass `passwordHash ?? ''`
+				// for null-hash OIDC/service users — those must fail closed).
+				if (!hash || hash.length < 10) return false;
+				try {
+					if (await baVerifyPassword({ password, hash })) return true;
+				} catch {
+					// Not a BA-format hash (or malformed) — fall through to legacy.
+				}
+				return verifyLegacyScrypt(password, hash);
+			}
 		}
 	},
-	plugins: [username(), admin(), ...oidcProviders]
+	// sveltekitCookies MUST be last — its `after` hook copies Better Auth's
+	// Set-Cookie onto the SvelteKit request event, so server-side auth.api calls
+	// (login/register form actions) set the session cookie without hand-parsing.
+	// NOTE: the Better Auth `admin()` plugin is intentionally NOT enabled. The app's
+	// RBAC is the `users.isAdmin` column (lightweight, per current design); enabling
+	// admin() would expose /api/auth/admin/* (set-role, ban, IMPERSONATE) keyed off a
+	// separate `role` column the app doesn't authorize on — a parallel privilege
+	// channel. Revisit when RBAC is unified under the lab IAM work.
+	plugins: [username(), ...oidcProviders, sveltekitCookies(getRequestEvent)]
 });
 
 export type Auth = typeof auth;

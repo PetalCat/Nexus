@@ -81,7 +81,7 @@ export function getCollectionActivity(
 		return {
 			...e,
 			username: user?.username,
-			displayName: user?.displayName,
+			displayName: user?.displayName ?? user?.username,
 			avatar: user?.avatar ?? null
 		};
 	});
@@ -195,7 +195,7 @@ export function getRecentCollectionUpdates(
 			latestActivity: {
 				...activity,
 				username: user?.username,
-				displayName: user?.displayName,
+				displayName: user?.displayName ?? user?.username,
 				avatar: user?.avatar ?? null
 			},
 			posters: posterMap.get(colId) ?? []

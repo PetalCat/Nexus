@@ -17,7 +17,11 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 	const user = getUserById(locals.user.id);
 	if (!user) throw error(404, 'User not found');
 
-	if (!verifyPassword(currentPassword, user.passwordHash)) {
+	// NOTE (BA cutover residual): this verifies + updates the legacy users.passwordHash.
+	// Better Auth users keep their password in `accounts`, so this endpoint should be
+	// re-routed through BA's change-password API (tracked follow-up). For null-hash
+	// (BA/OIDC) users this fails closed — they cannot change a password they don't have here.
+	if (!verifyPassword(currentPassword, user.passwordHash ?? '')) {
 		throw error(403, 'Current password is incorrect');
 	}
 

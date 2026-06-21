@@ -83,11 +83,11 @@ export function getNotifications(userId: string, opts?: { limit?: number; offset
 	const actorNames = new Map<string, string>();
 	if (actorIds.length > 0) {
 		const actors = db
-			.select({ id: schema.users.id, displayName: schema.users.displayName })
+			.select({ id: schema.users.id, displayName: schema.users.displayName, username: schema.users.username })
 			.from(schema.users)
 			.where(inArray(schema.users.id, actorIds))
 			.all();
-		for (const a of actors) actorNames.set(a.id, a.displayName);
+		for (const a of actors) actorNames.set(a.id, a.displayName ?? a.username);
 	}
 
 	return rows.map((row) => ({

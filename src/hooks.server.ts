@@ -1,6 +1,7 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
-import { COOKIE_NAME, validateSession } from '$lib/server/auth';
+import { COOKIE_NAME, validateSession, getUserById } from '$lib/server/auth';
+import { auth } from '$lib/server/auth/better-auth';
 import { boot } from '$lib/server/boot';
 import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
 
@@ -12,6 +13,21 @@ boot();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
+
+	// SECURITY: the Better Auth catch-all (/api/auth/[...all]) exposes every BA
+	// endpoint. Block the public sign-up surface — registration MUST go through the
+	// app's /register action, which enforces the registration_enabled setting and
+	// the approval flow (the raw BA endpoint bypasses both and creates active
+	// accounts). Also block /api/auth/admin/* defensively (the admin plugin is off,
+	// but this keeps the surface closed if it's ever re-enabled). The app's own
+	// /register calls auth.api.signUpEmail server-side, which does NOT route through
+	// this HTTP path, so it is unaffected.
+	if (path.startsWith('/api/auth/sign-up') || path.startsWith('/api/auth/admin')) {
+		return new Response(JSON.stringify({ error: 'Not found' }), {
+			status: 404,
+			headers: { 'Content-Type': 'application/json' }
+		});
+	}
 
 	// Allowlisted pre-auth paths bypass rate limiting + the API state gate,
 	// but still go through session loading and the redirect resolver — the
@@ -60,12 +76,24 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Populate event.locals.user from the session cookie — this is the session
 	// hook's job and stays here. Redirect rules and API gates both read from it.
 	const token = event.cookies.get(COOKIE_NAME);
-	const user = validateSession(token);
+	let user = validateSession(token);
+	// Better Auth cutover: if there's no legacy session cookie, validate a Better
+	// Auth session and load the full user row by id, so the redirect resolver and
+	// API gate below keep operating on the existing user shape unchanged. Legacy
+	// and BA sessions coexist during the transition — neither locks the other out.
+	if (!user) {
+		try {
+			const ba = await auth.api.getSession({ headers: event.request.headers });
+			if (ba?.user?.id) user = getUserById(ba.user.id) ?? null;
+		} catch {
+			// BA not configured (no secret) or no valid session — stay unauthenticated.
+		}
+	}
 	if (user) {
 		event.locals.user = {
 			id: user.id,
 			username: user.username,
-			displayName: user.displayName,
+			displayName: user.displayName ?? user.name ?? user.username,
 			avatar: user.avatar ?? null,
 			isAdmin: user.isAdmin,
 			status: user.status === 'pending' ? 'pending' : 'active',

@@ -28,8 +28,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	]);
 
 	const results = all
-		.filter((u) => u.id !== locals.user!.id && !blockedIds.has(u.id) && (u.username.toLowerCase().includes(q) || u.displayName.toLowerCase().includes(q)))
-		.map((u) => ({ id: u.id, username: u.username, displayName: u.displayName }))
+		.filter((u) => u.id !== locals.user!.id && !blockedIds.has(u.id) && (u.username.toLowerCase().includes(q) || (u.displayName ?? '').toLowerCase().includes(q)))
+		.map((u) => ({ id: u.id, username: u.username, displayName: u.displayName ?? u.username }))
 		.slice(0, 20);
 
 	return json({ users: results });

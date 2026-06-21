@@ -56,3 +56,6 @@ stream-proxy/target/
 .claude/
 sv-agentation
 CLAUDE.md
+
+# Runtime data (live DB, backups) — never commit
+data/

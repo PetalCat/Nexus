@@ -248,6 +248,150 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	safeAddColumn('users', 'force_password_reset', 'INTEGER NOT NULL DEFAULT 0');
 	safeAddColumn('users', 'status', "TEXT NOT NULL DEFAULT 'active'");
 
+	// ── Better Auth (identity/session/RBAC/OIDC) ────────────────────────────
+	// BA user fields on the existing users table (keeps all per-user FKs on users.id).
+	safeAddColumn('users', 'name', 'TEXT');
+	safeAddColumn('users', 'display_username', 'TEXT');
+	safeAddColumn('users', 'email', 'TEXT');
+	safeAddColumn('users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0');
+	safeAddColumn('users', 'image', 'TEXT');
+	safeAddColumn('users', 'role', 'TEXT');
+	safeAddColumn('users', 'banned', 'INTEGER DEFAULT 0');
+	safeAddColumn('users', 'ban_reason', 'TEXT');
+	safeAddColumn('users', 'ban_expires', 'INTEGER');
+	safeAddColumn('users', 'updated_at', 'INTEGER');
+	// BA session table — DISTINCT from the legacy `sessions` (coexist during cutover).
+	db.run(`CREATE TABLE IF NOT EXISTS auth_sessions (
+		id TEXT PRIMARY KEY,
+		token TEXT NOT NULL UNIQUE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at INTEGER NOT NULL,
+		ip_address TEXT,
+		user_agent TEXT,
+		impersonated_by TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id)`);
+	db.run(`CREATE TABLE IF NOT EXISTS accounts (
+		id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL,
+		provider_id TEXT NOT NULL,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		access_token TEXT, refresh_token TEXT, id_token TEXT,
+		access_token_expires_at INTEGER, refresh_token_expires_at INTEGER,
+		scope TEXT, password TEXT,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)`);
+	db.run(`CREATE TABLE IF NOT EXISTS verifications (
+		id TEXT PRIMARY KEY,
+		identifier TEXT NOT NULL,
+		value TEXT NOT NULL,
+		expires_at INTEGER NOT NULL,
+		created_at INTEGER, updated_at INTEGER
+	)`);
+
+	// ── Better Auth users-table rebuild (idempotent) ─────────────────────────
+	// The Better Auth drizzle adapter writes Date objects into users.created_at,
+	// but the legacy column is declared TEXT (TEXT affinity → can't hold an
+	// integer/Date; safeConvertTimestamp can't fix affinity, only contents). It
+	// also needs display_name/password_hash to be NULLable (OIDC/credential users
+	// supply neither — the password lives in `accounts`). SQLite can't ALTER a
+	// column's type or drop NOT NULL, so rebuild the table once. Guarded on the
+	// declared type of created_at, so this runs exactly once per database (and
+	// converges fresh installs, whose migrate()-created users table is also TEXT).
+	try {
+		const createdAtType = (
+			_sqlite!.prepare(`SELECT type FROM pragma_table_info('users') WHERE name='created_at'`).get() as
+				| { type?: string }
+				| undefined
+		)?.type;
+		if (createdAtType && createdAtType.toUpperCase().includes('TEXT')) {
+			// PRAGMA foreign_keys can't change inside a transaction, so toggle it
+			// around the txn. initDb runs synchronously to completion on the single
+			// shared connection before getDb() returns, so no other query runs in
+			// this window. The `finally` guarantees FKs are re-enabled even on throw.
+			_sqlite!.pragma('foreign_keys = OFF');
+			try {
+			const rebuild = _sqlite!.transaction(() => {
+				_sqlite!.exec(`
+					DROP TABLE IF EXISTS users_ba_new;
+					CREATE TABLE users_ba_new (
+						id TEXT PRIMARY KEY NOT NULL,
+						username TEXT NOT NULL,
+						display_name TEXT,
+						password_hash TEXT,
+						is_admin INTEGER NOT NULL DEFAULT 0,
+						auth_provider TEXT NOT NULL DEFAULT 'local',
+						external_id TEXT,
+						avatar TEXT,
+						force_password_reset INTEGER NOT NULL DEFAULT 0,
+						status TEXT NOT NULL DEFAULT 'active',
+						welcome_completed_at TEXT,
+						name TEXT,
+						display_username TEXT,
+						email TEXT,
+						email_verified INTEGER NOT NULL DEFAULT 0,
+						image TEXT,
+						role TEXT,
+						banned INTEGER DEFAULT 0,
+						ban_reason TEXT,
+						ban_expires INTEGER,
+						updated_at INTEGER,
+						created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+					);
+					INSERT INTO users_ba_new (
+						id, username, display_name, password_hash, is_admin, auth_provider,
+						external_id, avatar, force_password_reset, status, welcome_completed_at,
+						name, display_username, email, email_verified, image, role, banned,
+						ban_reason, ban_expires, updated_at, created_at
+					)
+					SELECT
+						id, username, display_name, password_hash, is_admin, auth_provider,
+						external_id, avatar, force_password_reset, status, welcome_completed_at,
+						name, display_username, email, email_verified, image, role, banned,
+						ban_reason, ban_expires, updated_at,
+						-- NULLIF guards against strftime() returning 0 for a malformed
+						-- date string (which would silently become 1970); fall through
+						-- to an already-integer ms value, then to now().
+						COALESCE(NULLIF(CAST(strftime('%s', created_at) AS INTEGER), 0) * 1000, CAST(created_at AS INTEGER), CAST(strftime('%s','now') AS INTEGER) * 1000)
+					FROM users;
+					DROP TABLE users;
+					ALTER TABLE users_ba_new RENAME TO users;
+					CREATE UNIQUE INDEX users_username_unique ON users(username);
+				`);
+			});
+			rebuild();
+			// Verify the FK graph re-bound correctly to the renamed table.
+			const fkViolations = _sqlite!.pragma('foreign_key_check') as unknown[];
+			if (Array.isArray(fkViolations) && fkViolations.length > 0) {
+				console.error('[db] FK violations after users rebuild:', fkViolations);
+			}
+			// Email unique index OUTSIDE the rebuild transaction: if pre-existing
+			// duplicate (non-null) emails exist it would throw, and inside the txn
+			// that would roll back the whole conversion → the guard stays TEXT →
+			// every boot re-attempts and re-fails (perpetual broken boot). Out here,
+			// a failure only means the index is missing (logged), not a broken table.
+			try {
+				_sqlite!.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users(email)');
+			} catch (e) {
+				console.error(
+					'[db] could not create users_email_unique (duplicate emails?):',
+					e instanceof Error ? e.message : e
+				);
+			}
+			console.log('[db] Rebuilt users table for Better Auth (created_at → integer ms, nullable display_name/password_hash)');
+			} catch (e) {
+				console.error('[db] users Better Auth rebuild failed:', e instanceof Error ? e.message : e);
+			} finally {
+				_sqlite!.pragma('foreign_keys = ON');
+			}
+		}
+	} catch (e) {
+		console.error('[db] users Better Auth rebuild guard failed:', e instanceof Error ? e.message : e);
+	}
+
 	// Legacy `activity` table dropped 2026-04-17 (migration 0008). The
 	// user_id / position columns we used to ALTER onto it are now native on
 	// play_sessions, which is the canonical progress store.

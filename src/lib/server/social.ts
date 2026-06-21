@@ -114,7 +114,7 @@ export function getFriends(userId: string): FriendWithPresence[] {
 		friends.push({
 			userId: friendId,
 			username: user.username,
-			displayName: user.displayName,
+			displayName: user.displayName ?? user.username,
 			avatar: user.avatar ?? null,
 			status: isGhost ? 'offline' : (presence?.status ?? 'offline'),
 			customStatus: isGhost ? null : (presence?.customStatus ?? null),
@@ -183,10 +183,10 @@ export function getPendingRequests(userId: string): FriendRequest[] {
 			id: row.id,
 			fromUserId: row.userId,
 			fromUsername: fromUser.username,
-			fromDisplayName: fromUser.displayName,
+			fromDisplayName: fromUser.displayName ?? fromUser.username,
 			toUserId: row.friendId,
 			toUsername: toUser.username,
-			toDisplayName: toUser.displayName,
+			toDisplayName: toUser.displayName ?? toUser.username,
 			createdAt: row.createdAt,
 			direction: row.userId === userId ? 'outgoing' : 'incoming'
 		});

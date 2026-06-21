@@ -12,6 +12,7 @@ import { getEnabledConfigs, getServiceConfig } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import { getDb, schema } from '$lib/db';
 import { and, eq } from 'drizzle-orm';
+import { auth } from '$lib/server/auth/better-auth';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -163,8 +164,10 @@ export const actions: Actions = {
 					});
 				}
 
-				// Verify the Nexus password
-				if (!verifyPassword(nexusPassword, usernameMatch.passwordHash)) {
+				// Verify the Nexus password (legacy hash). BA/OIDC users have a null
+				// passwordHash → fails closed (they can't link via a Nexus password
+				// they don't have; a follow-up should verify via BA for those).
+				if (!verifyPassword(nexusPassword, usernameMatch.passwordHash ?? '')) {
 					return fail(401, {
 						error: 'Incorrect Nexus password. Try again or contact an admin.',
 						needsNexusPassword: true,
@@ -218,7 +221,14 @@ export const actions: Actions = {
 			return finishLogin(userId, newUser ?? { status }, cookies, url);
 		}
 
-		// ── Local authentication ────────────────────────────────────────────
+		// ── Local authentication (Better Auth) ──────────────────────────────
+		// Password verification + session minting goes through Better Auth (Eli:
+		// don't roll your own auth crypto). The legacy scrypt hash is honored via
+		// the verify shim in better-auth.ts, and BA rehashes to its format on the
+		// first successful login. The session cookie is set by the sveltekitCookies
+		// plugin. Pending/forcePasswordReset are re-enforced on the next request by
+		// the redirect resolver + API gate in hooks.server.ts, so they don't need to
+		// be checked here.
 		const username = (data.get('username') as string)?.trim();
 		const password = data.get('password') as string;
 
@@ -226,11 +236,13 @@ export const actions: Actions = {
 			return fail(400, { error: 'Username and password are required' });
 		}
 
-		const user = getUserByUsername(username);
-		if (!user || !verifyPassword(password, user.passwordHash)) {
+		try {
+			await auth.api.signInUsername({ body: { username, password }, headers: request.headers });
+		} catch {
 			return fail(401, { error: 'Invalid username or password' });
 		}
 
-		return finishLogin(user.id, user, cookies, url);
+		const next = url.searchParams.get('next') || '/';
+		throw redirect(303, next);
 	}
 };

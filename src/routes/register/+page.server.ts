@@ -11,6 +11,7 @@ import { getEnabledConfigs, getServiceConfig } from '$lib/server/services';
 import { registry } from '$lib/adapters/registry';
 import { getDb, schema } from '$lib/db';
 import { and, eq } from 'drizzle-orm';
+import { auth } from '$lib/server/auth/better-auth';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
@@ -164,30 +165,50 @@ export const actions: Actions = {
 		}
 
 		const requiresApproval = getSetting('registration_requires_approval') === 'true';
-		const status = requiresApproval ? 'pending' : 'active';
 
+		// Create the local account through Better Auth (Eli: don't roll your own
+		// auth crypto). signUpEmail creates the user + a 'credential' account row
+		// (so the user can later sign in via BA) and sets the session cookie via
+		// the sveltekitCookies plugin. Nexus has no email field, so synthesize a
+		// stable local one from the username (matches the migration backfill).
+		const email = `${username.toLowerCase()}@nexus.local`;
+		let createdId: string | undefined;
 		try {
-			const userId = createUser(username, displayName, password, false, { status });
-			const token = createSession(userId);
-			cookies.set(COOKIE_NAME, token, {
-				path: '/',
-				httpOnly: true,
-				sameSite: 'lax',
-				maxAge: 60 * 60 * 24 * 30
+			const res = await auth.api.signUpEmail({
+				body: { email, password, username, name: displayName, displayUsername: displayName },
+				headers: request.headers
 			});
-
-			if (requiresApproval) {
-				throw redirect(303, '/pending-approval');
-			}
-
-			throw redirect(303, '/');
+			createdId = res?.user?.id;
 		} catch (e) {
-			if (e && typeof e === 'object' && 'status' in e) throw e;
-			const msg = String(e);
-			if (msg.includes('UNIQUE')) {
+			// BA throws an APIError (status 422/400) on a duplicate username/email.
+			const msg = e instanceof Error ? e.message : String(e);
+			if (/exist|taken|unique|duplicate/i.test(msg)) {
 				return fail(400, { error: 'Username already taken' });
 			}
 			return fail(500, { error: 'Failed to create account' });
 		}
+
+		// Patch the row by the id returned from sign-up (NOT a re-query by username:
+		// the username plugin lowercases the stored username, so a raw-case lookup
+		// would miss and silently skip these updates — including the pending gate).
+		// (1) Mirror the legacy display_name column (BA only sets `name`/username),
+		//     so every display_name reader has a non-null value. (2) Apply the Nexus
+		//     approval gate BA doesn't model: flip status to 'pending' when required,
+		//     and the hooks redirect resolver routes the (signed-in) user to
+		//     /pending-approval until an admin approves.
+		const newId = createdId ?? getUserByUsername(username.toLowerCase())?.id;
+		if (newId) {
+			getDb()
+				.update(schema.users)
+				.set({ displayName, ...(requiresApproval ? { status: 'pending' } : {}) })
+				.where(eq(schema.users.id, newId))
+				.run();
+		}
+
+		if (requiresApproval) {
+			throw redirect(303, '/pending-approval');
+		}
+
+		throw redirect(303, '/');
 	}
 };
