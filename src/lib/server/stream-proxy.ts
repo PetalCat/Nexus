@@ -226,7 +226,12 @@ export async function createStreamSession(params: {
 				url_prefix: '/api/stream-proxy/',
 				kind: params.kind ?? 'generic',
 			}),
-			signal: AbortSignal.timeout(5000),
+			// Loopback handoff to the Rust proxy. 5s was too tight under burst:
+			// a 4K load test at 40 simultaneous negotiates tripped it (the POSTs
+			// queue behind PlaybackInfo + the single-thread dev server, and the
+			// timeout counts queue time). 15s gives the tail room to complete
+			// without ever falling back (which fails closed anyway).
+			signal: AbortSignal.timeout(15000),
 		});
 		if (!res.ok) {
 			console.warn(`[stream-proxy] /session → ${res.status}`);

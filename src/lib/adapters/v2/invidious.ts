@@ -128,6 +128,12 @@ async function negotiatePlayback(
 		kind: 'generic',
 		userId: ctx?.nexusUserId
 	});
+	// FAIL CLOSED — never hand back the raw instance /videoplayback URL if the
+	// grant proxy handoff fails (it would bypass the grant + expose the instance
+	// origin). Same leak the Jellyfin load test caught.
+	if (!proxy) {
+		throw new Error('stream proxy handoff failed (fail-closed: refusing to expose the raw instance URL)');
+	}
 
 	// Captions: each WebVTT track routed through its own grant-proxied session so
 	// the browser only ever talks to Nexus (never the instance directly).
@@ -158,7 +164,7 @@ async function negotiatePlayback(
 
 	const session: PlaybackSession = {
 		engine: 'progressive',
-		url: proxy?.streamUrl ?? upstreamUrl,
+		url: proxy.streamUrl,
 		mime: 'video/mp4',
 		mode: 'direct-play',
 		audioTracks: [{ id: 0, name: 'Default', lang: '' }],

@@ -637,9 +637,15 @@ async function negotiatePlayback(
 		kind: 'jellyfin',
 		userId: ctx?.nexusUserId
 	});
-	if (proxy) {
-		session.url = proxy.streamUrl;
+	// FAIL CLOSED. If the proxy handoff fails (e.g. /session saturated under
+	// load), we must NOT fall back to `session.url` — that's the raw backend
+	// URL (origin + ApiKey/PlaySessionId), which would bypass the grant proxy
+	// and leak the credential. A load test at 40 concurrent negotiates caught
+	// exactly this leak. No proxy URL ⇒ no playback.
+	if (!proxy) {
+		throw new Error('stream proxy handoff failed (fail-closed: refusing to expose the raw backend URL)');
 	}
+	session.url = proxy.streamUrl;
 
 	// changeQuality re-negotiates (close the prior transcode first to avoid orphans).
 	session.changeQuality = async (newPlan: PlaybackPlan) => {
