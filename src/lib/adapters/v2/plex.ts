@@ -356,6 +356,68 @@ function buildTranscodeUrl(
 	return `${base}/video/:/transcode/universal/start.m3u8?${params.toString()}`;
 }
 
+/**
+ * Pure client-capability gate (extracted from negotiatePlayback so it can be
+ * unit-tested in isolation). Plex's named "Chrome" profile is permissive (it
+ * green-lights HEVC direct-play), so the backend decision alone can't be trusted
+ * — we must gate on what THIS client can actually decode. Returns true when the
+ * source video/audio/container can't be direct-played by the given caps (or when
+ * an explicit pick is forcing a transcode), false when direct-play is safe.
+ *
+ * Codec name mapping: avc1 prefix maps to h264; hev1 / hvc1 prefixes map to hevc;
+ * bare 'h264' / 'hevc' / 'h265' also accepted for non-MSE callers. An unknown /
+ * other video codec defers to Plex's decision (false unless `forcing`).
+ */
+export function clientMustTranscode(opts: {
+	sourceVideoCodec: string;
+	sourceAudioCodec: string;
+	sourceContainer: string;
+	caps: BrowserCaps;
+	forcing: boolean;
+}): boolean {
+	const { caps, forcing } = opts;
+	const sourceVideoCodec = (opts.sourceVideoCodec ?? '').toLowerCase();
+	const sourceAudioCodec = (opts.sourceAudioCodec ?? '').toLowerCase();
+	const sourceContainer = (opts.sourceContainer ?? '').toLowerCase();
+
+	const canH264 = caps.videoCodecs.some((c) => c.startsWith('avc1') || c === 'h264');
+	const canHEVC = caps.videoCodecs.some(
+		(c) => c.startsWith('hev1') || c.startsWith('hvc1') || c === 'hevc'
+	);
+	const clientCanPlayVideo =
+		sourceVideoCodec === 'h264'
+			? canH264
+			: sourceVideoCodec === 'hevc' || sourceVideoCodec === 'h265'
+				? canHEVC
+				: true; // unknown/other codec → defer to Plex's decision
+
+	const audioHas = (frag: string) => caps.audioCodecs.some((a) => a.toLowerCase().includes(frag));
+	const clientCanPlayAudio =
+		!sourceAudioCodec ||
+		(sourceAudioCodec === 'aac'
+			? audioHas('mp4a') || audioHas('aac')
+			: sourceAudioCodec === 'mp3'
+				? audioHas('mp3') || audioHas('mp4a.40.34')
+				: sourceAudioCodec === 'opus'
+					? audioHas('opus')
+					: sourceAudioCodec === 'flac'
+						? audioHas('flac')
+						: sourceAudioCodec === 'vorbis'
+							? audioHas('vorbis')
+							: sourceAudioCodec === 'ac3'
+								? audioHas('ac-3') || audioHas('ac3')
+								: sourceAudioCodec === 'eac3'
+									? audioHas('ec-3') || audioHas('eac3')
+									: false); // dts/truehd/pcm/… → not browser-decodable
+	const PROGRESSIVE_CONTAINERS = ['mp4', 'm4v', 'mov', 'webm'];
+	const clientCanPlayContainer =
+		!sourceContainer ||
+		PROGRESSIVE_CONTAINERS.includes(sourceContainer) ||
+		caps.containers.some((c) => c.toLowerCase() === sourceContainer);
+
+	return forcing || !clientCanPlayVideo || !clientCanPlayAudio || !clientCanPlayContainer;
+}
+
 /** Build a direct-play stream URL for a given Part. */
 function buildDirectStreamUrl(config: ServiceConfig, part: { key: string }): string {
 	const base = baseUrl(config);
@@ -404,51 +466,16 @@ async function negotiatePlayback(
 	// Client-capability gate. Plex's named "Chrome" profile is permissive (it
 	// green-lights HEVC direct-play), so the decision alone can't be trusted — we
 	// must gate on what THIS client can actually decode. If the source video codec
-	// isn't in the browser's caps, force a transcode. (avc1*→h264, hev1*/hvc1*→hevc;
-	// bare 'h264'/'hevc' also accepted for non-MSE callers.)
-	const sourceVideoCodec = (videoStream?.codec ?? '').toLowerCase();
-	const canH264 = caps.videoCodecs.some((c) => c.startsWith('avc1') || c === 'h264');
-	const canHEVC = caps.videoCodecs.some(
-		(c) => c.startsWith('hev1') || c.startsWith('hvc1') || c === 'hevc'
-	);
-	const clientCanPlayVideo =
-		sourceVideoCodec === 'h264'
-			? canH264
-			: sourceVideoCodec === 'hevc' || sourceVideoCodec === 'h265'
-				? canHEVC
-				: true; // unknown/other codec → defer to Plex's decision
-	// Audio + container must ALSO be browser-decodable — otherwise direct-play
-	// hands the <video> element a stream it can't render (silent failure, no
-	// fallback). Map Plex's audio codec name to the browser's caps.audioCodecs, and
-	// require a progressively-playable container; anything else forces transcode.
+	// isn't browser-decodable, force a transcode. The pure gate logic lives in
+	// clientMustTranscode (unit-tested).
 	const audioStream = streams.find((s) => s.streamType === 2);
-	const sourceAudioCodec = (audioStream?.codec ?? '').toLowerCase();
-	const sourceContainer = (part.container ?? media.container ?? '').toLowerCase();
-	const audioHas = (frag: string) => caps.audioCodecs.some((a) => a.toLowerCase().includes(frag));
-	const clientCanPlayAudio =
-		!sourceAudioCodec ||
-		(sourceAudioCodec === 'aac'
-			? audioHas('mp4a') || audioHas('aac')
-			: sourceAudioCodec === 'mp3'
-				? audioHas('mp3') || audioHas('mp4a.40.34')
-				: sourceAudioCodec === 'opus'
-					? audioHas('opus')
-					: sourceAudioCodec === 'flac'
-						? audioHas('flac')
-						: sourceAudioCodec === 'vorbis'
-							? audioHas('vorbis')
-							: sourceAudioCodec === 'ac3'
-								? audioHas('ac-3') || audioHas('ac3')
-								: sourceAudioCodec === 'eac3'
-									? audioHas('ec-3') || audioHas('eac3')
-									: false); // dts/truehd/pcm/… → not browser-decodable
-	const PROGRESSIVE_CONTAINERS = ['mp4', 'm4v', 'mov', 'webm'];
-	const clientCanPlayContainer =
-		!sourceContainer ||
-		PROGRESSIVE_CONTAINERS.includes(sourceContainer) ||
-		caps.containers.some((c) => c.toLowerCase() === sourceContainer);
-	const mustTranscode =
-		forcingTranscode || !clientCanPlayVideo || !clientCanPlayAudio || !clientCanPlayContainer;
+	const mustTranscode = clientMustTranscode({
+		sourceVideoCodec: videoStream?.codec ?? '',
+		sourceAudioCodec: audioStream?.codec ?? '',
+		sourceContainer: part.container ?? media.container ?? '',
+		caps,
+		forcing: forcingTranscode
+	});
 
 	// A session identifier ties HLS segment requests back to a server-side
 	// transcode session so we can later call /transcode/universal/stop.
