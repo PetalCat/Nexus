@@ -42,9 +42,23 @@ export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	// the proxy's X-Nexus-User check.
 	if (!locals.user) return new Response('Unauthorized', { status: 403 });
 
-	// Path-preserving forward: `/api/stream-proxy/<path>` → `/<path>` on the Rust
-	// binary, carrying the query string verbatim (the grant lives there).
 	const path = params.path ?? '';
+
+	// HARD ALLOWLIST (adversarial review: the Rust binary still carries legacy
+	// UNGATED routes — `/proxy?url=` (open-proxy SSRF into the LAN/loopback),
+	// `/stream/{id}`, `/stats`. A path-preserving forward exposed all of them to
+	// any logged-in user. Only the grant-bound v2 routes may pass:
+	//   stream            (Jellyfin/inline:  /stream?grant=…)
+	//   v/{id}, v/{id}/…  (Invidious:        /v/{id}/dash|seg/…|captions?grant=…)
+	// and EVERY forwarded request MUST carry a ?grant= (the actual authority).
+	const seg0 = path.split('/')[0];
+	const allowed = path === 'stream' || seg0 === 'v';
+	if (!allowed || !url.searchParams.has('grant')) {
+		return new Response('Forbidden', { status: 403 });
+	}
+
+	// Path-preserving forward of the allowlisted path, carrying the query string
+	// verbatim (the grant lives there).
 	const upstreamUrl = `${RUST_PROXY_ORIGIN}/${path}${url.search}`;
 
 	const headers: Record<string, string> = { 'x-nexus-user': locals.user.id };

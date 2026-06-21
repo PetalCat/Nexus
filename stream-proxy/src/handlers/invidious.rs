@@ -652,7 +652,16 @@ pub async fn handle_v(
             Ok(s) => s.to_string(),
             Err(_) => return bad_request("seg not utf-8"),
         };
-        join_instance(&base, &sub)
+        // SECURITY (adversarial review): `sub` is attacker-controlled (hex from the
+        // URL). join_instance passes absolute URLs through verbatim → SSRF + held-
+        // cred exfil to any host. Constrain to instance-relative companion/
+        // videoplayback paths (the same allowlist the DASH rewriter emits) and
+        // re-anchor to the configured instance. Anything else is rejected.
+        let safe = match instance_relative_path(&sub) {
+            Some(p) => p,
+            None => return forbidden("segment path not allowed"),
+        };
+        join_instance(&base, &safe)
     } else if tail == "captions" {
         // Caption proxy: /api/v1/captions/{id}?<query minus grant>.
         let kept = strip_grant(&query);

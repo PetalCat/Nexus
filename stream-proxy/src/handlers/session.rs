@@ -334,15 +334,25 @@ fn json_error(status: StatusCode, msg: &str) -> Response<BoxBody<Bytes, BoxError
 /// Resolve `sub` against `base`, honoring absolute / origin-absolute /
 /// path-relative URLs.
 fn resolve_relative(base: &str, sub: &str) -> String {
-    if sub.starts_with("http://") || sub.starts_with("https://") {
-        return sub.to_string();
-    }
     let base_no_query = base.split('?').next().unwrap_or(base);
     let origin_end = base_no_query
         .find("://")
         .and_then(|i| base_no_query[i + 3..].find('/').map(|j| i + 3 + j))
         .unwrap_or(base_no_query.len());
     let origin = &base_no_query[..origin_end];
+    // SECURITY (adversarial review): `sub` comes from the (attacker-controlled)
+    // hex `suffix`. NEVER trust an absolute host from it — re-anchor its path to
+    // the verified UPSTREAM origin so a crafted suffix can't SSRF / exfil the
+    // injected held cred to another host. (Jellyfin HLS child segments are
+    // same-host relative, so this is transparent for legitimate playback.)
+    if sub.starts_with("http://") || sub.starts_with("https://") {
+        let path = sub
+            .splitn(2, "://")
+            .nth(1)
+            .and_then(|hostpath| hostpath.find('/').map(|i| &hostpath[i..]))
+            .unwrap_or("/");
+        return format!("{origin}{path}");
+    }
     if sub.starts_with('/') {
         return format!("{origin}{sub}");
     }
@@ -364,6 +374,15 @@ mod tests {
             ),
             "http://jellyfin.local/Videos/abc/main.m3u8"
         );
+        // SECURITY: an absolute URL to a DIFFERENT host must be re-anchored to the
+        // upstream origin (no SSRF / cred exfil to an attacker-chosen host).
+        assert_eq!(
+            resolve_relative(
+                "http://jellyfin.local/Videos/abc/master.m3u8",
+                "http://169.254.169.254/latest/meta-data/"
+            ),
+            "http://jellyfin.local/latest/meta-data/"
+        );
     }
 
     #[test]
@@ -378,8 +397,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_relative_passes_through_absolute_upstream_urls() {
-        assert_eq!(resolve_relative("http://a", "http://b/x"), "http://b/x");
+    fn resolve_relative_reanchors_absolute_urls_to_upstream_origin() {
+        // SECURITY: a cross-host absolute URL in the (attacker-controlled) suffix
+        // is re-anchored to the upstream origin — it must NOT pass through to an
+        // arbitrary host (was an SSRF / held-cred-exfil hole).
+        assert_eq!(resolve_relative("http://a", "http://b/x"), "http://a/x");
     }
 
     #[test]
