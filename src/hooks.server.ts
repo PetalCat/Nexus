@@ -1,7 +1,8 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
-import { COOKIE_NAME, validateSession, getUserById } from '$lib/server/auth';
+import { COOKIE_NAME, validateSession, getUserById, getUserByUsername, createUser, getUserCount } from '$lib/server/auth';
+import { randomBytes } from 'node:crypto';
 import { auth } from '$lib/server/auth/better-auth';
 import { boot } from '$lib/server/boot';
 import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
@@ -91,6 +92,32 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (ba?.user?.id) user = getUserById(ba.user.id) ?? null;
 		} catch {
 			// BA not configured (no secret) or no valid session — stay unauthenticated.
+		}
+	}
+	// Authentik SSO passthrough. Every request to this app arrives via the
+	// Authentik forward-auth outpost (Traefik `authentik` middleware), which
+	// authenticates the user and forwards X-authentik-username/email/groups.
+	// Authentik is the SOLE gate — there are no app-owned login screens — so we
+	// provision/find the app user from those headers. Guarded by NEXUS_TRUST_PROXY
+	// (set only on the proxied deployment). NOTE: the published :8585 is LAN-
+	// reachable, so a direct LAN caller could spoof these headers — lock down
+	// (proxy-only ingress / shared-secret header) before trusting beyond a test LAN.
+	if (!user && process.env.NEXUS_TRUST_PROXY && process.env.NEXUS_TRUST_PROXY !== '0') {
+		const akUser = event.request.headers.get('x-authentik-username');
+		if (akUser) {
+			let row = getUserByUsername(akUser) as typeof user;
+			if (!row) {
+				const groups = event.request.headers.get('x-authentik-groups') ?? '';
+				// First provisioned user is admin (fresh-install owner); also honor an
+				// explicit admin group from Authentik.
+				const isAdmin = getUserCount() === 0 || /\b(authentik admins|nexus-admins|admins)\b/i.test(groups);
+				const id = createUser(akUser, akUser, randomBytes(24).toString('hex'), isAdmin, {
+					authProvider: 'authentik',
+					status: 'active'
+				});
+				row = getUserById(id) as typeof user;
+			}
+			user = row ?? null;
 		}
 	}
 	if (user) {

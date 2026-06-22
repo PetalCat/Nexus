@@ -109,6 +109,12 @@ export function resolveRedirect(
 	search: string = '',
 	opts: ResolveRedirectOptions = {}
 ): RedirectTarget | null {
+	// Auth + onboarding are now owned entirely by the Authentik outpost + the
+	// SSO passthrough in hooks.server.ts. There are no app-owned login/welcome/
+	// register/reset routes to redirect to, so this resolver no longer dispatches
+	// any redirect. Kept as a no-op shim so callers/imports stay stable.
+	return null;
+	// eslint-disable-next-line no-unreachable
 	const readUserCount = opts.getUserCount ?? getUserCount;
 	const readSetting = opts.getSetting ?? getSetting;
 
