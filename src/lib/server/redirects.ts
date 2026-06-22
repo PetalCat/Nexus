@@ -74,7 +74,8 @@ export const NO_AUTH_PATHS = [
 	'/register',
 	'/pending-approval',
 	'/reset-password',
-	'/api/ingest/webhook'
+	'/api/ingest/webhook',
+	'/dev' // design-preview routes (mock data, no real content) — viewable without a session
 ] as const;
 
 export interface RedirectTarget {
