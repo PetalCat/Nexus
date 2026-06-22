@@ -20,6 +20,7 @@ import { genericOAuth } from 'better-auth/plugins';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { verifyPassword as baVerifyPassword } from 'better-auth/crypto';
 import { getRequestEvent } from '$app/server';
+import { building } from '$app/environment';
 import { scryptSync, timingSafeEqual } from 'node:crypto';
 import { getDb, schema } from '../../db';
 
@@ -27,7 +28,10 @@ import { getDb, schema } from '../../db';
 // fails on a missing/weak secret when isProduction, otherwise silently signs with
 // a PUBLIC default — forgeable sessions). Refuse to start without a real secret.
 const BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET;
-if (!BETTER_AUTH_SECRET || BETTER_AUTH_SECRET.length < 32) {
+// Runtime-only: `vite build` imports this server module to bundle it, with no
+// env present. Don't throw at build (guarded by `building`); the check still
+// fail-closes at runtime, where the secret must be set.
+if (!building && (!BETTER_AUTH_SECRET || BETTER_AUTH_SECRET.length < 32)) {
 	throw new Error(
 		'[auth] BETTER_AUTH_SECRET must be set to a random string of at least 32 characters.'
 	);
@@ -78,7 +82,13 @@ const oidcProviders =
 			]
 		: [];
 
-export const auth = betterAuth({
+// Skip Better Auth init during `vite build` — betterAuth() opens the DB via
+// getDb() and requires the secret, neither of which exist at build time. `auth`
+// is only ever used inside request handlers (runtime), so a build-time stub is
+// safe; the real instance is created on first server start.
+export const auth = building
+	? (undefined as unknown as ReturnType<typeof betterAuth>)
+	: betterAuth({
 	// Map BA's models to our tables explicitly: reuse the existing `users` (keeps
 	// all the per-user-state FKs pointing at users.id), and use the DISTINCT
 	// `auth_sessions` so BA doesn't clobber the legacy `sessions` during cutover.

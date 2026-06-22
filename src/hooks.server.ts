@@ -1,4 +1,5 @@
 import { redirect, type Handle } from '@sveltejs/kit';
+import { building } from '$app/environment';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
 import { COOKIE_NAME, validateSession, getUserById } from '$lib/server/auth';
 import { auth } from '$lib/server/auth/better-auth';
@@ -9,7 +10,10 @@ import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
 // proxy, watchdog, lifecycle) are orchestrated in `$lib/server/boot`. Keep
 // hooks.server.ts focused on per-request middleware: rate limiting, session
 // loading, redirect dispatch, API gates, and security headers.
-boot();
+// Guard against `vite build`: SvelteKit imports this module to bundle it, and
+// boot() validates env (crypto secret) + spawns the proxy/pollers — none of
+// which exist or are wanted at build time. Only boot on a real server start.
+if (!building) boot();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
