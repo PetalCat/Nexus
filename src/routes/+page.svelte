@@ -297,8 +297,7 @@
 		color: var(--text); font-family: inherit; font-size: 14px; font-weight: 400;
 		cursor: pointer; margin-bottom: 2px; white-space: nowrap; transition: var(--t);
 	}
-	.rail.closed .rail-item { justify-content: center; padding: 0; gap: 0; }
-	.rail-item:hover { background: var(--petal-soft); }
+		.rail-item:hover { background: var(--petal-soft); }
 	.rail-item.active { background: var(--petal-soft); color: var(--petal); font-weight: 500; }
 	.rail-icon { flex: none; display: flex; }
 	.rail-icon.muted { color: var(--text-mute); }
