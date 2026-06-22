@@ -224,7 +224,12 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 		title: item.Name ?? 'Unknown',
 		sortTitle: item.SortName,
 		description: item.Overview,
-		poster: posterItemId ? posterUrl(config, posterItemId) : artFallbackUrl(type, item),
+		poster:
+			!hasPrimary && (type === 'album' || type === 'music')
+				? (artFallbackUrl(type, item) ?? (posterItemId ? posterUrl(config, posterItemId) : undefined))
+				: posterItemId
+					? posterUrl(config, posterItemId)
+					: undefined,
 		backdrop: backdropItemId ? backdropUrl(config, backdropItemId) : undefined,
 		thumb: thumbItemId ? thumbUrl(config, thumbItemId) : undefined,
 		year: item.ProductionYear,
