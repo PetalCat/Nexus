@@ -19,6 +19,7 @@ import { startStreamProxy } from './proxy';
 import { startWatchdog } from './watchdog';
 import { startLifecycle } from './lifecycle';
 import { seedServicesFromEnv } from './seed-services';
+import { backfillCredentialAccounts } from './backfill-accounts';
 
 let booted = false;
 
@@ -27,6 +28,9 @@ export function boot(): void {
 	if (booted) return;
 	initCrypto();
 	seedServicesFromEnv();
+	// Migrate legacy password users into Better Auth `accounts` rows (idempotent).
+	// Must run before the app serves any auth request, or migrated users can't log in.
+	backfillCredentialAccounts();
 	startPoller();
 	startScheduler();
 	startWatchdog();
