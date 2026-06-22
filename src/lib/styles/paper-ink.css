@@ -137,3 +137,11 @@
 .no-theme-transition *::after {
 	transition: none !important;
 }
+
+/* Scrollbars — thin, quiet, theme-aware (no chunky default bars). §scrollbars */
+.pi-root { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+.pi-root *::-webkit-scrollbar { width: 8px; height: 8px; }
+.pi-root *::-webkit-scrollbar-track { background: transparent; }
+.pi-root *::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 999px; }
+.pi-root *::-webkit-scrollbar-thumb:hover { background: var(--text-soft); }
+.pi-root *::-webkit-scrollbar-corner { background: transparent; }

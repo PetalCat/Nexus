@@ -161,6 +161,16 @@ function backdropUrl(config: ServiceConfig, itemId: string, index = 0) {
 	return proxyPath(config, `/Items/${itemId}/Images/Backdrop/${index}?quality=90&maxWidth=1920`);
 }
 
+// When Jellyfin has no artwork, fall back to the external art endpoint by
+// metadata (v1: music/albums via iTunes — Jellyfin video usually has posters).
+function artFallbackUrl(type: UnifiedMedia['type'], item: any): string | undefined {
+	if (type !== 'album' && type !== 'music') return undefined;
+	const title = item.Name ?? item.Album ?? '';
+	if (!title) return undefined;
+	const artist = item.AlbumArtist ?? item.Artists?.[0] ?? '';
+	return `/api/media/art?type=${encodeURIComponent(type)}&title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`;
+}
+
 function buildStreamUrl(config: ServiceConfig, item: any): string | undefined {
 	const type = item.Type;
 	if (['Movie', 'Episode', 'Audio', 'LiveTvChannel'].includes(type)) {
@@ -214,7 +224,7 @@ function normalize(config: ServiceConfig, item: any): UnifiedMedia {
 		title: item.Name ?? 'Unknown',
 		sortTitle: item.SortName,
 		description: item.Overview,
-		poster: posterItemId ? posterUrl(config, posterItemId) : undefined,
+		poster: posterItemId ? posterUrl(config, posterItemId) : artFallbackUrl(type, item),
 		backdrop: backdropItemId ? backdropUrl(config, backdropItemId) : undefined,
 		thumb: thumbItemId ? thumbUrl(config, thumbItemId) : undefined,
 		year: item.ProductionYear,
