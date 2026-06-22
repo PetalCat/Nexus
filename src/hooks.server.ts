@@ -105,7 +105,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (!user && process.env.NEXUS_TRUST_PROXY && process.env.NEXUS_TRUST_PROXY !== '0') {
 		const akUser = event.request.headers.get('x-authentik-username');
 		if (akUser) {
-			let row = getUserByUsername(akUser) as typeof user;
+			let row = getUserByUsername(akUser);
 			if (!row) {
 				const groups = event.request.headers.get('x-authentik-groups') ?? '';
 				// First provisioned user is admin (fresh-install owner); also honor an
@@ -115,7 +115,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 					authProvider: 'authentik',
 					status: 'active'
 				});
-				row = getUserById(id) as typeof user;
+				row = getUserById(id);
 			}
 			user = row ?? null;
 		}

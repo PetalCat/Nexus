@@ -75,6 +75,14 @@
 		return item?.backdropUrl ?? item?.backdrop ?? item?.thumb;
 	}
 
+	// Only video items launch the streaming test page. Albums/series/audio are
+	// shown but not playable yet (audio needs the later mini-player; series need
+	// episode nav) — Eli, 2026-06-22.
+	const PLAYABLE_TYPES = new Set(['movie', 'episode', 'video']);
+	function isPlayable(item: { type?: string }): boolean {
+		return PLAYABLE_TYPES.has(item.type ?? '');
+	}
+
 	function playUrl(item: Pick<HomeItem, 'serviceType' | 'sourceId' | 'id'>) {
 		const backend = item.serviceType;
 		const id = item.sourceId ?? item.id;
@@ -82,10 +90,12 @@
 	}
 
 	function playHero(item: Hero) {
+		if (!isPlayable(item)) return;
 		goto(playUrl(item));
 	}
 
 	function playItem(item: HomeItem) {
+		if (!isPlayable(item)) return;
 		goto(playUrl(item));
 	}
 </script>
@@ -206,7 +216,7 @@
 						</div>
 						<div class="hrail">
 							{#each row.items as item (item.id)}
-								<button class="vcard pi-settle wide" onclick={() => playItem(item)} aria-label="Play {item.title}">
+								<button class="vcard pi-settle wide" class:nonplay={!isPlayable(item)} onclick={() => playItem(item)} aria-label={isPlayable(item) ? `Play ${item.title}` : item.title}>
 									<div class="art">
 										{#if mediaPoster(item) || mediaBackdrop(item)}
 											<img src={mediaPoster(item) ?? mediaBackdrop(item)} alt={item.title} loading="lazy" decoding="async" />
@@ -214,7 +224,7 @@
 											<span class="art-icon"><ImageIcon size={30} strokeWidth={2} /></span>
 										{/if}
 										<span class="art-source mono">{item.serviceType}</span>
-										<span class="art-play"><Play size={18} strokeWidth={2} fill="var(--on-petal)" /></span>
+										{#if isPlayable(item)}<span class="art-play"><Play size={18} strokeWidth={2} fill="var(--on-petal)" /></span>{/if}
 									</div>
 									<div class="vc-title">{item.title}</div>
 									<div class="vc-meta">
@@ -279,7 +289,7 @@
 	/* ── Rail ── */
 	.rail {
 		flex: none; border-right: 1px solid var(--rule); padding: var(--s2);
-		overflow: hidden; transition: width 200ms var(--ease-standard);
+		overflow-y: auto; overflow-x: hidden; transition: width 200ms var(--ease-standard);
 	}
 	.rail-item {
 		width: 100%; height: 40px; display: flex; align-items: center; gap: 18px;
@@ -287,7 +297,7 @@
 		color: var(--text); font-family: inherit; font-size: 14px; font-weight: 400;
 		cursor: pointer; margin-bottom: 2px; white-space: nowrap; transition: var(--t);
 	}
-	.rail.closed .rail-item { height: 46px; justify-content: center; padding: 0; gap: 0; }
+	.rail.closed .rail-item { justify-content: center; padding: 0; gap: 0; }
 	.rail-item:hover { background: var(--petal-soft); }
 	.rail-item.active { background: var(--petal-soft); color: var(--petal); font-weight: 500; }
 	.rail-icon { flex: none; display: flex; }
@@ -433,4 +443,6 @@
 		.hero-body { padding: 28px 24px; }
 		.vcard.wide { width: 232px; }
 	}
+	.vcard.nonplay { cursor: default; }
+	.vcard.nonplay:hover .art { outline: none; }
 </style>
