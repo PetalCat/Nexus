@@ -219,7 +219,7 @@
 								<button class="vcard pi-settle wide" class:nonplay={!isPlayable(item)} onclick={() => playItem(item)} aria-label={isPlayable(item) ? `Play ${item.title}` : item.title}>
 									<div class="art">
 										{#if mediaPoster(item) || mediaBackdrop(item)}
-											<img src={mediaPoster(item) ?? mediaBackdrop(item)} alt={item.title} loading="lazy" decoding="async" />
+											<img src={mediaPoster(item) ?? mediaBackdrop(item)} alt={item.title} loading="lazy" decoding="async" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
 										{:else}
 											<span class="art-icon"><ImageIcon size={30} strokeWidth={2} /></span>
 										{/if}
