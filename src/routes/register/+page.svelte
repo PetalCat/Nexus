@@ -8,9 +8,11 @@
 		serviceId?: string;
 		username?: string;
 	} | null;
+	type AuthService = { id: string; name: string; type: string };
 
 	let { data, form: rawForm }: { data: PageData; form: RegisterForm } = $props();
 	const form = $derived(rawForm as RegisterForm);
+	const authServices = $derived(data.authServices as AuthService[]);
 	let loading = $state(false);
 
 	/** Which service the user clicked to register with (null = local registration) */
@@ -34,7 +36,7 @@
 		loading = false;
 	}
 
-	const activeService = $derived(data.authServices.find((s) => s.id === activeServiceId));
+	const activeService = $derived(authServices.find((s) => s.id === activeServiceId));
 
 	function serviceIcon(type: string) {
 		if (type === 'jellyfin') return 'J';
@@ -67,10 +69,10 @@
 			</div>
 		</div>
 
-		{#if data.authServices.length > 0 && !activeServiceId}
+		{#if authServices.length > 0 && !activeServiceId}
 			<!-- Service auth buttons -->
 			<div class="flex flex-col gap-2 mb-4">
-				{#each data.authServices as svc}
+				{#each authServices as svc}
 					<button
 						type="button"
 						class="card flex items-center gap-3 px-4 py-3 text-sm font-medium text-[var(--color-display)] transition-colors hover:bg-[var(--color-glass-bold)] cursor-pointer"

@@ -8,7 +8,14 @@
  * rework-design.md §"Shared components".
  */
 
-import type { AdapterCapabilities } from '$lib/adapters/contract';
+export interface AccountLinkCapabilities {
+	userAuth?: {
+		userLinkable?: boolean;
+		supportsRegistration?: boolean;
+		supportsPasswordStorage?: boolean;
+		usernameLabel?: string;
+	};
+}
 
 export interface AccountServiceSummary {
 	/** Service ID (services.id — unique per registered instance). */
@@ -26,7 +33,7 @@ export interface AccountServiceSummary {
 	/** Icon name resolved by ServiceIcon. */
 	icon?: string;
 	/** Full adapter capabilities object — drives modal/card behavior. */
-	capabilities: AdapterCapabilities;
+	capabilities: AccountLinkCapabilities;
 	/** True if the current user has a credential for this service. */
 	isLinked: boolean;
 	/** ISO timestamp when the credential went stale, null if healthy. */

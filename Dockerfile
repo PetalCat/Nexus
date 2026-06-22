@@ -8,7 +8,7 @@
 # tracking doesn't always detect source changes when a cached dummy build is
 # replaced with real source, producing a binary from the dummy. Accepting a
 # longer first-build time in exchange for a correct build every time.
-FROM rust:1.85-alpine AS rust-build
+FROM rust:1.88-alpine AS rust-build
 RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
 WORKDIR /stream-proxy
 COPY stream-proxy/Cargo.toml stream-proxy/Cargo.lock ./

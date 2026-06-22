@@ -4,7 +4,17 @@
  * stays consistent across every account-linking flow.
  */
 
-import type { AdapterAuthErrorKind } from '$lib/adapters/errors';
+type AdapterAuthErrorKind =
+	| 'invalid'
+	| 'expired'
+	| 'rate-limited'
+	| 'registration-disabled'
+	| 'unreachable'
+	| 'permission-denied'
+	| 'parent-stale'
+	| 'no-stored-password'
+	| 'not-linked'
+	| 'unsupported';
 
 /**
  * Return a human-readable message for a given AdapterAuthError kind. Takes

@@ -98,6 +98,7 @@
 	role="dialog"
 	aria-modal="true"
 	aria-labelledby="account-link-modal-title"
+	tabindex="-1"
 >
 	<div
 		class="mx-4 w-full max-w-md rounded-2xl p-6"

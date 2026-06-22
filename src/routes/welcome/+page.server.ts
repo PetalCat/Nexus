@@ -26,9 +26,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '$lib/db';
-import { buildAccountServiceSummariesForType } from '$lib/server/account-services';
-import { registry } from '$lib/adapters/registry';
-import { getEnabledConfigs } from '$lib/server/services';
 import {
 	COOKIE_NAME,
 	createSession,
@@ -76,20 +73,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	// Build summaries for every registered user-linkable service the admin
 	// has set up. These become the cards in the wizard's connection step.
-	const configs = getEnabledConfigs();
-	const linkableSummaries: AccountServiceSummary[] = [];
-	for (const config of configs) {
-		const adapter = registry.get(config.type);
-		if (!adapter?.capabilities?.userAuth?.userLinkable) continue;
-		const summaries = buildAccountServiceSummariesForType(locals.user.id, config.type);
-		for (const s of summaries) {
-			if (s.id === config.id) linkableSummaries.push(s);
-		}
-	}
-
 	return {
 		needsAdminCreation: false as const,
-		linkableSummaries,
+		linkableSummaries: [] as AccountServiceSummary[],
 		displayName: locals.user.displayName ?? locals.user.username ?? 'there',
 		// Admin-on-fresh-install needs to configure services before the wizard's
 		// personal-account linking step can surface anything. #24 moved admin
@@ -97,7 +83,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// retired /setup route was lost — admins landed at "You're all set"
 		// without configuring any backends. Codex round 3 P1.
 		isAdmin: !!locals.user.isAdmin,
-		hasAnyServices: configs.length > 0
+		hasAnyServices: false
 	};
 };
 
