@@ -112,7 +112,7 @@
 		<button class="icon-btn outlined" aria-label="Toggle theme" onclick={toggleTheme}>
 			{#if theme === 'dark'}<Sun size={18} strokeWidth={1.8} />{:else}<Moon size={18} strokeWidth={1.8} />{/if}
 		</button>
-		<div class="avatar">P</div>
+		<a class="avatar" href="/outpost.goauthentik.io/sign_out" aria-label="Sign out">P</a>
 	</header>
 
 	<div style="display:flex; flex:1; min-height:0;">
@@ -122,43 +122,41 @@
 				{@const Icon = item.icon}
 				<button class="rail-item" class:active={i === activeNav} onclick={() => (activeNav = i)}>
 					<span class="rail-icon"><Icon size={22} strokeWidth={2} /></span>
-					{#if railOpen}<span class="rail-label">{item.label}</span>{/if}
+					<span class="rail-label">{item.label}</span>
 				</button>
 			{/each}
 
 			<div class="rail-sep"></div>
-			{#if railOpen}<div class="rail-section">Discover</div>{/if}
+			<div class="rail-section">Discover</div>
 			{#each explore as item}
 				{@const Icon = item.icon}
 				<button class="rail-item">
 					<span class="rail-icon muted"><Icon size={21} strokeWidth={2} /></span>
-					{#if railOpen}<span class="rail-label">{item.label}</span>{/if}
+					<span class="rail-label">{item.label}</span>
 				</button>
 			{/each}
 
 			<div class="rail-sep"></div>
-			{#if railOpen}<div class="rail-section">Subscriptions</div>{/if}
+			<div class="rail-section">Subscriptions</div>
 			{#each channels as ch}
 				<button class="rail-item channel">
 					<span class="ch-avatar" style="background:{ch.color};">
 						{ch.initial}
-						{#if ch.fresh && !railOpen}<span class="fresh-badge"></span>{/if}
+						{#if ch.fresh}<span class="fresh-badge"></span>{/if}
 					</span>
-					{#if railOpen}<span class="rail-label ch-name">{ch.name}</span>{/if}
-					{#if railOpen && ch.fresh}<span class="fresh-dot"></span>{/if}
+					<span class="rail-label ch-name">{ch.name}</span>
+					{#if ch.fresh}<span class="fresh-dot"></span>{/if}
 				</button>
 			{/each}
 
-			{#if railOpen}
-				<div class="rail-sep"></div>
-				<div class="rail-section">Services</div>
-				{#each services as s}
-					<div class="rail-service">
-						<span class="svc-dot" style="background:{s.dot};"></span>
-						<span class="svc-name">{s.name}</span>
-					</div>
-				{/each}
-			{/if}
+			<div class="rail-sep"></div>
+			<div class="rail-section">Services</div>
+			{#each services as s}
+				<div class="rail-service">
+					<span class="svc-dot" style="background:{s.dot};"></span>
+					<span class="svc-name">{s.name}</span>
+				</div>
+			{/each}
 		</nav>
 
 		<!-- MAIN — Tonight -->
@@ -274,12 +272,14 @@
 		width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--surface);
 		display: flex; align-items: center; justify-content: center;
 		font-size: 13px; font-weight: 500; color: var(--text-mute); cursor: pointer;
+		text-decoration: none; transition: var(--t);
 	}
+	.avatar:hover { filter: brightness(1.06); outline: 1.5px solid var(--petal); outline-offset: 2px; }
 
 	/* ── Rail ── */
 	.rail {
 		flex: none; border-right: 1px solid var(--rule); padding: var(--s2);
-		overflow-y: auto; overflow-x: hidden; transition: width var(--dur-base) var(--ease-standard);
+		overflow: hidden; transition: width 200ms var(--ease-standard);
 	}
 	.rail-item {
 		width: 100%; height: 40px; display: flex; align-items: center; gap: 18px;
@@ -293,10 +293,23 @@
 	.rail-icon { flex: none; display: flex; }
 	.rail-icon.muted { color: var(--text-mute); }
 	.rail-item.active .rail-icon { color: var(--petal); }
-	.rail-label { overflow: hidden; text-overflow: ellipsis; }
+	.rail-label {
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		transition: opacity 150ms ease;
+	}
 	.rail-sep { height: 1px; background: var(--rule); margin: var(--s2) var(--s2); }
 	.rail-section {
 		padding: 6px 14px 8px; font-size: 13px; font-weight: 500; color: var(--text-mute); white-space: nowrap;
+		transition: opacity 150ms ease;
+	}
+	.rail.closed .rail-label,
+	.rail.closed .rail-section,
+	.rail.closed .svc-name {
+		opacity: 0; pointer-events: none;
+	}
+	.rail.closed .rail-label {
+		flex: 0 0 0;
+		width: 0;
 	}
 	.ch-avatar {
 		width: 26px; height: 26px; flex: none; border-radius: 50%; display: flex;
@@ -304,14 +317,26 @@
 		color: #fff; position: relative;
 	}
 	.channel .rail-label { flex: 1; text-align: left; }
-	.fresh-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--petal); }
+	.fresh-dot {
+		width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--petal);
+		transition: opacity 150ms ease;
+	}
 	.fresh-badge {
 		position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%;
-		background: var(--petal); border: 2px solid var(--bg);
+		background: var(--petal); border: 2px solid var(--bg); opacity: 0; transition: opacity 150ms ease;
 	}
 	.rail-service { width: 100%; height: 36px; display: flex; align-items: center; gap: 14px; padding: 0 14px; white-space: nowrap; }
+	.rail.closed .rail-service { justify-content: center; gap: 0; padding: 0; }
 	.svc-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; }
-	.svc-name { font-size: 13px; color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; }
+	.svc-name {
+		font-size: 13px; color: var(--text-mute); overflow: hidden; text-overflow: ellipsis;
+		white-space: nowrap; transition: opacity 150ms ease;
+	}
+	.rail.closed .svc-name,
+	.rail.closed .fresh-dot {
+		flex: 0 0 0; width: 0; opacity: 0; pointer-events: none;
+	}
+	.rail.closed .fresh-badge { opacity: 1; }
 
 	/* ── Main ── */
 	.main { flex: 1; min-width: 0; overflow-y: auto; }

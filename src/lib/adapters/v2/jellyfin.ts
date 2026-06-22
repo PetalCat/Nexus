@@ -146,7 +146,10 @@ function mediaType(jfType: string): UnifiedMedia['type'] {
 }
 
 function proxyPath(config: ServiceConfig, path: string): string {
-	return `/api/media/image?service=${encodeURIComponent(config.id)}&path=${encodeURIComponent(path)}`;
+	// The image proxy resolves the service via resolveServiceConfig(), keyed by
+	// backend TYPE (one instance per type), not the row id — so emit the type.
+	// Passing config.id produced "Service not found" (404 → blank posters).
+	return `/api/media/image?service=${encodeURIComponent(config.type)}&path=${encodeURIComponent(path)}`;
 }
 function posterUrl(config: ServiceConfig, itemId: string) {
 	return proxyPath(config, `/Items/${itemId}/Images/Primary?quality=90&maxWidth=600`);
