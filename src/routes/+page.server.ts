@@ -16,7 +16,12 @@ function hasBackdrop(item: UnifiedMedia): boolean {
 }
 
 export const load: PageServerLoad = async () => {
-	const rows: HomeRow[] = [];
+	// Nexus is one unified surface over everything you host — so the home merges
+	// each backend's content into backend-agnostic rows. We never name the
+	// underlying service in the UI (no "Jellyfin Recently Added"); a viewer just
+	// sees "Recently Added" / "Your Library".
+	const recentlyAdded: UnifiedMedia[] = [];
+	const library: UnifiedMedia[] = [];
 
 	for (const backend of BACKENDS) {
 		const config = resolveServiceConfig(backend);
@@ -27,26 +32,20 @@ export const load: PageServerLoad = async () => {
 
 		try {
 			if (adapter.getRecentlyAdded) {
-				const items = await adapter.getRecentlyAdded(config);
-				rows.push({
-					id: `${backend}-recently-added`,
-					title: `${config.name} Recently Added`,
-					items
-				});
+				recentlyAdded.push(...(await adapter.getRecentlyAdded(config)));
 			}
-
 			if (adapter.getLibrary) {
 				const page = await adapter.getLibrary(config, { limit: 20 });
-				rows.push({
-					id: `${backend}-browse`,
-					title: `Browse ${config.name}`,
-					items: page.items
-				});
+				library.push(...page.items);
 			}
 		} catch (error) {
 			console.warn(`[home] Skipping ${backend}:`, error);
 		}
 	}
+
+	const rows: HomeRow[] = [];
+	if (recentlyAdded.length) rows.push({ id: 'recently-added', title: 'Recently Added', items: recentlyAdded });
+	if (library.length) rows.push({ id: 'library', title: 'Your Library', items: library });
 
 	const hero = rows.flatMap((row) => row.items).find(hasBackdrop) ?? null;
 

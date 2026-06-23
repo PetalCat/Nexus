@@ -1,11 +1,20 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
+import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit()],
+	// `wasm` lets us import nucleo-matcher-wasm (a wasm-pack "bundler target" that
+	// does `import * as wasm from './…wasm'`). Used CLIENT-side only — the home
+	// page lazy-imports it in the browser to rank search results with the real
+	// fzf-grade matcher, so SSR never touches the wasm.
+	plugins: [tailwindcss(), wasm(), sveltekit()],
+	// nucleo's wasm glue initialises via top-level await; raise the target so it
+	// survives the build instead of pulling in vite-plugin-top-level-await (which
+	// drags in a native @swc/core). All target browsers support TLA.
+	build: { target: 'esnext' },
 	optimizeDeps: {
-		exclude: ['pdfjs-dist']
+		exclude: ['pdfjs-dist', 'nucleo-matcher-wasm']
 	}
 	// Note: we do NOT set manualChunks for pdfjs. The PdfReader uses
 	// `pdfjs-dist` from node_modules, while foliate-js's EPUB engine

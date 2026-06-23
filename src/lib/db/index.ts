@@ -457,6 +457,50 @@ function initDb(db: ReturnType<typeof drizzle>) {
 	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_user_type ON play_sessions(user_id, media_type)`);
 	db.run(`CREATE INDEX IF NOT EXISTS idx_ps_active ON play_sessions(ended_at) WHERE ended_at IS NULL`);
 
+	// ── Playlists (Nexus-native, mutable, cross-backend) ───────────
+	// Items are denormalized (backend + source_id + title/poster/type) so a
+	// playlist mixing Jellyfin + Invidious renders without re-hitting each
+	// backend. This is the first REAL user data in the Nexus DB — deploys must
+	// NOT wipe the volume (no `down -v`).
+	db.run(`CREATE TABLE IF NOT EXISTS playlists (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+		updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_pl_user ON playlists(user_id, updated_at)`);
+	db.run(`CREATE TABLE IF NOT EXISTS playlist_items (
+		id TEXT PRIMARY KEY,
+		playlist_id TEXT NOT NULL,
+		position INTEGER NOT NULL DEFAULT 0,
+		backend TEXT NOT NULL,
+		source_id TEXT NOT NULL,
+		type TEXT,
+		title TEXT NOT NULL,
+		poster TEXT,
+		year INTEGER,
+		added_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_pli_playlist ON playlist_items(playlist_id, position)`);
+	db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pli_dedupe ON playlist_items(playlist_id, backend, source_id)`);
+
+	// ── Annotations / post-it "stickies" (ported from tasks) ───────
+	// Page-anchored collaborative notes for design critique. Anchored to a DOM
+	// element by CSS selector + relative offset so the pin tracks on scroll/resize.
+	db.run(`CREATE TABLE IF NOT EXISTS annotations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		page_path TEXT NOT NULL,
+		anchor_selector TEXT NOT NULL,
+		anchor_snippet TEXT DEFAULT '',
+		anchor_offset_x REAL DEFAULT 0.5,
+		anchor_offset_y REAL DEFAULT 0.5,
+		body TEXT NOT NULL,
+		author TEXT DEFAULT '',
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+	)`);
+	db.run(`CREATE INDEX IF NOT EXISTS idx_ann_page ON annotations(page_path, created_at)`);
+
 	// ── Media Actions ──────────────────────────────────────────────
 	db.run(`CREATE TABLE IF NOT EXISTS media_actions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

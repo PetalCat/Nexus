@@ -16,25 +16,29 @@ Updated as work progresses. Each item links to its GitHub issue and/or spec/plan
 
 ---
 
-## Milestone 0: Foundation (DONE)
+## Phase-0 Rebuild — Actual Status
 
-Everything needed to run Nexus as a functional media platform.
+This is a **clean re-implementation**. The current build ships only what this table
+lists. Everything below "Milestone 1" describes the **pre-rebuild project** and is kept
+only as historical / feature reference — it does **not** reflect what runs today.
 
-| Status | Item | Issue | Spec/Plan |
-|--------|------|-------|-----------|
-| done | Core adapters (Jellyfin, Radarr, Sonarr, Lidarr, Overseerr, Prowlarr, Bazarr) | — | — |
-| done | Per-user auth with service account linking | — | — |
-| done | Homepage with personalized recommendations | — | [spec](docs/superpowers/specs/2026-03-11-personalized-homepage-design.md) |
-| done | Media detail pages with cast, similar, seasons | — | — |
-| done | Search across all services | — | — |
-| done | Request management (Overseerr) | — | [spec](docs/superpowers/specs/2026-03-12-requests-page-fixes-design.md) |
-| done | Analytics engine + stats | — | [spec](docs/superpowers/specs/2026-03-13-tracking-system-rebuild-design.md) |
-| done | Admin dashboard (sessions, health, requests) | — | — |
-| done | Invidious adapter (privacy video) | — | — |
-| done | Calibre-Web adapter (books) | — | — |
-| done | RomM adapter (retro games + EmulatorJS) | — | — |
-| done | StreamyStats adapter (ML recommendations) | — | — |
-| done | Bazarr adapter (subtitle enrichment) | — | — |
+| Status | Item |
+|--------|------|
+| ✅ done | Jellyfin adapter — library, recently-added, transcoded playback (verified end-to-end against live Jellyfin) |
+| ✅ done | Streaming core — negotiate + PASETO grants + Rust stream-proxy (real decodable bytes, SSRF-guarded, fail-closed) |
+| ✅ done | Home feed — real Jellyfin content, backend-agnostic rows, real library-type filters (no fake chrome) |
+| ✅ done | Auth — Authentik SSO passthrough (no app-owned login screens) |
+| ✅ done | Bare playback test page (`/test-play`) — the sanctioned "dumb streaming page" |
+| ⚠️ partial | Invidious adapter — playback works end-to-end; browse/search/listing NOT implemented, so it doesn't surface on the home yet |
+| 🚧 unwired | Plex adapter — fully implemented but no config path (no env/DB/UI), so it's unreachable |
+| ❌ not built | Search — `adapter.search` exists but is unwired; no `/api/search`, no search UI |
+| ❌ not built | Subtitle delivery — negotiate advertises track URLs, but `/api/subtitles/*` route is missing (they 404) |
+| ❌ not built | Media detail pages; now-playing/sessions UI |
+| ❌ not built | Request management / Radarr / Sonarr / Overseerr — **no code path exists; do not advertise as available** |
+| ❌ not built | Analytics / stats / admin dashboard |
+| ❌ not built | Calibre-Web, RomM, StreamyStats, Bazarr, Prowlarr adapters |
+
+---
 
 ## Milestone 1: Polish & Beta (DONE)
 

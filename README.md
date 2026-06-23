@@ -43,16 +43,11 @@ Self-hosters running multiple media services who want:
 
 | Service | Status | What it provides |
 |---------|--------|-----------------|
-| **Jellyfin** | ✅ stable | Media server — movies, shows, music, live TV |
-| **Plex** | ✅ beta | Media server — movies, shows, music (playback path stabilized in v0.1.0-beta.2) |
-| **Invidious** | ✅ stable | Privacy-respecting YouTube alternative (transcode pipe via Rust stream-proxy) |
-| **Calibre-Web** | ✅ beta | Book library — OPDS browse, search, formats, in-browser reader. UI polish ongoing |
-| **RomM** | ✅ stable | Retro game ROM management with in-browser emulation |
-| **Overseerr / Seerr** | ✅ stable | Media requests and TMDB-powered discovery |
-| **Radarr / Sonarr / Lidarr** | ✅ stable | Calendar, queue, quality profiles |
-| **Bazarr** | ✅ stable | Subtitle management, sync, translation |
-| **Prowlarr** | ✅ stable | Indexer management and stats |
-| **StreamyStats** | ✅ stable | ML-powered recommendations and analytics |
+| **Jellyfin** | ✅ working | Movies & shows — library, recently-added, and transcoded playback end-to-end via the Rust stream-proxy |
+| **Invidious** | ⚠️ playback only | Privacy-respecting YouTube — playback works end-to-end; browse/search not yet wired, so it doesn't surface on the home page yet |
+| **Plex** | 🚧 unwired | Adapter is implemented but has no config path in phase-0 (no env/DB/UI to add a Plex server), so it's not reachable yet |
+
+> **Phase-0 is a clean re-implementation, not a port.** It ships exactly these three media-source adapters plus the streaming core, the home feed, and a bare playback test page. The earlier project's broader service list (Overseerr/Seerr, Radarr/Sonarr/Lidarr, Bazarr, Prowlarr, Calibre-Web, RomM, StreamyStats) is **not** part of this build. Those will be reintroduced only when actually built and verified — this table tracks reality, not intent.
 
 New adapters can be added by contributors without modifying any existing code. See [CONTRIBUTING.md](CONTRIBUTING.md) for the adapter development guide.
 

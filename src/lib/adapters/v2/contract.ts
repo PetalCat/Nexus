@@ -280,6 +280,16 @@ export interface NexusAdapter extends AdapterIdentity {
 	getRecentlyAdded?(config: ServiceConfig): Promise<import('../types').UnifiedMedia[]>;
 	/** Fetch a single item by its source id. */
 	getItem?(config: ServiceConfig, sourceId: string): Promise<import('../types').UnifiedMedia | null>;
+	/**
+	 * Children of an immutable collection — a series' episodes, an album's tracks.
+	 * `type` is the parent's media type so the adapter can pick the right backend
+	 * call (a series needs an episodes endpoint; an album a child query).
+	 */
+	getChildren?(
+		config: ServiceConfig,
+		sourceId: string,
+		type?: string
+	): Promise<import('../types').UnifiedMedia[]>;
 
 	// ── search ⇒ search ──────────────────────────────────────────────────────
 	search?(config: ServiceConfig, query: string): Promise<import('../types').UnifiedSearchResult>;

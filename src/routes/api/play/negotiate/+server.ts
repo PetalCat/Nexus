@@ -54,10 +54,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const plan: PlaybackPlan = body.plan ?? {};
-	const caps: BrowserCaps = body.caps ?? {
-		videoCodecs: ['avc1.640028'],
-		audioCodecs: ['mp4a.40.2'],
-		containers: ['mp4', 'ts']
+	// Coalesce PER FIELD, not just on a missing caps object: a partial caps (e.g.
+	// `{}` or one missing videoCodecs) is truthy, so a bare `?? {default}` would
+	// pass it straight through and buildDeviceProfile would throw on
+	// `caps.videoCodecs.some(...)` (opaque 500). Fill the codec/container arrays
+	// the profile builder relies on so the endpoint is robust to partial input.
+	const rawCaps = (body.caps ?? {}) as Partial<BrowserCaps>;
+	const caps: BrowserCaps = {
+		...rawCaps,
+		videoCodecs: rawCaps.videoCodecs ?? ['avc1.640028'],
+		audioCodecs: rawCaps.audioCodecs ?? ['mp4a.40.2'],
+		containers: rawCaps.containers ?? ['mp4', 'ts']
 	};
 
 	try {

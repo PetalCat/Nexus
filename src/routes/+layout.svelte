@@ -4,6 +4,7 @@
 	import '@fontsource-variable/jetbrains-mono';
 	import '../app.css';
 	import { page } from '$app/stores';
+	import Stickies from '$lib/components/Stickies.svelte';
 
 	let { children }: { children: import('svelte').Snippet } = $props();
 
@@ -33,3 +34,7 @@
 		{@render children()}
 	</main>
 {/if}
+
+<!-- Page-anchored post-it annotations for design critique, on every page.
+     Off by default (the FAB toggles it), so it never blocks normal use. -->
+<Stickies />

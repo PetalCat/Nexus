@@ -869,6 +869,32 @@ export const jellyfinV2 = declareAdapter({
 		}
 	},
 
+	async getChildren(config, sourceId, type): Promise<UnifiedMedia[]> {
+		try {
+			const userId = await getUserId(config);
+			// A series → flat episode list across all seasons (the /Episodes endpoint
+			// returns them ordered by season/episode). Everything else (album → tracks,
+			// season → episodes, box set → items) → direct children via ParentId.
+			const isSeries = type === 'show' || type === 'series';
+			const data = isSeries
+				? await jfFetch(config, `/Shows/${sourceId}/Episodes`, {
+						userId,
+						Fields: FIELDS,
+						EnableUserData: 'true'
+					})
+				: await jfFetch(config, '/Items', {
+						userId,
+						ParentId: sourceId,
+						SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+						Fields: FIELDS,
+						EnableUserData: 'true'
+					});
+			return (data.Items ?? []).map((i: unknown) => normalize(config, i));
+		} catch {
+			return [];
+		}
+	},
+
 	async search(config, query): Promise<UnifiedSearchResult> {
 		try {
 			const userId = await getUserId(config);
@@ -877,7 +903,9 @@ export const jellyfinV2 = declareAdapter({
 				SearchTerm: query,
 				IncludeItemTypes: 'Movie,Series,Episode,MusicAlbum,Audio',
 				Recursive: 'true',
-				Limit: '30',
+				// Wide candidate pool — /api/search re-ranks these locally (fuzzysort)
+				// and trims after scoring, so hand the matcher more to work with.
+				Limit: '60',
 				Fields: FIELDS,
 				EnableUserData: 'true'
 			});

@@ -23,13 +23,39 @@
  * can't reach from outside the Docker network — see negotiatePlayback's DASH note.
  * The level math is ported so the quality menu is honest about what the source has.
  */
-import type { ServiceConfig, ServiceHealth } from '../types';
+import type { ServiceConfig, ServiceHealth, UnifiedMedia } from '../types';
 import type { PlaybackPlan, PlaybackSession, BrowserCaps, SessionLevel, TrackInfo } from '../playback';
-import type { CredentialProbeResult, NexusAdapter } from './contract';
+import type { CredentialProbeResult, LibraryPage, LibraryQuery, NexusAdapter } from './contract';
 import { declareAdapter } from './contract';
 import { createStreamSession, mintStreamGrant } from '../../server/stream-proxy';
 
 const baseUrl = (c: ServiceConfig) => c.url.replace(/\/+$/, '');
+
+// Thumbnails route through Nexus's image proxy — the instance (LAN) isn't
+// browser-reachable, and /vi/{id}/mqdefault.jpg is a 16:9 still the instance
+// proxies from YouTube.
+function invThumb(config: ServiceConfig, videoId: string): string {
+	return `/api/media/image?service=${encodeURIComponent(config.type)}&path=${encodeURIComponent(`/vi/${videoId}/mqdefault.jpg`)}`;
+}
+
+function normalizeVideo(config: ServiceConfig, v: Record<string, unknown>): UnifiedMedia {
+	const videoId = String(v.videoId ?? '');
+	const published = typeof v.published === 'number' ? v.published : 0;
+	const year = published > 0 ? new Date(published * 1000).getFullYear() : undefined;
+	return {
+		id: `${config.id}:${videoId}`,
+		sourceId: videoId,
+		serviceId: config.id,
+		serviceType: config.type,
+		type: 'video',
+		title: typeof v.title === 'string' ? v.title : 'Untitled',
+		description: typeof v.author === 'string' ? v.author : undefined,
+		poster: invThumb(config, videoId),
+		thumb: invThumb(config, videoId),
+		year,
+		duration: typeof v.lengthSeconds === 'number' ? v.lengthSeconds : undefined
+	};
+}
 
 // ── ported playback math (earns its port: post-SABR DASH parsing is hard-won) ──
 
@@ -98,7 +124,7 @@ async function negotiatePlayback(
 
 	// local=true ⇒ instance-relative `/videoplayback?...` URLs the proxy can fetch.
 	const res = await fetch(
-		`${base}/api/v1/videos/${encodeURIComponent(videoId)}?local=true&fields=formatStreams,adaptiveFormats,captions,lengthSeconds,title`,
+		`${base}/api/v1/videos/${encodeURIComponent(videoId)}?local=true&fields=formatStreams,adaptiveFormats,captions,lengthSeconds,title,hlsUrl,liveNow`,
 		{ signal: AbortSignal.timeout(10_000) }
 	);
 	if (!res.ok) throw new Error(`Invidious /api/v1/videos failed: ${res.status}`);
@@ -129,6 +155,41 @@ async function negotiatePlayback(
 			})
 		)
 	).filter((t): t is TrackInfo => t !== null);
+
+	// LIVE → HLS. DASH has no live profile, so for a livestream the instance's
+	// DASH manifest comes back empty (an empty <Period/>), which is a fatal dead
+	// end for dash.js. Live content has an hlsUrl instead — the exact path the
+	// Invidious UI itself plays — so proxy that through our grant spine. (Verified:
+	// the UI uses /api/manifest/hls_variant for live; DASH only works for VOD.)
+	if (meta.liveNow && meta.hlsUrl) {
+		const upstream = String(meta.hlsUrl).startsWith('http')
+			? String(meta.hlsUrl)
+			: `${base}${meta.hlsUrl}`;
+		const proxy = await createStreamSession({
+			upstreamUrl: upstream,
+			authHeaders: {},
+			isHls: true,
+			kind: 'generic',
+			userId: ctx?.nexusUserId
+		});
+		if (!proxy) {
+			throw new Error(
+				'stream proxy handoff failed (fail-closed: refusing to expose the raw instance URL)'
+			);
+		}
+		const session: PlaybackSession = {
+			engine: 'hls',
+			url: proxy.streamUrl,
+			mime: 'application/vnd.apple.mpegurl',
+			mode: 'direct-play',
+			audioTracks: [{ id: 0, name: 'Default', lang: '' }],
+			subtitleTracks,
+			burnableSubtitleTracks: []
+		};
+		session.changeQuality = async (newPlan: PlaybackPlan) =>
+			negotiatePlayback(config, item, { ...plan, ...newPlan }, caps, ctx);
+		return session;
+	}
 
 	const levels = extractLevels(adaptiveFormats);
 	const userId = ctx?.nexusUserId ?? 'legacy';
@@ -216,6 +277,9 @@ export const invidiousV2 = declareAdapter({
 		// Anonymous reads: Invidious content is public, so serviceAuth.required=false.
 		// The single config field is the instance URL.
 		serviceAuth: { required: false, fields: ['url'], kind: 'none' },
+		// library ⇒ getLibrary + getRecentlyAdded, so Invidious surfaces on the home
+		// (its trending feed). Without this the home loader skipped it entirely.
+		library: true,
 		playback: true
 	},
 
@@ -237,6 +301,63 @@ export const invidiousV2 = declareAdapter({
 			return res.ok ? 'ok' : 'invalid';
 		} catch {
 			return 'invalid';
+		}
+	},
+
+	/** Trending → the home's "Recently Added" row. VOD-only: VOD plays end-to-end
+	 *  via DASH, but live (HLS) doesn't yet (its child playlists point straight at
+	 *  youtube.com, which our proxy can't fetch — only the instance can), so we
+	 *  surface only what actually plays. We merge the default feed with a category
+	 *  (gaming) because the default trending is sometimes 100% live (e.g. during a
+	 *  World Cup) — the category guarantees the row isn't empty. live/premiere
+	 *  entries all have lengthSeconds 0 (trending's `liveNow` flag is unreliable),
+	 *  so duration>0 is the reliable "this plays" filter. */
+	async getRecentlyAdded(config): Promise<UnifiedMedia[]> {
+		const base = baseUrl(config);
+		const fetchTrending = async (type: string): Promise<Record<string, unknown>[]> => {
+			try {
+				const q = type ? `&type=${encodeURIComponent(type)}` : '';
+				const res = await fetch(
+					`${base}/api/v1/trending?fields=videoId,title,author,published,lengthSeconds${q}`,
+					{ signal: AbortSignal.timeout(8000) }
+				);
+				if (!res.ok) return [];
+				const vids = await res.json();
+				return Array.isArray(vids) ? vids : [];
+			} catch {
+				return [];
+			}
+		};
+		const [def, gaming] = await Promise.all([fetchTrending(''), fetchTrending('gaming')]);
+		const seen = new Set<string>();
+		const out: UnifiedMedia[] = [];
+		for (const v of [...def, ...gaming]) {
+			const id = typeof v.videoId === 'string' ? v.videoId : '';
+			const len = typeof v.lengthSeconds === 'number' ? v.lengthSeconds : 0;
+			if (!id || seen.has(id) || len <= 0) continue; // VOD only (live ⇒ len 0)
+			seen.add(id);
+			out.push(normalizeVideo(config, v));
+			if (out.length >= 24) break;
+		}
+		return out;
+	},
+
+	/** Popular feed → "Your Library" browse. Some instances disable it → empty. */
+	async getLibrary(config, opts): Promise<LibraryPage> {
+		try {
+			const res = await fetch(`${baseUrl(config)}/api/v1/popular`, {
+				signal: AbortSignal.timeout(8000)
+			});
+			if (!res.ok) return { items: [], total: 0 };
+			const vids = await res.json();
+			const all = (Array.isArray(vids) ? vids : [])
+				.filter((v) => v && v.videoId)
+				.map((v) => normalizeVideo(config, v));
+			const limit = opts?.limit ?? 40;
+			const offset = opts?.offset ?? 0;
+			return { items: all.slice(offset, offset + limit), total: all.length };
+		} catch {
+			return { items: [], total: 0 };
 		}
 	},
 
