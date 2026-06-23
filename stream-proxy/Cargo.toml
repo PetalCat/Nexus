@@ -22,12 +22,16 @@ dashmap = "6"
 socket2 = "0.5"
 urlencoding = "2.1.3"
 m3u8-rs = "6"
-hmac = "0.12"
-sha2 = "0.10"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rand = "0.8"
+# PASETO v4.local verify + PASERK k4.local key parsing. Chosen over rusty_paseto
+# because pasetors' low-level `version4::LocalToken` API takes the footer +
+# implicit assertion as raw &[u8] — exactly what byte-identical cross-language
+# compatibility with the Node `paseto-ts` mint needs (no opinionated footer /
+# assertion struct serialization to reconcile). Default features give std + v4 +
+# paserk; serde_json lets us parse claims.
+pasetors = { version = "0.7", features = ["serde_json"] }
 
 [profile.release]
 opt-level = 3

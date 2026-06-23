@@ -1,66 +1,158 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { deriveStreamPaserkKey, mintGrant, type StreamGrant } from '$lib/server/stream-grant';
 
 /**
- * Manages the Rust stream proxy sub-process.
+ * Supervisor for the Rust stream byte-proxy (Phase-0 STREAM CORE).
  *
- * Auto-starts with Nexus, auto-restarts on crash,
- * auto-stops when the Node process exits.
+ * Responsibilities:
+ *  - spawn / restart-with-backoff / shutdown-cleanup the loopback-only Rust child
+ *  - inject the PASETO v4.local key (PASERK k4.local, current + previous for
+ *    two-key rotation) into the child env — derived here, NEVER re-derived in Rust
+ *  - inject the per-backend HELD service-cred table (base URL + auth header) into
+ *    the child env; the proxy holds these server-side so no credential ever rides
+ *    in a token, URL, manifest, or response
+ *
+ * The grant token the browser sees carries no secrets — only a sealed grant the
+ * Rust proxy verifies while holding the real cred. See `stream-grant.ts`.
  */
 
 let proxyProcess: ChildProcess | null = null;
 let restarting = false;
 let restartAttempts = 0;
 const PORT = 3939;
+const HOST = '127.0.0.1';
 const MAX_RESTART_DELAY = 30_000;
 
-export function startStreamProxy(invidiousUrl: string) {
+/** A backend's held service credential — base URL + the auth header the proxy
+ *  injects upstream. The browser never sees any of this. */
+export interface HeldCred {
+	/** Upstream origin/base the proxy resolves resource_ref / hop suffixes against. */
+	base_url: string;
+	/** Header name to inject upstream (e.g. "Authorization", "X-Emby-Token"). */
+	auth_header_name: string;
+	/** Header value (the actual service credential). */
+	auth_header_value: string;
+}
+
+export type HeldCredTable = Record<string, HeldCred>;
+
+/** Module-level config captured at start so `mintStreamGrant` can sign without
+ *  re-reading env / re-deriving the key on every call. */
+let currentPaserkKey: string | null = null;
+const KID_CURRENT = 'k0';
+
+/** Per-boot seam↔proxy shared secret. The seam attaches it as `x-nexus-proxy-auth`
+ *  so the Rust proxy rejects anything that didn't come through the seam (defense
+ *  in depth for the identity header — adversarial review). */
+let proxyAuthSecret: string | null = null;
+/** The seam reads this to authenticate to the Rust proxy. Null until started. */
+export function getProxyAuthSecret(): string | null {
+	return proxyAuthSecret;
+}
+
+export interface StartStreamProxyOptions {
+	/** Legacy Invidious instance URL (kept for the Invidious entry routes). */
+	invidiousUrl: string;
+	/** Per-backend held service-cred table. Injected into the Rust child env. */
+	heldCreds?: HeldCredTable;
+	/** Raw dedicated stream secret. HKDF-derived to the PASERK k4.local key.
+	 *  Falls back to env NEXUS_STREAM_SECRET. */
+	streamSecret?: string;
+	/** Optional previous secret for two-key rotation (current+previous). */
+	previousStreamSecret?: string;
+}
+
+/**
+ * Start the Rust stream proxy. Derives + injects the PASETO key and held-cred
+ * table; binds loopback only. Idempotent.
+ */
+export function startStreamProxy(opts: StartStreamProxyOptions): void {
 	if (proxyProcess) return;
 
-	// Find the binary
 	const binaryPaths = [
 		path.resolve('stream-proxy/target/release/nexus-stream-proxy'),
 		path.resolve('stream-proxy/target/debug/nexus-stream-proxy'),
 	];
-
-	const binaryPath = binaryPaths.find(p => existsSync(p));
+	const binaryPath = binaryPaths.find((p) => existsSync(p));
 	if (!binaryPath) {
-		console.warn('[stream-proxy] Rust binary not found. Run: cd stream-proxy && cargo build --release');
+		console.warn(
+			'[stream-proxy] Rust binary not found. Run: cd stream-proxy && cargo build --release'
+		);
 		return;
 	}
 
-	function launch() {
-		console.log(`[stream-proxy] Starting Rust proxy on port ${PORT}`);
+	const secret = opts.streamSecret ?? process.env.NEXUS_STREAM_SECRET;
+	if (!secret) {
+		console.warn(
+			'[stream-proxy] NEXUS_STREAM_SECRET not set — refusing to start (grant signing key would be undefined)'
+		);
+		return;
+	}
 
-		proxyProcess = spawn(binaryPath!, {
+	// Derive the current PASETO key once. Rust receives the PASERK string and
+	// parses it directly — it never re-derives.
+	const paserkCurrent = deriveStreamPaserkKey(secret);
+	currentPaserkKey = paserkCurrent;
+	// Fresh per-boot seam↔proxy secret (the seam + proxy share one process boot).
+	proxyAuthSecret = randomBytes(32).toString('hex');
+	const paserkPrevious = opts.previousStreamSecret
+		? deriveStreamPaserkKey(opts.previousStreamSecret)
+		: undefined;
+
+	const heldCredsJson = JSON.stringify(opts.heldCreds ?? {});
+
+	function launch() {
+		console.log(`[stream-proxy] Starting Rust proxy on ${HOST}:${PORT}`);
+
+		// spawn(command, args, options): pass an empty args array so the options
+		// object (with `env`) lands in the right overload slot. Capture a non-null
+		// local for the listener wiring; the module-level `proxyProcess` is widened
+		// to ChildProcess|null (the exit handler nulls it).
+		// Typed as SpawnOptions so the (command, options) overload is selected — an
+		// untyped literal with a `stdio` array gets misread as the `args` parameter.
+		const spawnOpts: SpawnOptions = {
 			env: {
 				...process.env,
 				STREAM_PORT: String(PORT),
-				INVIDIOUS_URL: invidiousUrl,
+				STREAM_BIND: HOST,
+				INVIDIOUS_URL: opts.invidiousUrl,
+				// PASERK k4.local key(s). Current is mandatory; previous enables
+				// zero-downtime rotation (verify tries current then previous).
+				NEXUS_STREAM_PASETO_KEY: paserkCurrent,
+				...(paserkPrevious ? { NEXUS_STREAM_PASETO_KEY_PREVIOUS: paserkPrevious } : {}),
+				// Seam↔proxy shared secret — the seam attaches it as x-nexus-proxy-auth.
+				NEXUS_PROXY_AUTH: proxyAuthSecret ?? undefined,
+				// Per-backend held service creds. JSON: { backend: { base_url,
+				// auth_header_name, auth_header_value } }.
+				NEXUS_STREAM_HELD_CREDS: heldCredsJson,
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
-		});
+		};
+		const proc = spawn(binaryPath!, spawnOpts);
+		proxyProcess = proc;
 
-		proxyProcess.stdout?.on('data', (data: Buffer) => {
+		proc.stdout?.on('data', (data: Buffer) => {
 			const msg = data.toString().trim();
 			if (msg) {
 				console.log(msg);
-				if (msg.includes('Rust video proxy on port')) restartAttempts = 0;
+				if (msg.includes('Rust video proxy on')) restartAttempts = 0;
 			}
 		});
-
-		proxyProcess.stderr?.on('data', (data: Buffer) => {
+		proc.stderr?.on('data', (data: Buffer) => {
 			const msg = data.toString().trim();
 			if (msg) console.error(msg);
 		});
-
-		proxyProcess.on('exit', (code, signal) => {
+		proc.on('exit', (code, signal) => {
 			proxyProcess = null;
 			if (!restarting) {
 				const delay = Math.min(2000 * 2 ** restartAttempts, MAX_RESTART_DELAY);
 				restartAttempts++;
-				console.warn(`[stream-proxy] Process exited (code=${code}, signal=${signal}), restarting in ${delay / 1000}s...`);
+				console.warn(
+					`[stream-proxy] Process exited (code=${code}, signal=${signal}), restarting in ${delay / 1000}s...`
+				);
 				setTimeout(launch, delay);
 			}
 		});
@@ -68,9 +160,6 @@ export function startStreamProxy(invidiousUrl: string) {
 
 	launch();
 
-	// Clean shutdown — use SvelteKit's shutdown event (emitted after in-flight
-	// requests drain) as the primary signal, with process-level signals as a
-	// fallback for dev/Vite contexts where SvelteKit's event may not fire.
 	const cleanup = () => {
 		restarting = true;
 		if (proxyProcess) {
@@ -78,63 +167,109 @@ export function startStreamProxy(invidiousUrl: string) {
 			proxyProcess = null;
 		}
 	};
-
-	// SvelteKit adapter-node guarantees this event is emitted when the server
-	// is shutting down, even if there's dangling work. Safe to register async.
 	process.on('sveltekit:shutdown', cleanup);
-
-	// Belt-and-suspenders for dev: Vite doesn't emit sveltekit:shutdown.
 	process.once('SIGINT', cleanup);
 	process.once('SIGTERM', cleanup);
 }
 
-export function stopStreamProxy() {
+export function stopStreamProxy(): void {
 	restarting = true;
 	if (proxyProcess) {
 		proxyProcess.kill('SIGTERM');
 		proxyProcess = null;
 	}
+	currentPaserkKey = null;
 }
 
 /**
- * Create a proxy session on the Rust stream-proxy binary. Returns a signed
- * stream URL the caller can 302-redirect the client to, or `null` if the
- * binary isn't running (caller should fall back to the Node proxy path).
+ * Mint a grant token for a stream, using the key the supervisor derived at
+ * start. Returns the PASETO v4.local token (carries no credential). Callers
+ * embed it as `?grant=<token>` (Invidious) or in the `/session` body (Jellyfin).
  *
- * Phase 1 uses this from the Jellyfin HLS route (`/api/stream/[serviceId]/[...path]`).
- * Phase 2 will use it from the contract-aware negotiation endpoint.
+ * Throws if the proxy hasn't been started (no key) — fail closed rather than
+ * mint with an undefined key.
+ */
+export function mintStreamGrant(grant: StreamGrant): string {
+	if (!currentPaserkKey) {
+		throw new Error('[stream-proxy] cannot mint grant: proxy not started / no PASETO key');
+	}
+	return mintGrant(grant, currentPaserkKey, KID_CURRENT);
+}
+
+/** Whether the proxy child is currently running. */
+export function isStreamProxyRunning(): boolean {
+	return proxyProcess !== null;
+}
+
+/**
+ * BACK-COMPAT bridge for the existing Jellyfin/Plex playback handoff, which
+ * still passes an upstream URL + auth headers inline (the pre-grant adapter
+ * shape). It mints a grant and posts to the Rust `/session` endpoint, which
+ * holds the inline cred server-side and hands the browser a credential-free
+ * grant URL. The full adapter migration to backend-resolved held creds happens
+ * in the adapter-build phase; this keeps Phase-0 wiring intact.
+ *
+ * Returns `{ streamUrl }` (a Nexus-origin `/api/stream-proxy/...` URL) or
+ * `null` if the proxy isn't running (caller falls back to the Node pipe).
  */
 export async function createStreamSession(params: {
 	upstreamUrl: string;
 	authHeaders?: Record<string, string>;
 	isHls?: boolean;
-	/** Which adapter produced this session — tells the Rust proxy whether
-	 *  to apply Plex-style workarounds (VOD-normalize manifests, enforce
-	 *  waitForSegments=1 on each hop) or pass bytes through unchanged. */
 	kind?: 'plex' | 'jellyfin' | 'generic';
+	userId?: string;
+	gen?: number;
 }): Promise<{ streamUrl: string } | null> {
-	if (!proxyProcess) return null;
+	if (!proxyProcess || !currentPaserkKey) return null;
 	try {
-		const res = await fetch(`http://127.0.0.1:${PORT}/session`, {
+		const userId = params.userId ?? 'legacy';
+		const gen = params.gen ?? 0;
+		// Mint a grant bound to a synthetic "inline" backend. The proxy reads the
+		// inline cred from the session body but only after verifying this grant.
+		const grant = mintStreamGrant({
+			backend: 'inline',
+			resource_ref: params.upstreamUrl,
+			allowed_hops: 'inline',
+			exp: Math.floor(Date.now() / 1000) + 6 * 60 * 60,
+			user_id: userId,
+			gen,
+		});
+		const res = await fetch(`http://${HOST}:${PORT}/session`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				...(proxyAuthSecret ? { 'x-nexus-proxy-auth': proxyAuthSecret } : {})
+			},
 			body: JSON.stringify({
+				grant,
+				// the user the grant was minted for, so the /session registration
+				// verifies with the same identity the browser seam will stamp.
+				user_id: userId,
 				upstream_url: params.upstreamUrl,
 				auth_headers: params.authHeaders ?? {},
 				is_hls: params.isHls ?? false,
 				url_prefix: '/api/stream-proxy/',
-				kind: params.kind ?? 'generic'
+				kind: params.kind ?? 'generic',
 			}),
-			signal: AbortSignal.timeout(5000)
+			// Loopback handoff to the Rust proxy. 5s was too tight under burst:
+			// a 4K load test at 40 simultaneous negotiates tripped it (the POSTs
+			// queue behind PlaybackInfo + the single-thread dev server, and the
+			// timeout counts queue time). 15s gives the tail room to complete
+			// without ever falling back (which fails closed anyway).
+			signal: AbortSignal.timeout(15000),
 		});
 		if (!res.ok) {
 			console.warn(`[stream-proxy] /session → ${res.status}`);
 			return null;
 		}
 		const body = (await res.json()) as { stream_url: string };
-		// Rewrite the Rust-side path (/stream/...) to the Node reverse-proxy path
-		// (/api/stream-proxy/...) so the browser can reach it through the Nexus origin.
-		const proxyPath = body.stream_url.replace(/^\/stream\//, '/api/stream-proxy/');
+		// The proxy returns a root-relative URL on its own origin (e.g.
+		// `/stream?grant=…` for the v2 grant shape, or `/stream/…` legacy). Re-anchor
+		// it under the SvelteKit reverse-proxy seam so the browser hits
+		// `/api/stream-proxy/stream?grant=…`. Prefix-only — preserves the query
+		// string (where the grant lives) verbatim.
+		const rel = body.stream_url.startsWith('/') ? body.stream_url : `/${body.stream_url}`;
+		const proxyPath = `/api/stream-proxy${rel}`;
 		return { streamUrl: proxyPath };
 	} catch (e) {
 		console.warn('[stream-proxy] /session fetch error:', e);

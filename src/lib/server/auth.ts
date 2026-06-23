@@ -273,21 +273,7 @@ export function upsertUserCredential(
 		})
 		.run();
 
-	// Fire-and-forget: auto-link derived services (e.g. Overseerr, StreamyStats)
-	// Uses dynamic import to avoid circular dependency with services.ts
-	if (!opts?.skipDerivedLink) {
-		import('./services.js')
-			.then(({ getServiceConfig }) => {
-				const config = getServiceConfig(serviceId);
-				if (!config) return;
-				return import('./derived-linker.js').then(({ linkDerivedServices }) =>
-					linkDerivedServices(userId, serviceId, config.type)
-				);
-			})
-			.catch((e) => {
-				console.warn('[auth] Derived linker failed:', e instanceof Error ? e.message : e);
-			});
-	}
+	void opts;
 }
 
 export function deleteUserCredential(userId: string, serviceId: string) {

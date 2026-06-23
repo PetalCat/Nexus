@@ -163,26 +163,84 @@ export const requests = sqliteTable('requests', {
 		.default(sql`(datetime('now'))`)
 });
 
+// Native media requests (the "no-Overseerr" path). Coexists with the legacy
+// `requests` table (which has no writers) and with the Overseerr proxy path.
+// A row is created when a user requests a movie/show; an admin approves it,
+// at which point it's pushed into Radarr/Sonarr for download. `backend`
+// distinguishes native rows from Overseerr-proxied rows that may also be
+// mirrored here. JSON-in-text for `seasons` (array of season numbers).
+export const mediaRequests = sqliteTable('media_requests', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	mediaType: text('media_type').notNull(), // 'movie' | 'tv'
+	tmdbId: integer('tmdb_id').notNull(),
+	tvdbId: integer('tvdb_id'),
+	title: text('title').notNull(),
+	poster: text('poster'),
+	year: integer('year'),
+	seasons: text('seasons'), // JSON array of season numbers (TV only)
+	status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'declined' | 'processing' | 'available' | 'failed'
+	backend: text('backend').notNull(), // 'overseerr' | 'native'
+	serviceId: text('service_id').notNull(),
+	sourceRequestId: text('source_request_id'), // Overseerr request id when backend='overseerr'
+	arrServiceId: text('arr_service_id'), // the radarr/sonarr service the item was added to
+	arrItemId: integer('arr_item_id'), // radarr movieId / sonarr seriesId
+	qualityProfileId: integer('quality_profile_id'),
+	rootFolderPath: text('root_folder_path'),
+	approvedBy: text('approved_by').references(() => users.id, { onDelete: 'set null' }),
+	declineReason: text('decline_reason'),
+	createdAt: integer('created_at')
+		.notNull()
+		.default(sql`(strftime('%s','now') * 1000)`),
+	updatedAt: integer('updated_at')
+		.notNull()
+		.default(sql`(strftime('%s','now') * 1000)`),
+	availableAt: integer('available_at')
+}, (table) => [
+	index('idx_media_requests_user').on(table.userId),
+	index('idx_media_requests_status').on(table.status),
+	uniqueIndex('idx_media_requests_unique').on(table.userId, table.tmdbId, table.mediaType),
+]);
+
+export type MediaRequest = typeof mediaRequests.$inferSelect;
+export type NewMediaRequest = typeof mediaRequests.$inferInsert;
+
 // Nexus users — the app's own user accounts
 export const users = sqliteTable('users', {
 	id: text('id').primaryKey(), // UUID
 	username: text('username').notNull().unique(),
-	displayName: text('display_name').notNull(),
-	passwordHash: text('password_hash').notNull(),
+	// Legacy columns: nullable now that Better Auth can create users (OIDC users
+	// won't set displayName/passwordHash — BA stores the password in `accounts`).
+	displayName: text('display_name'),
+	passwordHash: text('password_hash'),
 	isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
 	authProvider: text('auth_provider').notNull().default('local'), // 'local' | 'jellyfin'
 	externalId: text('external_id'), // e.g. Jellyfin userId for migrated users
 	avatar: text('avatar'), // URL or path to profile picture
 	forcePasswordReset: integer('force_password_reset', { mode: 'boolean' }).notNull().default(false),
 	status: text('status').notNull().default('active'), // 'active' | 'pending'
-	// Per-user onboarding flag for the /welcome flow. Null means "never seen
-	// the welcome flow yet"; set to an ISO timestamp when the user completes
-	// or skips the /welcome wizard. Non-admin users with null welcomeCompletedAt
-	// are redirected to /welcome on first login.
 	welcomeCompletedAt: text('welcome_completed_at'),
-	createdAt: text('created_at')
+	// ── Better Auth user fields (the BA drizzle adapter reads/writes these) ──
+	name: text('name'), // BA display name (mirrors displayName during transition)
+	displayUsername: text('display_username'), // BA username plugin
+	email: text('email').unique(),
+	emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+	image: text('image'),
+	role: text('role'), // BA admin plugin RBAC (replaces the isAdmin boolean over time)
+	banned: integer('banned', { mode: 'boolean' }).default(false),
+	banReason: text('ban_reason'),
+	banExpires: integer('ban_expires', { mode: 'timestamp_ms' }),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+	// Stored as unix-ms integer (timestamp_ms): the Better Auth drizzle adapter
+	// writes Date objects here, and a TEXT-affinity column can't hold them. The
+	// users-table rebuild migration converts the legacy datetime() text values to
+	// ms. (Other date columns BA touches — updatedAt, accounts/sessions — are
+	// already integer ms.)
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.notNull()
-		.default(sql`(datetime('now'))`)
+		.default(sql`(CAST(strftime('%s','now') AS INTEGER) * 1000)`)
 });
 
 // Auth sessions
@@ -197,6 +255,52 @@ export const sessions = sqliteTable('sessions', {
 	// Auth revoke/logout-all deletes by user_id (was SCAN).
 	index('idx_sessions_user').on(table.userId),
 ]);
+
+// ── Better Auth tables ──────────────────────────────────────────────────────
+// BA owns identity/session/RBAC/OIDC. Its session table is kept DISTINCT from the
+// legacy `sessions` (above) so the two coexist during the cutover; the BA config
+// maps model→table explicitly. `accounts` holds the password (moved off users)
+// + OIDC tokens; `verifications` backs email/OIDC flows.
+export const authSessions = sqliteTable('auth_sessions', {
+	id: text('id').primaryKey(),
+	token: text('token').notNull().unique(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+	ipAddress: text('ip_address'),
+	userAgent: text('user_agent'),
+	impersonatedBy: text('impersonated_by'),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [index('idx_auth_sessions_user').on(table.userId)]);
+
+export const accounts = sqliteTable('accounts', {
+	id: text('id').primaryKey(),
+	accountId: text('account_id').notNull(),
+	providerId: text('provider_id').notNull(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	accessToken: text('access_token'),
+	refreshToken: text('refresh_token'),
+	idToken: text('id_token'),
+	accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp_ms' }),
+	refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp_ms' }),
+	scope: text('scope'),
+	password: text('password'),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [index('idx_accounts_user').on(table.userId)]);
+
+export const verifications = sqliteTable('verifications', {
+	id: text('id').primaryKey(),
+	identifier: text('identifier').notNull(),
+	value: text('value').notNull(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+});
 
 // ── Play Sessions (canonical progress/temporal truth for every media type) ──
 //

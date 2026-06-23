@@ -74,7 +74,8 @@ export const NO_AUTH_PATHS = [
 	'/register',
 	'/pending-approval',
 	'/reset-password',
-	'/api/ingest/webhook'
+	'/api/ingest/webhook',
+	'/dev' // design-preview routes (mock data, no real content) — viewable without a session
 ] as const;
 
 export interface RedirectTarget {
@@ -108,151 +109,9 @@ export function resolveRedirect(
 	search: string = '',
 	opts: ResolveRedirectOptions = {}
 ): RedirectTarget | null {
-	const readUserCount = opts.getUserCount ?? getUserCount;
-	const readSetting = opts.getSetting ?? getSetting;
-
-	// 1. Legacy rewrite: /collections → /library/catalogs (2026-04-17).
-	//    Disambiguates adapter-sourced catalogs from user/social collections.
-	if (path === '/collections' || path.startsWith('/collections/')) {
-		const target = '/library/catalogs' + path.slice('/collections'.length);
-		return { location: target + (search ?? ''), status: 301 };
-	}
-
-	// 2. First-run global: no users yet → /welcome (everything else bounces
-	//    there). The /welcome route renders the admin-create form when
-	//    userCount===0 && no session (see its `needsAdminCreation` branch).
-	//
-	//    API paths bypass — they're data endpoints, not browser surfaces. A
-	//    303 to /welcome from /api/health would crash any reverse-proxy
-	//    health check AND any polling client that doesn't follow redirects.
-	if (readUserCount() === 0) {
-		if (path.startsWith('/api')) return null;
-		if (!path.startsWith('/welcome')) {
-			return { location: '/welcome', status: 303 };
-		}
-		return null;
-	}
-
-	// 3. Per-entry-point lifecycle gates. These run BEFORE the NO_AUTH_PATHS
-	//    short-circuit so the 4 onboarding surfaces (/register, /invite,
-	//    /pending-approval, /welcome) are gated consistently from one place.
-
-	// 3a. /register — gated by app_settings.registration_enabled. Already-
-	//     logged-in users bounce home (registering a second account makes
-	//     no sense from a signed-in session).
-	if (path === '/register' || path.startsWith('/register/')) {
-		if (user) {
-			return { location: '/', status: 303 };
-		}
-		if (readSetting('registration_enabled') !== 'true') {
-			return { location: '/login', status: 303 };
-		}
-		return null;
-	}
-
-	// 3b. /invite — token-bearing URL. Logged-in users bounce home; anonymous
-	//     users always get through (the page itself validates the code and
-	//     renders "invalid/expired" if the token is bad).
-	if (path === '/invite' || path.startsWith('/invite/')) {
-		if (user) {
-			return { location: '/', status: 303 };
-		}
-		return null;
-	}
-
-	// 3c. /pending-approval — must be a logged-in user with status='pending'.
-	//     Anonymous users → /login; approved users → / (they no longer belong
-	//     here). This is the inverse of rule 5b below; keeping both lets the
-	//     resolver be a true bidirectional state machine.
-	if (path === '/pending-approval' || path.startsWith('/pending-approval/')) {
-		if (!user) {
-			return { location: '/login', status: 303 };
-		}
-		if (user.status !== 'pending') {
-			return { location: '/', status: 303 };
-		}
-		return null;
-	}
-
-	// 3d. /welcome — per-user first-run wizard (and, when userCount===0 was
-	//     handled above in rule 2, the fresh-install admin-create form). Now
-	//     that users exist, anonymous visitors bounce to /login. The
-	//     already-completed + !?force=1 check stays in the route itself,
-	//     because it needs to read welcome_completed_at from the DB fresh and
-	//     the resolver already has a general "welcome for incomplete users"
-	//     rule in step 5c.
-	if (path === '/welcome' || path.startsWith('/welcome/')) {
-		if (!user) {
-			return { location: '/login', status: 303 };
-		}
-		// Account-lock states take precedence over the welcome flow — a user
-		// pending approval or with forcePasswordReset=true must not see
-		// onboarding before resolving those locks. Codex round 6 P2.
-		if (user.forcePasswordReset) {
-			return { location: '/reset-password', status: 303 };
-		}
-		if (user.status === 'pending') {
-			return { location: '/pending-approval', status: 303 };
-		}
-		return null;
-	}
-
-	// 4. Other allowlisted paths short-circuit — never redirect.
-	if (NO_AUTH_PATHS.some((p) => path.startsWith(p))) {
-		return null;
-	}
-
-	// 5. Logged-in users on gated paths:
-	if (user) {
-		// API routes skip onboarding/lock redirects — they get JSON 403s
-		// instead (see the API gate in hooks.server.ts). Returning null here
-		// keeps API calls from being redirected mid-request.
-		if (path.startsWith('/api')) {
-			return null;
-		}
-
-		// 5a. Force password reset — lock to /reset-password.
-		if (
-			user.forcePasswordReset &&
-			!path.startsWith('/reset-password') &&
-			!path.startsWith('/api/auth/logout')
-		) {
-			return { location: '/reset-password', status: 303 };
-		}
-
-		// 5b. Pending approval — lock to /pending-approval.
-		if (
-			user.status === 'pending' &&
-			!path.startsWith('/pending-approval') &&
-			!path.startsWith('/api/auth/logout')
-		) {
-			return { location: '/pending-approval', status: 303 };
-		}
-
-		// 5c. Welcome flow (first-run per-user). /setup was folded into
-		//     /welcome in #24, so it no longer needs its own exemption.
-		const welcomeCompletedAt = user.welcomeCompletedAt;
-		if (
-			!welcomeCompletedAt &&
-			!path.startsWith('/welcome') &&
-			!path.startsWith('/login') &&
-			!path.startsWith('/logout') &&
-			!path.startsWith('/api/auth/logout') &&
-			!path.startsWith('/reset-password') &&
-			!path.startsWith('/_app') &&
-			path !== '/favicon.ico'
-		) {
-			return { location: '/welcome', status: 303 };
-		}
-
-		return null;
-	}
-
-	// 6. Unauthenticated: API routes let the endpoint decide; page routes
-	//    redirect to /login with the current URL captured in `next`.
-	if (path.startsWith('/api')) {
-		return null;
-	}
-	const next = encodeURIComponent(path + (search ?? ''));
-	return { location: `/login?next=${next}`, status: 303 };
+	// Auth + onboarding are now owned entirely by the Authentik outpost + the
+	// SSO passthrough in hooks.server.ts. There are no app-owned login/welcome/
+	// register/reset routes to redirect to, so this resolver no longer dispatches
+	// any redirect. Kept as a no-op shim so callers/imports stay stable.
+	return null;
 }

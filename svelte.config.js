@@ -15,7 +15,17 @@ const config = {
 			mode: 'auto',
 			directives: {
 				'default-src': ['self'],
-				'script-src': ['self', 'unsafe-inline', 'blob:', 'https://static.cloudflareinsights.com'],
+				// 'wasm-unsafe-eval' lets the browser compile/instantiate WebAssembly
+				// (the nucleo search matcher) WITHOUT allowing general 'unsafe-eval' —
+				// the narrow, modern directive. Without it the wasm CompileError-s and
+				// search silently falls back to unranked order.
+				'script-src': [
+					'self',
+					'unsafe-inline',
+					'wasm-unsafe-eval',
+					'blob:',
+					'https://static.cloudflareinsights.com'
+				],
 				'style-src': ['self', 'unsafe-inline'],
 				'img-src': ['self', 'data:', 'blob:', 'http:', 'https:'],
 				'font-src': ['self', 'data:'],

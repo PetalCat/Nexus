@@ -1,27 +1,25 @@
 use crate::session::AdapterKind;
 use m3u8_rs::{parse_playlist_res, Playlist};
 
-/// Rewrite a Jellyfin HLS playlist for proxy delivery:
+/// Rewrite an HLS playlist for proxy delivery:
 ///
-/// 1. Strip `ApiKey` / `api_key` from all URI query strings so the admin token
-///    is never handed to the browser.
-/// 2. Rewrite absolute and relative segment/variant URIs to go through the
-///    proxy at `/stream/{session_id}/<hex-encoded-original-path>` so the
-///    browser never talks to Jellyfin directly.
-/// 3. Preserve all `EXT-X-STREAM-INF` attributes (bandwidth, resolution, codecs).
+/// 1. Strip `ApiKey` / `api_key` / `X-Plex-Token` (all casings) from every URI
+///    query so the held service credential is never handed to the browser.
+/// 2. Rewrite variant / segment / `#EXT-X-MEDIA` (audio+subs) / `#EXT-X-KEY`
+///    URIs to Nexus-origin grant URLs:
+///    `{url_prefix}stream?grant=<token>&suffix=<hex(absolute-upstream-url)>`.
+///    The browser carries the SAME grant back on every child hop — no per-hop
+///    credential, no client-named upstream URL.
+/// 3. Preserve all `EXT-X-STREAM-INF` attributes; fix Jellyfin's occasional
+///    bogus `BANDWIDTH=` (m3u8-rs re-serialization normalizes it).
 ///
-/// Returns the rewritten manifest bytes.
-///
-/// `manifest_url` is the FULL URL the proxy fetched this manifest from.
-/// Segment and variant URIs inside the manifest may be relative (e.g.
-/// `00000.ts`, `session/<id>/base/index.m3u8`); they're resolved against
-/// `manifest_url` to absolute URLs before being hex-encoded, so the return
-/// trip through the session handler can dispatch to the right upstream
-/// even for nested manifests (master → variant → segment).
+/// `manifest_url` is the FULL upstream URL the proxy fetched this manifest from;
+/// relative child URIs are absolutized against it before hex-encoding so the
+/// return trip resolves to the right upstream even for nested manifests
+/// (master → variant → segment).
 pub fn rewrite_manifest(
     raw: &[u8],
-    session_id: &str,
-    sig: &str,
+    grant: &str,
     url_prefix: &str,
     manifest_url: &str,
     kind: AdapterKind,
@@ -30,11 +28,11 @@ pub fn rewrite_manifest(
     match parsed {
         Playlist::MasterPlaylist(mut master) => {
             for variant in &mut master.variants {
-                variant.uri = rewrite_uri(&variant.uri, session_id, sig, url_prefix, manifest_url);
+                variant.uri = rewrite_uri(&variant.uri, grant, url_prefix, manifest_url);
             }
             for media in &mut master.alternatives {
                 if let Some(uri) = media.uri.take() {
-                    media.uri = Some(rewrite_uri(&uri, session_id, sig, url_prefix, manifest_url));
+                    media.uri = Some(rewrite_uri(&uri, grant, url_prefix, manifest_url));
                 }
             }
             let mut out = Vec::new();
@@ -45,13 +43,13 @@ pub fn rewrite_manifest(
         }
         Playlist::MediaPlaylist(mut media) => {
             for segment in &mut media.segments {
-                segment.uri = rewrite_uri(&segment.uri, session_id, sig, url_prefix, manifest_url);
+                segment.uri = rewrite_uri(&segment.uri, grant, url_prefix, manifest_url);
                 if let Some(map) = &mut segment.map {
-                    map.uri = rewrite_uri(&map.uri, session_id, sig, url_prefix, manifest_url);
+                    map.uri = rewrite_uri(&map.uri, grant, url_prefix, manifest_url);
                 }
                 if let Some(key) = &mut segment.key {
                     if let Some(uri) = key.uri.take() {
-                        key.uri = Some(rewrite_uri(&uri, session_id, sig, url_prefix, manifest_url));
+                        key.uri = Some(rewrite_uri(&uri, grant, url_prefix, manifest_url));
                     }
                 }
             }
@@ -59,13 +57,9 @@ pub fn rewrite_manifest(
             media
                 .write_to(&mut out)
                 .map_err(|e| format!("write media: {e}"))?;
-            // Plex's transcoder writes "live-style" playlists (no VERSION,
-            // no PLAYLIST-TYPE, no ENDLIST, implicit MEDIA-SEQUENCE=0) even
-            // though all segments are declared upfront. HLS.js treats that
-            // as live-edge and stalls in STOPPED->IDLE. Jellyfin already
-            // emits proper VOD manifests, so only run the normalization for
-            // the Plex adapter — keeps the Jellyfin bytes identical to what
-            // m3u8_rs emits on re-serialize (no extra tags, no confusion).
+            // Plex writes live-style playlists (no VERSION/PLAYLIST-TYPE/ENDLIST)
+            // for what's actually VOD — HLS.js stalls at live-edge. Only normalize
+            // for Plex; Jellyfin already emits proper VOD manifests.
             if kind == AdapterKind::Plex {
                 out = normalize_media_playlist(out, media.media_sequence);
             }
@@ -74,17 +68,8 @@ pub fn rewrite_manifest(
     }
 }
 
-/// Inject the tags HLS.js needs to treat a Plex-style playlist as VOD.
-/// Inserts (when missing): #EXT-X-VERSION:3, #EXT-X-MEDIA-SEQUENCE, and
-/// #EXT-X-PLAYLIST-TYPE:VOD right after the opening #EXTM3U. Appends
-/// #EXT-X-ENDLIST at end-of-file if absent. Idempotent for Jellyfin's
-/// already-well-formed manifests since their tags are already present.
 fn normalize_media_playlist(bytes: Vec<u8>, media_sequence: u64) -> Vec<u8> {
     let text = String::from_utf8_lossy(&bytes).into_owned();
-
-    // Build the header-level tags we want to guarantee are present, in the
-    // spec-recommended order: VERSION, TARGETDURATION, MEDIA-SEQUENCE,
-    // PLAYLIST-TYPE, then everything else.
     let has_version = text.contains("#EXT-X-VERSION");
     let has_media_sequence = text.contains("#EXT-X-MEDIA-SEQUENCE");
     let has_playlist_type = text.contains("#EXT-X-PLAYLIST-TYPE");
@@ -104,7 +89,6 @@ fn normalize_media_playlist(bytes: Vec<u8>, media_sequence: u64) -> Vec<u8> {
     let with_header = if injects.is_empty() {
         text
     } else if let Some(idx) = text.find("#EXTM3U") {
-        // Insert right after the EXTM3U header line.
         let after = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
         let mut s = String::with_capacity(text.len() + injects.len());
         s.push_str(&text[..after]);
@@ -112,8 +96,6 @@ fn normalize_media_playlist(bytes: Vec<u8>, media_sequence: u64) -> Vec<u8> {
         s.push_str(&text[after..]);
         s
     } else {
-        // Corrupt manifest without #EXTM3U — leave it alone, let the client
-        // error so we notice.
         text
     };
 
@@ -127,26 +109,22 @@ fn normalize_media_playlist(bytes: Vec<u8>, media_sequence: u64) -> Vec<u8> {
         s.push_str("#EXT-X-ENDLIST\n");
         s
     };
-
     with_endlist.into_bytes()
 }
 
-/// Strip `ApiKey` / `api_key` and rewrite a single URI to `/stream/{id}/<opaque>`.
-///
-/// The URI is first absolutized against `manifest_url` so nested manifests
-/// (master → variant → segment) resolve to the correct upstream path on the
-/// return trip. Then the ApiKey stripper runs, then the absolute URL is
-/// hex-encoded.
-fn rewrite_uri(uri: &str, session_id: &str, sig: &str, url_prefix: &str, manifest_url: &str) -> String {
+/// Strip `ApiKey`/`api_key`, absolutize against `manifest_url`, hex-encode, and
+/// emit `{prefix}stream?grant=<token>&suffix=<hex>`.
+fn rewrite_uri(uri: &str, grant: &str, url_prefix: &str, manifest_url: &str) -> String {
     let absolute = absolutize_uri(uri, manifest_url);
     let stripped = strip_auth_query(&absolute);
     let clean_prefix = url_prefix.trim_end_matches('/');
-    format!("{clean_prefix}/{session_id}/{}?sig={sig}", hex::encode(stripped.as_bytes()))
+    format!(
+        "{clean_prefix}/stream?grant={}&suffix={}",
+        urlencoding::encode(grant),
+        hex::encode(stripped.as_bytes())
+    )
 }
 
-/// Resolve a (possibly relative) URI against a base URL, returning an
-/// absolute http(s) URL. Mirrors the logic in `session::resolve_relative`;
-/// kept here to avoid a cross-module dependency.
 fn absolutize_uri(uri: &str, base: &str) -> String {
     if uri.starts_with("http://") || uri.starts_with("https://") {
         return uri.to_string();
@@ -157,7 +135,6 @@ fn absolutize_uri(uri: &str, base: &str) -> String {
         .and_then(|i| base_no_query[i + 3..].find('/').map(|j| i + 3 + j))
         .unwrap_or(base_no_query.len());
     let origin = &base_no_query[..origin_end];
-
     if uri.starts_with('/') {
         return format!("{origin}{uri}");
     }
@@ -175,7 +152,9 @@ fn strip_auth_query(uri: &str) -> String {
         .split('&')
         .filter(|p| {
             let name = p.split_once('=').map(|(k, _)| k).unwrap_or(p);
-            !name.eq_ignore_ascii_case("apikey") && !name.eq_ignore_ascii_case("api_key")
+            !name.eq_ignore_ascii_case("apikey")
+                && !name.eq_ignore_ascii_case("api_key")
+                && !name.eq_ignore_ascii_case("x-plex-token")
         })
         .collect();
     if kept.is_empty() {
@@ -199,37 +178,50 @@ mod tests {
             strip_auth_query("/segment.ts?foo=1&api_key=abc&bar=2"),
             "/segment.ts?foo=1&bar=2"
         );
-        assert_eq!(
-            strip_auth_query("/segment.ts?ApiKey=abc"),
-            "/segment.ts"
-        );
+        assert_eq!(strip_auth_query("/segment.ts?ApiKey=abc"), "/segment.ts");
         assert_eq!(strip_auth_query("/segment.ts"), "/segment.ts");
     }
 
     #[test]
-    fn rewrite_uri_produces_proxy_path() {
-        let out = rewrite_uri("/Videos/abc/hls1/main/0.ts?ApiKey=secret", "sess123", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8");
-        assert!(out.starts_with("/stream/sess123/"));
+    fn strip_auth_removes_plex_token_casings() {
+        // Plex transcode manifests embed X-Plex-Token on segment URLs; it must be
+        // stripped (case-insensitive) so the held cred never reaches the browser.
+        assert_eq!(
+            strip_auth_query("/segment.ts?foo=1&X-Plex-Token=abc&bar=2"),
+            "/segment.ts?foo=1&bar=2"
+        );
+        assert_eq!(
+            strip_auth_query("/segment.ts?foo=1&x-plex-token=abc&bar=2"),
+            "/segment.ts?foo=1&bar=2"
+        );
+        assert_eq!(strip_auth_query("/segment.ts?X-Plex-Token=abc"), "/segment.ts");
+    }
+
+    #[test]
+    fn rewrite_uri_produces_grant_path() {
+        let out = rewrite_uri(
+            "/Videos/abc/hls1/main/0.ts?ApiKey=secret",
+            "v4.local.TOKEN",
+            "/stream/",
+            "http://jf.local/Videos/abc/master.m3u8",
+        );
+        assert!(out.starts_with("/stream/stream?grant=v4.local.TOKEN&suffix="));
         assert!(!out.contains("secret"), "api key must be absent");
         assert!(!out.contains("ApiKey"), "api key param name must be absent");
     }
 
     #[test]
-    fn rewrite_uri_includes_sig_query() {
-        let out = rewrite_uri("/Videos/abc/main.m3u8?ApiKey=x", "s1", "mysig", "/stream/", "http://jf.local/Videos/abc/master.m3u8");
-        assert!(out.starts_with("/stream/s1/"));
-        assert!(out.contains("?sig=mysig"), "sig must be embedded for router discrimination");
-        assert!(!out.contains("ApiKey"));
-    }
-
-    #[test]
     fn rewrite_uri_honors_url_prefix() {
-        let out = rewrite_uri("/Videos/abc/main.m3u8?ApiKey=x", "s1", "sig1", "/api/stream-proxy/", "http://jf.local/Videos/abc/master.m3u8");
+        let out = rewrite_uri(
+            "/Videos/abc/main.m3u8?ApiKey=x",
+            "TOK",
+            "/api/stream-proxy/",
+            "http://jf.local/Videos/abc/master.m3u8",
+        );
         assert!(
-            out.starts_with("/api/stream-proxy/s1/"),
+            out.starts_with("/api/stream-proxy/stream?grant=TOK&suffix="),
             "expected url_prefix honored, got: {out}"
         );
-        assert!(out.contains("?sig=sig1"));
         assert!(!out.contains("ApiKey"));
     }
 
@@ -240,13 +232,20 @@ mod tests {
 #EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360,CODECS=\"avc1.64001f,mp4a.40.2\"
 /Videos/abc/main.m3u8?ApiKey=leaky
 ";
-        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8", AdapterKind::Jellyfin).expect("parses and rewrites");
-        let out_str = std::str::from_utf8(&out).unwrap();
-        assert!(out_str.contains("BANDWIDTH=1280000"), "preserves bandwidth");
-        assert!(out_str.contains("RESOLUTION=640x360"), "preserves resolution");
-        assert!(!out_str.contains("leaky"), "strips api key");
-        assert!(out_str.contains("/stream/s1/"), "rewrites URI through proxy");
-        assert!(out_str.contains("?sig=testsig"), "embeds sig in rewritten URIs");
+        let out = rewrite_manifest(
+            input,
+            "TOK",
+            "/stream/",
+            "http://jf.local/Videos/abc/master.m3u8",
+            AdapterKind::Jellyfin,
+        )
+        .expect("parses and rewrites");
+        let s = std::str::from_utf8(&out).unwrap();
+        assert!(s.contains("BANDWIDTH=1280000"), "preserves bandwidth");
+        assert!(s.contains("RESOLUTION=640x360"), "preserves resolution");
+        assert!(!s.contains("leaky"), "strips api key");
+        assert!(s.contains("grant=TOK"), "carries grant on child hop");
+        assert!(s.contains("&suffix="), "hex-encodes upstream as suffix");
     }
 
     #[test]
@@ -260,11 +259,17 @@ mod tests {
 /Videos/abc/hls1/main/1.ts?ApiKey=leaky
 #EXT-X-ENDLIST
 ";
-        let out = rewrite_manifest(input, "s1", "testsig", "/stream/", "http://jf.local/Videos/abc/master.m3u8", AdapterKind::Jellyfin).expect("parses and rewrites");
-        let out_str = std::str::from_utf8(&out).unwrap();
-        assert!(!out_str.contains("leaky"));
-        assert!(out_str.contains("/stream/s1/"));
-        assert!(out_str.contains("?sig=testsig"), "embeds sig in segment URIs");
-        assert!(out_str.contains("#EXTINF:6"), "preserves EXTINF");
+        let out = rewrite_manifest(
+            input,
+            "TOK",
+            "/stream/",
+            "http://jf.local/Videos/abc/master.m3u8",
+            AdapterKind::Jellyfin,
+        )
+        .expect("parses and rewrites");
+        let s = std::str::from_utf8(&out).unwrap();
+        assert!(!s.contains("leaky"));
+        assert!(s.contains("grant=TOK"));
+        assert!(s.contains("#EXTINF:6"), "preserves EXTINF");
     }
 }

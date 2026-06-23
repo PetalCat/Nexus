@@ -6,8 +6,8 @@
 // is passed in when available so Invidious-bound streams can be served if a
 // service is configured later.
 
-import { startStreamProxy as startStreamProxyImpl } from '$lib/server/stream-proxy';
-import { getEnabledConfigs } from '$lib/server/services';
+import { startStreamProxy as startStreamProxyImpl, type HeldCredTable } from '$lib/server/stream-proxy';
+import { resolveServiceConfig } from '$lib/server/v2-services';
 
 let started = false;
 
@@ -18,7 +18,27 @@ let started = false;
  */
 export function startStreamProxy(): void {
 	if (started) return;
-	const invConfig = getEnabledConfigs().find((c) => c.type === 'invidious');
-	startStreamProxyImpl(invConfig?.url ?? 'http://localhost:3000');
+	const invConfig = resolveServiceConfig('invidious');
+	// Phase-0 env shim (mirrors resolveServiceConfig): the Invidious instance URL
+	// comes from NEXUS_INVIDIOUS_URL. Used both as the legacy /v fallback base AND
+	// as a held cred for the `invidious` backend so the v2 DASH/seg grant routes
+	// (`/v/{id}/dash`, `/v/{id}/seg/...`) resolve the real instance. Invidious is
+	// public, so no auth header is injected (empty name/value).
+	const invidiousUrl =
+		process.env.NEXUS_INVIDIOUS_URL ?? invConfig?.url ?? 'http://localhost:3000';
+	const heldCreds: HeldCredTable = invConfig?.url
+		? {
+				invidious: {
+					base_url: invConfig.url.replace(/\/+$/, ''),
+					auth_header_name: '',
+					auth_header_value: ''
+				}
+			}
+		: {};
+	startStreamProxyImpl({
+		invidiousUrl,
+		heldCreds,
+		streamSecret: process.env.NEXUS_STREAM_SECRET,
+	});
 	started = true;
 }

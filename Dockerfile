@@ -8,7 +8,7 @@
 # tracking doesn't always detect source changes when a cached dummy build is
 # replaced with real source, producing a binary from the dummy. Accepting a
 # longer first-build time in exchange for a correct build every time.
-FROM rust:1.85-alpine AS rust-build
+FROM rust:1.88-alpine AS rust-build
 RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
 WORKDIR /stream-proxy
 COPY stream-proxy/Cargo.toml stream-proxy/Cargo.lock ./
@@ -18,7 +18,7 @@ RUN cargo build --release
 
 FROM node:22-alpine AS deps
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 # python3 + build tools: better-sqlite3 tries prebuild-install first but falls
 # back to node-gyp compilation when the prebuilt binary for this exact Node
 # version isn't available. Without these, the fallback fails with "gyp ERR!
@@ -33,14 +33,14 @@ RUN pnpm install --frozen-lockfile
 
 FROM node:22-alpine AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 # Same reason as deps stage — better-sqlite3 may fall back to node-gyp.
 RUN apk add --no-cache python3 make g++
 

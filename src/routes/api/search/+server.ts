@@ -1,37 +1,42 @@
 import { json } from '@sveltejs/kit';
-import { unifiedSearch, type SearchScope } from '$lib/server/search';
-import { withCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
+import { registryV2 } from '$lib/adapters/v2';
+import { resolveServiceConfig } from '$lib/server/v2-services';
+import type { UnifiedMedia } from '$lib/adapters/types';
 
-const VALID_SCOPES: SearchScope[] = ['all', 'library', 'discover', 'requestable', 'video'];
-
-function parseScope(raw: string | null): SearchScope {
-	// Back-compat: `source=library|discover` still works alongside `scope=…`.
-	if (!raw) return 'all';
-	return (VALID_SCOPES as string[]).includes(raw) ? (raw as SearchScope) : 'all';
-}
-
+/**
+ * GET /api/search?q=… — unified search across every searchable, CONFIGURED backend.
+ *
+ * Each adapter's `search()` is real backend code (e.g. Jellyfin `/Items?SearchTerm=`),
+ * run in parallel and merged. Adapters that declare search but have no resolvable
+ * config in this deployment (e.g. Plex in phase-0) are skipped, and one backend
+ * failing never sinks the others (Promise.allSettled) — so the route degrades
+ * gracefully to whatever is actually wired. No facade: if nothing is searchable,
+ * it returns an empty result, not fake data.
+ */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-	const query = url.searchParams.get('q')?.trim();
-	const typeFilter = url.searchParams.get('type')?.trim() || undefined;
-	const scope = parseScope(url.searchParams.get('scope') ?? url.searchParams.get('source'));
+	const q = (url.searchParams.get('q') ?? '').trim();
+	// Sub-2-char queries are noise (every title matches) — don't hammer backends.
+	if (q.length < 2) return json({ query: q, results: [] });
 
-	if (!query || query.length < 2) {
-		return json({ items: [] });
-	}
+	const searchable = registryV2.searchable().filter((a) => typeof a.search === 'function');
 
-	try {
-		const cacheKey = `search:${query.toLowerCase()}:${scope}:${typeFilter ?? '*'}`;
-		// Library searches are fast — shorter cache. Discovery can be longer.
-		const ttl = scope === 'library' ? 30_000 : 60_000;
-		const items = await withCache(cacheKey, ttl, () =>
-			unifiedSearch({ query, userId: locals.user?.id, scope, type: typeFilter })
-		);
-		return json({ items, total: items.length });
-	} catch (e) {
-		console.error('[API] search error', e);
-		return json({ error: 'Search failed' }, { status: 500 });
-	}
+	const settled = await Promise.allSettled(
+		searchable.map(async (adapter): Promise<UnifiedMedia[]> => {
+			const config = resolveServiceConfig(adapter.id);
+			if (!config) return [];
+			const res = await adapter.search!(config, q);
+			return res.items ?? [];
+		})
+	);
+
+	// Return the raw candidate pool from each backend. RANKING happens client-side
+	// with the real nucleo (fzf-grade) matcher — Jellyfin's SearchTerm order is
+	// poor (mid-word fuzzy beats exact prefix), and nucleo scores prefix/word-
+	// boundary correctly. The server just gathers candidates; the browser orders.
+	const results = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+
+	return json({ query: q, results });
 };

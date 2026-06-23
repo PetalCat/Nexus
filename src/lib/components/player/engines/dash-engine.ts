@@ -17,18 +17,28 @@ export async function createDashEngine(): Promise<PlayerEngine> {
 			videoEl = video;
 			player = dashjs.MediaPlayer().create();
 			player.initialize(video, session.url, true);
+			// VOD ABR (researched): start LOW and ramp up (fast startup beats a
+			// high-quality stall), buffer-aware dynamic strategy, fast-switch so an
+			// up-shift replaces the buffered low-q segments with high-q immediately.
+			// `as any`: the installed dash.js types lag the runtime — ABRStrategy and
+			// stableBufferTime are valid settings at these paths but missing from the
+			// shipped .d.ts. Casting keeps the (tested) runtime config intact.
 			player.updateSettings({
 				streaming: {
 					abr: {
+						ABRStrategy: 'abrDynamic',
 						autoSwitchBitrate: { video: true },
-						// Start at the highest available quality; dash.js will
-						// step down automatically if bandwidth can't sustain it.
-						// Matches hls.js's abrEwmaDefaultEstimate high-start pattern.
-						initialBitrate: { video: 50_000_000, audio: 256_000 },
+						initialBitrate: { video: 800, audio: 96 }, // kbps — start low, ramp
 					},
-					buffer: { fastSwitchEnabled: true },
+					buffer: {
+						fastSwitchEnabled: true,
+						stableBufferTime: 12,
+						bufferTimeAtTopQuality: 30,
+						bufferToKeep: 20,
+					},
 				},
-			});
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			} as any);
 
 			function refreshLevels() {
 				try {

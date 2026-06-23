@@ -1,0 +1,147 @@
+/* PetalNet "civic stationery" design system — paper + ink, one burnt-sienna accent.
+ * Canonical tokens lifted from PetalNet/homelab-docs/DESIGN.md (§2 color, §4 spacing,
+ * §6 radius, §7 motion). This is the source of truth for the Nexus reimplementation;
+ * the imported mock's inline values are NOT canonical — these are.
+ *
+ * Theme is driven by [data-theme='light'|'dark'] on a wrapping element. Tokens use
+ * plain CSS custom properties (no Tailwind dependency, per DESIGN.md §12). */
+
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* ── Color: paper (light) is the :root default ───────────────────────────── */
+:root,
+[data-theme='light'] {
+	--bg: #ffffff; /* paper */
+	--surface: #f6f5f3; /* warm stationery — filled cards */
+	--elev: #fbfaf9; /* elevated/hover surface */
+	--rule: #ececea; /* hairline ink rule (NOT a card border) */
+	--rule-strong: #d9d7d3; /* stronger rule / outlined-tile edge */
+	--text: #161412; /* warm near-black ink */
+	--text-mute: #645f59;
+	--text-soft: #97928b;
+	--petal: #bc5638; /* THE accent — paper (deepened, AA on white) */
+	--on-petal: #ffffff;
+	--petal-soft-pct: 11%;
+	--success: #2f8f5b;
+	--warning: #c77d11;
+	--danger: #c5374b;
+}
+
+[data-theme='dark'] {
+	--bg: #0d0c0b; /* warm ink */
+	--surface: #161413;
+	--elev: #1d1b19;
+	--rule: #262321;
+	--rule-strong: #36322f;
+	--text: #ece8e3;
+	--text-mute: #9a938b;
+	--text-soft: #645e57;
+	--petal: #e2725b; /* THE accent — ink (base, 6.4:1 on bg) */
+	--on-petal: #0d0c0b;
+	--petal-soft-pct: 15%;
+}
+
+/* derived accent shades — computed from --petal so they re-resolve per theme.
+   Literal fallback first, then the color-mix (DESIGN.md §2). */
+:root {
+	--petal-soft: rgba(188, 86, 56, 0.11);
+	--petal-soft: color-mix(in srgb, var(--petal) var(--petal-soft-pct), transparent);
+	--petal-hover: #a14a30;
+	--petal-hover: color-mix(in srgb, var(--petal) 86%, #000);
+	--petal-active: #8b3f29;
+	--petal-active: color-mix(in srgb, var(--petal) 74%, #000);
+
+	/* ── Spacing: 8-pt system (§4) ── */
+	--s1: 4px;
+	--s2: 8px;
+	--s3: 16px;
+	--s4: 24px;
+	--s5: 32px;
+	--s6: 48px;
+	--s7: 64px;
+
+	/* ── Radius scale (§6) ── */
+	--radius-xs: 2px;
+	--radius-sm: 8px;
+	--radius: 12px;
+	--radius-lg: 16px;
+	--radius-pill: 999px;
+
+	/* ── Motion (§7) — Material 3 easing, kept short ── */
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-emph-in: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--ease-emph-out: cubic-bezier(0.3, 0, 0.8, 0.15);
+	--dur-fast: 120ms;
+	--dur-base: 160ms;
+	--dur-mid: 240ms;
+	--dur-slow: 360ms;
+	--t: var(--dur-base) var(--ease-standard);
+
+	/* ── Type (§3) ── */
+	--font-sans: 'Geist Variable', system-ui, -apple-system, sans-serif;
+	--font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+}
+
+/* ── Base (§3 type, §7 motion, §11 a11y) ─────────────────────────────────── */
+.pi-root {
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	/* stylistic alternates + contextual ligatures so headings read as set type */
+	font-feature-settings: 'ss01' 1, 'cv01' 1, 'cv11' 1;
+	font-variant-ligatures: common-ligatures contextual;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	/* §3 line wrapping — pretty cascades to prose; balance is applied on display text */
+	text-wrap: pretty;
+	/* §7 — reserve the scrollbar gutter so a theme swap never shifts layout */
+	scrollbar-gutter: stable;
+}
+
+.pi-root .mono {
+	font-family: var(--font-mono);
+	font-feature-settings: 'tnum' 1;
+}
+
+/* §7 first-paint "settle": a one-shot 2px lift, NOT scroll-driven. */
+@keyframes pi-settle {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+.pi-settle {
+	animation: pi-settle var(--dur-mid) var(--ease-emph-in) both;
+}
+
+/* §7/§11 reduced motion — a real kill switch, not just slowdown. */
+@media (prefers-reduced-motion: reduce) {
+	.pi-root *,
+	.pi-root *::before,
+	.pi-root *::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+	}
+}
+
+/* While a theme swap commits, suspend transitions so the cut is flash-free (§7). */
+.no-theme-transition,
+.no-theme-transition *,
+.no-theme-transition *::before,
+.no-theme-transition *::after {
+	transition: none !important;
+}
+
+/* Scrollbars — thin, quiet, theme-aware (no chunky default bars). §scrollbars */
+.pi-root { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+.pi-root *::-webkit-scrollbar { width: 8px; height: 8px; }
+.pi-root *::-webkit-scrollbar-track { background: transparent; }
+.pi-root *::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 999px; }
+.pi-root *::-webkit-scrollbar-thumb:hover { background: var(--text-soft); }
+.pi-root *::-webkit-scrollbar-corner { background: transparent; }

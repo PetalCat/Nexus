@@ -1,6 +1,9 @@
 import { redirect, type Handle } from '@sveltejs/kit';
+import { building } from '$app/environment';
 import { checkRateLimit, getClientIp } from '$lib/server/rate-limit';
-import { COOKIE_NAME, validateSession } from '$lib/server/auth';
+import { COOKIE_NAME, validateSession, getUserById, getUserByUsername, createUser, getUserCount } from '$lib/server/auth';
+import { randomBytes } from 'node:crypto';
+import { auth } from '$lib/server/auth/better-auth';
 import { boot } from '$lib/server/boot';
 import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
 
@@ -8,10 +11,28 @@ import { NO_AUTH_PATHS, resolveRedirect } from '$lib/server/redirects';
 // proxy, watchdog, lifecycle) are orchestrated in `$lib/server/boot`. Keep
 // hooks.server.ts focused on per-request middleware: rate limiting, session
 // loading, redirect dispatch, API gates, and security headers.
-boot();
+// Guard against `vite build`: SvelteKit imports this module to bundle it, and
+// boot() validates env (crypto secret) + spawns the proxy/pollers — none of
+// which exist or are wanted at build time. Only boot on a real server start.
+if (!building) boot();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
+
+	// SECURITY: the Better Auth catch-all (/api/auth/[...all]) exposes every BA
+	// endpoint. Block the public sign-up surface — registration MUST go through the
+	// app's /register action, which enforces the registration_enabled setting and
+	// the approval flow (the raw BA endpoint bypasses both and creates active
+	// accounts). Also block /api/auth/admin/* defensively (the admin plugin is off,
+	// but this keeps the surface closed if it's ever re-enabled). The app's own
+	// /register calls auth.api.signUpEmail server-side, which does NOT route through
+	// this HTTP path, so it is unaffected.
+	if (path.startsWith('/api/auth/sign-up') || path.startsWith('/api/auth/admin')) {
+		return new Response(JSON.stringify({ error: 'Not found' }), {
+			status: 404,
+			headers: { 'Content-Type': 'application/json' }
+		});
+	}
 
 	// Allowlisted pre-auth paths bypass rate limiting + the API state gate,
 	// but still go through session loading and the redirect resolver — the
@@ -60,12 +81,50 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Populate event.locals.user from the session cookie — this is the session
 	// hook's job and stays here. Redirect rules and API gates both read from it.
 	const token = event.cookies.get(COOKIE_NAME);
-	const user = validateSession(token);
+	let user = validateSession(token);
+	// Better Auth cutover: if there's no legacy session cookie, validate a Better
+	// Auth session and load the full user row by id, so the redirect resolver and
+	// API gate below keep operating on the existing user shape unchanged. Legacy
+	// and BA sessions coexist during the transition — neither locks the other out.
+	if (!user) {
+		try {
+			const ba = await auth.api.getSession({ headers: event.request.headers });
+			if (ba?.user?.id) user = getUserById(ba.user.id) ?? null;
+		} catch {
+			// BA not configured (no secret) or no valid session — stay unauthenticated.
+		}
+	}
+	// Authentik SSO passthrough. Every request to this app arrives via the
+	// Authentik forward-auth outpost (Traefik `authentik` middleware), which
+	// authenticates the user and forwards X-authentik-username/email/groups.
+	// Authentik is the SOLE gate — there are no app-owned login screens — so we
+	// provision/find the app user from those headers. Guarded by NEXUS_TRUST_PROXY
+	// (set only on the proxied deployment). NOTE: the published :8585 is LAN-
+	// reachable, so a direct LAN caller could spoof these headers — lock down
+	// (proxy-only ingress / shared-secret header) before trusting beyond a test LAN.
+	if (!user && process.env.NEXUS_TRUST_PROXY && process.env.NEXUS_TRUST_PROXY !== '0') {
+		const akUser = event.request.headers.get('x-authentik-username');
+		if (akUser) {
+			let row = getUserByUsername(akUser);
+			if (!row) {
+				const groups = event.request.headers.get('x-authentik-groups') ?? '';
+				// First provisioned user is admin (fresh-install owner); also honor an
+				// explicit admin group from Authentik.
+				const isAdmin = getUserCount() === 0 || /\b(authentik admins|nexus-admins|admins)\b/i.test(groups);
+				const id = createUser(akUser, akUser, randomBytes(24).toString('hex'), isAdmin, {
+					authProvider: 'authentik',
+					status: 'active'
+				});
+				row = getUserById(id);
+			}
+			user = row ?? null;
+		}
+	}
 	if (user) {
 		event.locals.user = {
 			id: user.id,
 			username: user.username,
-			displayName: user.displayName,
+			displayName: user.displayName ?? user.name ?? user.username,
 			avatar: user.avatar ?? null,
 			isAdmin: user.isAdmin,
 			status: user.status === 'pending' ? 'pending' : 'active',
