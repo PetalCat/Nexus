@@ -56,3 +56,7 @@ stream-proxy/target/
 .claude/
 sv-agentation
 CLAUDE.md
+
+data/
+output/
+test-results/
